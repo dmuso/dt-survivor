@@ -39,14 +39,15 @@ impl Inventory {
         if let Some(existing_weapon) = self.weapons.get_mut(&id) {
             if existing_weapon.can_level_up() {
                 existing_weapon.level_up();
-                return true; // Successfully leveled up
+                true // Successfully leveled up
+            } else {
+                false // Already at max level
             }
-            return false; // Already at max level
         } else {
             // New weapon, add at level 1
             weapon.level = 1;
             self.weapons.insert(id, weapon);
-            return true;
+            true
         }
     }
 

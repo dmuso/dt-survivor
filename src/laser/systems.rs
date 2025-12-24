@@ -1,8 +1,6 @@
 use bevy::prelude::*;
 use crate::laser::components::*;
 use crate::enemies::components::*;
-use bevy_kira_audio::prelude::*;
-use crate::audio::plugin::*;
 use crate::game::events::EnemyDeathEvent;
 
 #[cfg(test)]
@@ -126,9 +124,6 @@ pub fn laser_beam_collision_system(
     laser_query: Query<&LaserBeam>,
     mut enemy_query: Query<(Entity, &Transform, &mut Enemy)>,
     mut enemy_death_events: MessageWriter<EnemyDeathEvent>,
-    asset_server: Option<Res<AssetServer>>,
-    mut enemy_channel: Option<ResMut<AudioChannel<EnemySoundChannel>>>,
-    mut sound_limiter: Option<ResMut<SoundLimiter>>,
 ) {
     for laser in laser_query.iter() {
         if !laser.is_active() {
@@ -162,21 +157,7 @@ pub fn laser_beam_collision_system(
                             // Despawn enemy immediately (like bullet collision)
                             commands.entity(enemy_entity).try_despawn();
 
-                            // Play enemy death sound
-                            if let (Some(asset_server), Some(enemy_channel), Some(sound_limiter)) =
-                                (asset_server.as_ref(), enemy_channel.as_mut(), sound_limiter.as_mut()) {
-                                let sound_paths = [
-                                    "sounds/397276__whisperbandnumber1__grunt1.wav",
-                                    "sounds/547200__mrfossy__voice_adultmale_paingrunts_04.wav",
-                                ];
-                                let sound_index = rand::random::<usize>() % sound_paths.len();
-                                crate::audio::plugin::play_limited_sound(
-                                    enemy_channel.as_mut(),
-                                    asset_server,
-                                    sound_paths[sound_index],
-                                    sound_limiter.as_mut(),
-                                );
-                            }
+
                         }
             }
         }

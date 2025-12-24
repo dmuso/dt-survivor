@@ -121,9 +121,6 @@ pub fn bullet_collision_system(
     enemy_query: Query<(Entity, &Transform), With<Enemy>>,
     mut score: ResMut<Score>,
     mut enemy_death_events: MessageWriter<EnemyDeathEvent>,
-    _asset_server: Option<Res<AssetServer>>,
-    _enemy_channel: Option<ResMut<AudioChannel<EnemySoundChannel>>>,
-    _sound_limiter: Option<ResMut<SoundLimiter>>,
 ) {
     let mut bullets_to_despawn = HashSet::new();
     let mut enemies_to_despawn = HashSet::new();

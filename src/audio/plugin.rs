@@ -16,6 +16,13 @@ pub struct EnemySoundChannel;
 #[derive(Resource)]
 pub struct LootSoundChannel;
 
+// Struct to group audio resources and reduce function parameter count
+pub struct AudioResources<'a> {
+    pub asset_server: Option<Res<'a, AssetServer>>,
+    pub enemy_channel: Option<ResMut<'a, AudioChannel<EnemySoundChannel>>>,
+    pub sound_limiter: Option<ResMut<'a, SoundLimiter>>,
+}
+
 // Sound limiting system to prevent SoundLimitReached errors and clipping
 #[derive(Resource)]
 pub struct SoundLimiter {

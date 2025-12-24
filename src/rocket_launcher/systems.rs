@@ -1,8 +1,6 @@
 use bevy::prelude::*;
 use crate::rocket_launcher::components::*;
-use crate::enemies::components::*;
-use bevy_kira_audio::prelude::*;
-use crate::audio::plugin::*;
+use crate::prelude::*;
 use crate::game::events::EnemyDeathEvent;
 
 pub fn rocket_spawning_system(
@@ -51,9 +49,9 @@ pub fn rocket_movement_system(
     mut commands: Commands,
     time: Res<Time>,
     mut rocket_query: Query<(Entity, &mut RocketProjectile, &mut Transform)>,
-    asset_server: Option<Res<AssetServer>>,
-    mut weapon_channel: Option<ResMut<AudioChannel<WeaponSoundChannel>>>,
-    mut sound_limiter: Option<ResMut<SoundLimiter>>,
+    // asset_server: Option<Res<AssetServer>>,
+    // mut weapon_channel: Option<ResMut<bevy_kira_audio::AudioChannel<WeaponSoundChannel>>>,
+    // mut sound_limiter: Option<ResMut<SoundLimiter>>,
 ) {
     let mut rockets_to_explode = Vec::new();
 
@@ -113,16 +111,17 @@ pub fn rocket_movement_system(
         ));
 
         // Play explosion sound
-        if let (Some(asset_server), Some(weapon_channel), Some(sound_limiter)) =
-            (asset_server.as_ref(), weapon_channel.as_mut(), sound_limiter.as_mut()) {
-            // Use weapon sound for now - could add dedicated explosion sound later
-            crate::audio::plugin::play_limited_sound(
-                weapon_channel.as_mut(),
-                asset_server,
-                "sounds/143610__dwoboyle__weapons-synth-blast-02.wav",
-                sound_limiter.as_mut(),
-            );
-        }
+        // TODO: Re-enable rocket explosion sounds once audio import issues are resolved
+        // if let (Some(asset_server), Some(weapon_channel), Some(sound_limiter)) =
+        //     (asset_server.as_ref(), weapon_channel.as_mut(), sound_limiter.as_mut()) {
+        //     // Use weapon sound for now - could add dedicated explosion sound later
+        //     crate::audio::plugin::play_limited_sound(
+        //         weapon_channel.as_mut(),
+        //         asset_server,
+        //         "sounds/143610__dwoboyle__weapons-synth-blast-02.wav",
+        //         sound_limiter.as_mut(),
+        //     );
+        // }
     }
 }
 
@@ -151,15 +150,13 @@ pub fn explosion_system(
     }
 }
 
+
 pub fn area_damage_system(
     mut commands: Commands,
     explosion_query: Query<&Explosion>,
     enemy_query: Query<(Entity, &Transform), With<Enemy>>,
     mut score: ResMut<crate::score::Score>,
     mut enemy_death_events: MessageWriter<EnemyDeathEvent>,
-    asset_server: Option<Res<AssetServer>>,
-    mut enemy_channel: Option<ResMut<AudioChannel<EnemySoundChannel>>>,
-    mut sound_limiter: Option<ResMut<SoundLimiter>>,
 ) {
     for explosion in explosion_query.iter() {
         if explosion.current_radius > 0.0 {
@@ -185,24 +182,8 @@ pub fn area_damage_system(
                     position: enemy_pos,
                 });
 
-                commands.entity(enemy_entity).try_despawn();
-                score.0 += 1;
-
-                // Play death sound
-                if let (Some(asset_server), Some(enemy_channel), Some(sound_limiter)) =
-                    (asset_server.as_ref(), enemy_channel.as_mut(), sound_limiter.as_mut()) {
-                    let sound_paths = [
-                        "sounds/397276__whisperbandnumber1__grunt1.wav",
-                        "sounds/547200__mrfossy__voice_adultmale_paingrunts_04.wav",
-                    ];
-                    let random_index = (rand::random::<f32>() * sound_paths.len() as f32) as usize;
-                    crate::audio::plugin::play_limited_sound(
-                        enemy_channel.as_mut(),
-                        asset_server,
-                        sound_paths[random_index],
-                        sound_limiter.as_mut(),
-                    );
-                }
+                 commands.entity(enemy_entity).try_despawn();
+                 score.0 += 1;
             }
         }
     }
@@ -226,7 +207,9 @@ pub fn update_rocket_visuals(
 
     #[cfg(test)]
     mod tests {
-        use bevy::prelude::*;
+use bevy::prelude::*;
+use crate::rocket_launcher::components::*;
+use crate::enemies::components::*;
         use crate::weapon::components::{Weapon, WeaponType};
         use crate::loot::components::LootItem;
 

@@ -8,7 +8,7 @@ use crate::inventory::components::*;
 use bevy_kira_audio::prelude::*;
 use crate::audio::plugin::*;
 use crate::game::resources::ScreenTintEffect;
-use crate::game::events::EnemyDeathEvent;
+use crate::game::events::LootDropEvent;
 
 pub fn loot_spawning_system(
     mut commands: Commands,
@@ -95,7 +95,7 @@ pub fn loot_attraction_system(
             // Distance-based acceleration and steering
             // Closer to player = faster acceleration and stronger homing
             let max_distance = player.pickup_radius;
-            let distance_ratio = (distance / max_distance).max(0.1).min(1.0); // Clamp between 0.1 and 1.0
+            let distance_ratio = (distance / max_distance).clamp(0.1, 1.0); // Clamp between 0.1 and 1.0
             let acceleration_multiplier = 1.0 / distance_ratio; // Closer = higher multiplier
 
             // Base acceleration scales with distance (closer = faster)
@@ -139,7 +139,7 @@ pub fn loot_attraction_system(
             // Distance-based acceleration and steering
             // Closer to player = faster acceleration and stronger homing
             let max_distance = player.pickup_radius;
-            let distance_ratio = (distance / max_distance).max(0.1).min(1.0); // Clamp between 0.1 and 1.0
+            let distance_ratio = (distance / max_distance).clamp(0.1, 1.0); // Clamp between 0.1 and 1.0
             let acceleration_multiplier = 1.0 / distance_ratio; // Closer = higher multiplier
 
             // Base acceleration scales with distance (closer = faster)
@@ -187,11 +187,11 @@ pub fn loot_movement_system(
     }
 }
 
-pub fn enemy_death_system(
+pub fn loot_drop_system(
     mut commands: Commands,
-    mut enemy_death_events: MessageReader<EnemyDeathEvent>,
+    mut loot_drop_events: MessageReader<LootDropEvent>,
 ) {
-    for event in enemy_death_events.read() {
+    for event in loot_drop_events.read() {
         let enemy_pos = event.position;
 
         // Spawn experience orbs for each enemy killed
@@ -297,8 +297,6 @@ pub fn enemy_death_system(
         }
     }
 }
-
-// This system is now handled in the enemy_death_system
 
 #[allow(clippy::too_many_arguments)]
 pub fn player_loot_collision_system(
