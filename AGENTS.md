@@ -14,6 +14,7 @@ All development tooling commands require Nix Shell to run.
 
 ## Testing and Linting
 
+- Use TDD when making changes to code. Write a failing test, and then implement the code and confirm the test passes.
 - You should maintain 90% code coverage via automated tests
 - Run linting and testing after every change
 - Fix any errors or warnings that you get as feedback from linting and tests
