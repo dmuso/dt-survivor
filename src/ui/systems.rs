@@ -3,6 +3,8 @@ use bevy::ecs::world::World;
 use crate::states::*;
 use crate::ui::components::*;
 use crate::player::components::*;
+use crate::weapon::components::*;
+use crate::inventory::{Inventory, EquippedWeapon};
 
 pub fn setup_intro(
     mut commands: Commands,
@@ -317,6 +319,137 @@ pub fn setup_game_over_ui(
             TextColor(Color::srgb(0.7, 0.7, 0.7)),
         ));
     });
+}
+
+pub fn setup_weapon_slots(
+    mut commands: Commands,
+) {
+    // Create weapon slots container at bottom center
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            bottom: Val::Px(20.0),
+            left: Val::Percent(50.0),
+            flex_direction: FlexDirection::Row,
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            column_gap: Val::Px(10.0),
+            ..default()
+        },
+    ))
+    .with_children(|container| {
+        for i in 0..5 {
+            container.spawn((
+                Node {
+                    width: Val::Px(40.0),  // 2x player size (20x20)
+                    height: Val::Px(40.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                if i == 0 {
+                    // Slot 0: equipped weapon - dark blue background
+                    BackgroundColor(Color::srgb(0.1, 0.1, 0.3))
+                } else {
+                    // Empty slots: light gray background
+                    BackgroundColor(Color::srgb(0.3, 0.3, 0.3))
+                },
+                WeaponSlot { slot_index: i },
+            ))
+            .with_children(|slot| {
+                // Weapon icon for each slot (will be updated by update_weapon_icons system)
+                slot.spawn((
+                    Node {
+                        width: Val::Px(30.0),
+                        height: Val::Px(30.0),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgba(0.3, 0.3, 0.3, 0.5)), // Initially gray/transparent
+                    WeaponIcon { slot_index: i },
+                ));
+
+                if i == 0 {
+                    // Circular timer overlay only for the first weapon (pistol)
+                    slot.spawn((
+                        Node {
+                            position_type: PositionType::Absolute,
+                            width: Val::Px(35.0),
+                            height: Val::Px(35.0),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            ..default()
+                        },
+                        BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.8)), // Dark background ring
+                        WeaponTimer,
+                    ))
+                    .with_children(|timer_container| {
+                        // Inner fill circle that grows with progress
+                        timer_container.spawn((
+                            Node {
+                                width: Val::Px(25.0), // Will be scaled
+                                height: Val::Px(25.0), // Will be scaled
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgba(0.5, 0.7, 1.0, 0.0)), // Initially transparent
+                            WeaponTimerFill,
+                        ));
+                    });
+                }
+            });
+        }
+    });
+}
+
+pub fn update_weapon_slots(
+    time: Res<Time>,
+    weapon_query: Query<(&Weapon, &EquippedWeapon)>,
+    mut fill_query: Query<&mut BackgroundColor, With<WeaponTimerFill>>,
+    mut size_query: Query<&mut Node, With<WeaponTimerFill>>,
+) {
+    // Find the weapon in slot 0 (pistol) for the timer display
+    for (weapon, equipped) in weapon_query.iter() {
+        if equipped.slot_index == 0 {
+            let time_since_fired = time.elapsed_secs() - weapon.last_fired;
+            let progress = (time_since_fired / weapon.fire_rate).clamp(0.0, 1.0);
+
+            // Circular progress timer: scale the inner circle and change color based on progress
+            let min_size = 0.0;
+            let max_size = 25.0;
+            let current_size = min_size + (max_size - min_size) * progress;
+
+            // Update size
+            for mut node in size_query.iter_mut() {
+                node.width = Val::Px(current_size);
+                node.height = Val::Px(current_size);
+            }
+
+            // Update color alpha based on progress
+            let alpha = progress * 0.8; // Max 80% opacity
+            for mut bg_color in fill_query.iter_mut() {
+                *bg_color = BackgroundColor(Color::srgba(0.5, 0.7, 1.0, alpha));
+            }
+            break; // Only update for the first weapon found in slot 0
+        }
+    }
+}
+
+pub fn update_weapon_icons(
+    inventory: Res<Inventory>,
+    mut icon_query: Query<(&mut BackgroundColor, &WeaponIcon)>,
+) {
+    for (mut bg_color, icon) in icon_query.iter_mut() {
+        if let Some(weapon) = &inventory.slots[icon.slot_index] {
+            // Set color based on weapon type
+            *bg_color = BackgroundColor(match weapon.weapon_type {
+                WeaponType::Pistol { .. } => Color::srgb(1.0, 1.0, 0.0), // Yellow for pistol
+                WeaponType::Laser => Color::srgb(0.0, 0.0, 1.0), // Blue for laser
+                _ => Color::srgb(0.5, 0.5, 0.5), // Gray for other weapons
+            });
+        } else {
+            // Empty slot - make it transparent or gray
+            *bg_color = BackgroundColor(Color::srgba(0.3, 0.3, 0.3, 0.5));
+        }
+    }
 }
 
 pub fn game_over_input(

@@ -17,3 +17,19 @@ pub struct HealthBar;
 
 #[derive(Component)]
 pub struct ScreenTint;
+
+#[derive(Component)]
+pub struct WeaponSlot {
+    pub slot_index: usize,
+}
+
+#[derive(Component)]
+pub struct WeaponIcon {
+    pub slot_index: usize,
+}
+
+#[derive(Component)]
+pub struct WeaponTimer;
+
+#[derive(Component)]
+pub struct WeaponTimerFill;
