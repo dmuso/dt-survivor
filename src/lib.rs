@@ -1,11 +1,21 @@
+pub mod audio;
 pub mod bullets;
 pub mod enemies;
 pub mod game;
+pub mod inventory;
+pub mod laser;
+pub mod loot;
 pub mod player;
 pub mod score;
-pub mod ui;
 pub mod states;
+pub mod ui;
+pub mod weapon;
 pub mod prelude;
 
+pub use audio::plugin as audio_plugin;
 pub use game::plugin as game_plugin;
+pub use inventory::plugin as inventory_plugin;
+pub use laser::plugin as laser_plugin;
+pub use loot::plugin as loot_plugin;
 pub use ui::plugin as ui_plugin;
+pub use weapon::plugin as weapon_plugin;

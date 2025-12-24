@@ -1,11 +1,17 @@
 use bevy::prelude::*;
-use donny_tango_survivor::{game::plugin as game_plugin, ui::plugin as ui_plugin, states::GameState};
+use donny_tango_survivor::{
+    audio_plugin,
+    game_plugin,
+    inventory_plugin,
+    ui_plugin,
+    states::GameState
+};
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .init_state::<GameState>()
-        .add_plugins((game_plugin, ui_plugin))
+        .add_plugins((audio_plugin, game_plugin, inventory_plugin, ui_plugin))
         .run();
 }
 
@@ -16,6 +22,13 @@ mod tests {
     use donny_tango_survivor::bullets::systems::bullet_collision_system;
     use donny_tango_survivor::score::Score;
     use donny_tango_survivor::bullets::Bullet;
+    use donny_tango_survivor::weapon::systems::weapon_firing_system;
+    use donny_tango_survivor::inventory::Inventory;
+    use donny_tango_survivor::game::ScreenTintEffect;
+    use donny_tango_survivor::weapon::components::Weapon;
+    use donny_tango_survivor::inventory::components::EquippedWeapon;
+    use donny_tango_survivor::enemies::components::Enemy;
+    use donny_tango_survivor::ui::components::{WeaponSlot, WeaponIcon, WeaponTimerFill};
     use bevy::app::App;
     use bevy::ecs::system::RunSystemOnce;
 
@@ -117,6 +130,10 @@ mod tests {
         // Initialize game state (starts in Intro by default)
         app.init_state::<GameState>();
 
+        // Initialize required resources
+        app.init_resource::<Inventory>();
+        app.init_resource::<ScreenTintEffect>();
+
         // Add our plugins
         app.add_plugins((game_plugin, ui_plugin));
 
@@ -193,6 +210,10 @@ mod tests {
         // Initialize game state
         app.init_state::<GameState>();
 
+        // Initialize required resources
+        app.init_resource::<Inventory>();
+        app.init_resource::<ScreenTintEffect>();
+
         // Add our plugins
         app.add_plugins((game_plugin, ui_plugin));
 
@@ -214,7 +235,7 @@ mod tests {
         // Verify we still have camera and content immediately after transition
         let post_transition_camera_exists = app.world_mut().query::<&Camera>().single(app.world()).is_ok();
         let post_transition_has_content = app.world_mut().query::<&Player>().single(app.world()).is_ok() ||
-                                         app.world_mut().query::<&Rock>().iter(app.world()).next().is_some();
+                                          app.world_mut().query::<&Rock>().iter(app.world()).next().is_some();
 
         assert!(post_transition_camera_exists, "Camera should exist immediately after transition");
         assert!(post_transition_has_content, "Should have renderable content immediately after transition");
@@ -232,6 +253,164 @@ mod tests {
     }
 
     #[test]
+    fn test_inventory_initialization() {
+        use donny_tango_survivor::inventory::resources::Inventory;
+
+        let inventory = Inventory::default();
+        assert_eq!(inventory.slots.len(), 5, "Inventory should have 5 slots");
+
+        // Check that slot 0 has a weapon
+        assert!(inventory.slots[0].is_some(), "Slot 0 should have a weapon");
+
+        let weapon = inventory.slots[0].as_ref().unwrap();
+        assert_eq!(weapon.fire_rate, 2.0, "Default weapon should have 2 second fire rate");
+        assert_eq!(weapon.last_fired, -2.0, "Default weapon should start with last_fired = -2.0 to prevent immediate firing");
+        assert_eq!(weapon.damage, 1.0, "Default weapon should have 1.0 damage");
+
+        // Check weapon type
+        if let donny_tango_survivor::weapon::components::WeaponType::Pistol { bullet_count, spread_angle } = &weapon.weapon_type {
+            assert_eq!(*bullet_count, 5, "Default pistol should fire 5 bullets");
+            assert_eq!(*spread_angle, 15.0, "Default pistol should have 15 degree spread");
+        } else {
+            panic!("Default weapon should be a pistol");
+        }
+
+        // Check that slots 1-4 are empty
+        for i in 1..5 {
+            assert!(inventory.slots[i].is_none(), "Slots 1-4 should be empty");
+        }
+    }
+
+    #[test]
+    fn test_weapon_equipped_to_player() {
+        let mut app = App::new();
+
+        // Add minimal plugins
+        app.add_plugins((
+            bevy::state::app::StatesPlugin,
+            bevy::time::TimePlugin::default(),
+            bevy::input::InputPlugin::default(),
+        ));
+
+        // Initialize game state
+        app.init_state::<GameState>();
+
+        // Add our plugins
+        app.add_plugins((game_plugin, inventory_plugin));
+
+        // Transition to InGame state
+        app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
+        app.update();
+
+        // Check that player exists and has weapon component
+        let world = app.world_mut();
+        // Check that player exists
+        let player_count = world.query::<&Player>().iter(world).count();
+        assert_eq!(player_count, 1, "Should have exactly one player");
+
+        // Check that weapon entities exist
+        let weapon_count = world.query::<&Weapon>().iter(world).count();
+        assert_eq!(weapon_count, 1, "Should have exactly one weapon entity");
+
+        let equipped_count = world.query::<&EquippedWeapon>().iter(world).count();
+        assert_eq!(equipped_count, 1, "Should have exactly one equipped weapon");
+
+        // Check weapon properties
+        if let Ok(weapon) = world.query::<&Weapon>().single(world) {
+            assert_eq!(weapon.fire_rate, 2.0, "Equipped weapon should have correct fire rate");
+        }
+
+        if let Ok(equipped) = world.query::<&EquippedWeapon>().single(world) {
+            assert_eq!(equipped.slot_index, 0, "Weapon should be equipped in slot 0");
+        }
+    }
+
+    #[test]
+    fn test_weapon_firing_spawns_bullets() {
+        let mut app = App::new();
+
+        // Add minimal plugins
+        app.add_plugins((
+            bevy::state::app::StatesPlugin,
+            bevy::time::TimePlugin::default(),
+            bevy::input::InputPlugin::default(),
+        ));
+
+        // Initialize game state
+        app.init_state::<GameState>();
+
+        // Add our plugins (without UI to avoid asset dependencies)
+        app.add_plugins((inventory_plugin, game_plugin));
+
+        // Transition to InGame state
+        app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
+        app.update();
+
+        // Create an enemy to target
+        app.world_mut().spawn((
+            Transform::from_translation(Vec3::new(100.0, 0.0, 0.0)),
+            Enemy { speed: 50.0, strength: 10.0 },
+        ));
+
+        // Advance time to allow weapon to fire (past the 2 second cooldown)
+        {
+            let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+            time.advance_by(std::time::Duration::from_secs(3));
+        }
+
+        // Run weapon firing system
+        let _ = app.world_mut().run_system_once(weapon_firing_system);
+
+        // Check that bullets were spawned
+        let world = app.world_mut();
+        let bullet_count = world.query::<&Bullet>().iter(world).count();
+        assert_eq!(bullet_count, 5, "Weapon firing should spawn 5 bullets");
+
+        // Check that weapon last_fired was updated
+        let mut weapon_query = world.query::<&Weapon>();
+        if let Ok(weapon) = weapon_query.single(world) {
+            assert!(weapon.last_fired > 0.0, "Weapon last_fired should be updated after firing");
+        } else {
+            panic!("Weapon not found after firing");
+        }
+    }
+
+    #[test]
+    fn test_weapon_slots_ui_created() {
+        let mut app = App::new();
+
+        // Add minimal plugins
+        app.add_plugins((
+            bevy::state::app::StatesPlugin,
+            bevy::time::TimePlugin::default(),
+            bevy::input::InputPlugin::default(),
+        ));
+
+        // Initialize game state
+        app.init_state::<GameState>();
+
+        // Add our plugins
+        app.add_plugins((game_plugin, inventory_plugin, ui_plugin));
+
+        // Transition to InGame state
+        app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
+        app.update();
+
+        // Check that weapon slots are created
+        let world = app.world_mut();
+        let slot_count = world.query::<&WeaponSlot>().iter(world).count();
+        assert_eq!(slot_count, 5, "Should have 5 weapon slots");
+
+        // Check that weapon icons exist for all slots
+        let icon_count = world.query::<&WeaponIcon>().iter(world).count();
+        assert_eq!(icon_count, 5, "Should have 5 weapon icons for all slots");
+
+        // Check that weapon timer fill exists
+        let timer_fill_count = world.query::<&WeaponTimerFill>().iter(world).count();
+        assert_eq!(timer_fill_count, 1, "Should have 1 weapon timer fill element");
+    }
+
+    #[test]
     fn test_scoring_integration_full_flow() {
         let mut app = App::new();
 
@@ -244,6 +423,10 @@ mod tests {
 
         // Initialize game state
         app.init_state::<GameState>();
+
+        // Initialize required resources
+        app.init_resource::<Inventory>();
+        app.init_resource::<ScreenTintEffect>();
 
         // Add our plugins (without UI plugin to avoid asset dependencies)
         app.add_plugins(game_plugin);
@@ -300,6 +483,10 @@ mod tests {
         // Initialize game state
         app.init_state::<GameState>();
 
+        // Initialize required resources
+        app.init_resource::<Inventory>();
+        app.init_resource::<ScreenTintEffect>();
+
         // Add our plugins (without UI plugin to avoid asset dependencies)
         app.add_plugins(game_plugin);
 
@@ -353,6 +540,10 @@ mod tests {
 
         // Initialize game state
         app.init_state::<GameState>();
+
+        // Initialize required resources
+        app.init_resource::<Inventory>();
+        app.init_resource::<ScreenTintEffect>();
 
         // Add our plugins (without UI plugin to avoid asset dependencies)
         app.add_plugins(game_plugin);
