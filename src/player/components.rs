@@ -3,6 +3,7 @@ use bevy::prelude::*;
 #[derive(Component)]
 pub struct Player {
     pub speed: f32,
+    pub health: f32,
 }
 
 #[cfg(test)]
@@ -11,19 +12,21 @@ mod tests {
 
     #[test]
     fn test_player_component_creation() {
-        // Test that player can be created with speed
-        let player = Player { speed: 150.0 };
+        // Test that player can be created with speed and health
+        let player = Player { speed: 150.0, health: 100.0 };
         assert_eq!(player.speed, 150.0);
+        assert_eq!(player.health, 100.0);
 
-        // Test default player speed
-        let default_player = Player { speed: 200.0 };
+        // Test default player speed and health
+        let default_player = Player { speed: 200.0, health: 100.0 };
         assert_eq!(default_player.speed, 200.0);
+        assert_eq!(default_player.health, 100.0);
     }
 
     #[test]
     fn test_player_component_different_speeds() {
-        let slow_player = Player { speed: 100.0 };
-        let fast_player = Player { speed: 500.0 };
+        let slow_player = Player { speed: 100.0, health: 100.0 };
+        let fast_player = Player { speed: 500.0, health: 100.0 };
 
         assert_eq!(slow_player.speed, 100.0);
         assert_eq!(fast_player.speed, 500.0);

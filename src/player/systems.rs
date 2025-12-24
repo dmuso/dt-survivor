@@ -18,7 +18,7 @@ mod tests {
 
         // Create player at position (50.0, 25.0, 0.0)
         app.world_mut().spawn((
-            Player { speed: 200.0 },
+            Player { speed: 200.0, health: 100.0 },
             Transform::from_translation(Vec3::new(50.0, 25.0, 0.0)),
         ));
 
