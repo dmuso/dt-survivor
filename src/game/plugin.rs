@@ -6,6 +6,7 @@ use crate::game::systems::*;
 use crate::inventory::systems::{inventory_initialization_system, weapon_follow_player_system};
 use crate::laser::plugin as laser_plugin;
 use crate::loot::plugin as loot_plugin;
+use crate::rocket_launcher::plugin as rocket_launcher_plugin;
 use crate::player::systems::*;
 use crate::weapon::systems::*;
 use crate::game::resources::{PlayerPosition, EnemySpawnState, PlayerDamageTimer, ScreenTintEffect};
@@ -18,7 +19,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<EnemySpawnState>()
         .init_resource::<PlayerDamageTimer>()
         .init_resource::<ScreenTintEffect>()
-        .add_plugins((laser_plugin, loot_plugin))
+        .add_plugins((laser_plugin, loot_plugin, rocket_launcher_plugin))
         .add_systems(OnEnter(GameState::InGame), (
             setup_game,
             inventory_initialization_system,

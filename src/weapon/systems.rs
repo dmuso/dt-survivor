@@ -1,10 +1,12 @@
 use bevy::prelude::*;
+use bevy_kira_audio::prelude::*;
 use rand::Rng;
 use crate::weapon::components::*;
 use crate::bullets::components::Bullet;
 use crate::enemies::components::*;
 use crate::player::components::*;
-use crate::audio::{WeaponSound, AudioCleanupTimer};
+use crate::audio::plugin::*;
+use crate::audio::plugin::SoundLimiter;
 
 #[cfg(test)]
 mod tests {
@@ -171,10 +173,13 @@ mod tests {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn weapon_firing_system(
     mut commands: Commands,
     time: Res<Time>,
     asset_server: Option<Res<AssetServer>>,
+    mut weapon_channel: Option<ResMut<AudioChannel<WeaponSoundChannel>>>,
+    mut sound_limiter: Option<ResMut<SoundLimiter>>,
     player_query: Query<&Transform, With<Player>>,
     enemy_query: Query<(Entity, &Transform, &Enemy)>,
     mut weapon_query: Query<&mut Weapon>,
@@ -248,36 +253,60 @@ pub fn weapon_firing_system(
                             ));
                         }
 
-                        // Play weapon sound effect (only if AssetServer is available)
-                        if let Some(ref asset_server) = asset_server {
-                            let weapon_sound_handle: Handle<AudioSource> = asset_server.load("sounds/143610__dwoboyle__weapons-synth-blast-02.wav");
-                            commands.spawn((
-                                AudioPlayer(weapon_sound_handle),
-                                PlaybackSettings::ONCE,
-                                WeaponSound,
-                                AudioCleanupTimer(Timer::from_seconds(2.0, TimerMode::Once)),
-                            ));
+                        // Play weapon sound effect (only if AssetServer and AudioChannel are available)
+                        if let (Some(asset_server), Some(weapon_channel), Some(sound_limiter)) =
+                            (asset_server.as_ref(), weapon_channel.as_mut(), sound_limiter.as_mut()) {
+                            crate::audio::plugin::play_limited_sound(
+                                weapon_channel.as_mut(),
+                                asset_server,
+                                "sounds/143610__dwoboyle__weapons-synth-blast-02.wav",
+                                sound_limiter.as_mut(),
+                            );
                         }
                     }
-                    WeaponType::Laser => {
-                        // Create a laser beam entity
-                        use crate::laser::components::LaserBeam;
-                        commands.spawn(LaserBeam::new(player_pos, base_direction, weapon.damage));
+                     WeaponType::Laser => {
+                         // Create a laser beam entity
+                         use crate::laser::components::LaserBeam;
+                         commands.spawn(LaserBeam::new(player_pos, base_direction, weapon.damage));
 
-                        // Play laser sound effect
-                        if let Some(ref asset_server) = asset_server {
-                            let laser_sound_handle: Handle<AudioSource> = asset_server.load("sounds/72639__chipfork71__laser01rev.wav");
-                            commands.spawn((
-                                AudioPlayer(laser_sound_handle),
-                                PlaybackSettings::ONCE,
-                                WeaponSound,
-                                AudioCleanupTimer(Timer::from_seconds(2.0, TimerMode::Once)),
-                            ));
-                        }
-                    }
-                    _ => {
-                        // Other weapon types not implemented yet
-                    }
+                         // Play laser sound effect
+                         if let (Some(asset_server), Some(weapon_channel), Some(sound_limiter)) =
+                             (asset_server.as_ref(), weapon_channel.as_mut(), sound_limiter.as_mut()) {
+                             crate::audio::plugin::play_limited_sound(
+                                 weapon_channel.as_mut(),
+                                 asset_server,
+                                 "sounds/72639__chipfork71__laser01rev.wav",
+                                 sound_limiter.as_mut(),
+                             );
+                         }
+                     }
+                     WeaponType::RocketLauncher => {
+                         // Find closest enemy for targeting
+                         let target_pos = closest_enemies.get(target_index).map(|(_, pos)| *pos);
+
+                         // Create a rocket projectile
+                         use crate::rocket_launcher::components::RocketProjectile;
+                         let (mut rocket, transform) = RocketProjectile::new(player_transform.translation.truncate(), base_direction, weapon.damage);
+                         rocket.target_position = target_pos;
+                         commands.spawn((
+                             rocket,
+                             transform,
+                         ));
+
+                         // Play rocket launch sound
+                         if let (Some(asset_server), Some(weapon_channel), Some(sound_limiter)) =
+                             (asset_server.as_ref(), weapon_channel.as_mut(), sound_limiter.as_mut()) {
+                             crate::audio::plugin::play_limited_sound(
+                                 weapon_channel.as_mut(),
+                                 asset_server,
+                                 "sounds/143610__dwoboyle__weapons-synth-blast-02.wav",
+                                 sound_limiter.as_mut(),
+                             );
+                         }
+                     }
+                     _ => {
+                         // Other weapon types not implemented yet
+                     }
                 }
 
                 weapon.last_fired = current_time;

@@ -3,7 +3,8 @@ use bevy::prelude::*;
 use std::time::Duration;
 use std::collections::HashSet;
 
-use crate::audio::{WeaponSound, EnemyDeathSound, AudioCleanupTimer};
+use bevy_kira_audio::prelude::*;
+use crate::audio::plugin::*;
 use crate::bullets::components::*;
 use crate::enemies::components::*;
 use crate::player::components::*;
@@ -19,11 +20,14 @@ impl Default for BulletSpawnTimer {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn bullet_spawning_system(
     mut commands: Commands,
     time: Res<Time>,
     mut spawn_timer: ResMut<BulletSpawnTimer>,
     asset_server: Option<Res<AssetServer>>,
+    weapon_channel: Option<ResMut<AudioChannel<WeaponSoundChannel>>>,
+    sound_limiter: Option<ResMut<SoundLimiter>>,
     player_query: Query<&Transform, With<Player>>,
     enemy_query: Query<&Transform, With<Enemy>>,
 ) {
@@ -89,15 +93,15 @@ pub fn bullet_spawning_system(
         ));
     }
 
-    // Play weapon sound effect once for the burst (only if AssetServer is available)
-    if let Some(asset_server) = asset_server {
-        let weapon_sound_handle: Handle<AudioSource> = asset_server.load("sounds/143610__dwoboyle__weapons-synth-blast-02.wav");
-        commands.spawn((
-            AudioPlayer(weapon_sound_handle),
-            PlaybackSettings::ONCE,
-            WeaponSound,
-            AudioCleanupTimer(Timer::from_seconds(2.0, TimerMode::Once)), // Cleanup after 2 seconds
-        ));
+    // Play weapon sound effect once for the burst (only if AssetServer and AudioChannel are available)
+    if let (Some(asset_server), Some(mut weapon_channel), Some(mut sound_limiter)) =
+        (asset_server, weapon_channel, sound_limiter) {
+        crate::audio::plugin::play_limited_sound(
+            weapon_channel.as_mut(),
+            &asset_server,
+            "sounds/143610__dwoboyle__weapons-synth-blast-02.wav",
+            sound_limiter.as_mut(),
+        );
     }
 }
 
@@ -117,6 +121,8 @@ pub fn bullet_collision_system(
     enemy_query: Query<(Entity, &Transform), With<Enemy>>,
     mut score: ResMut<Score>,
     asset_server: Option<Res<AssetServer>>,
+    mut enemy_channel: Option<ResMut<AudioChannel<EnemySoundChannel>>>,
+    mut sound_limiter: Option<ResMut<SoundLimiter>>,
 ) {
     let mut bullets_to_despawn = HashSet::new();
     let mut enemies_to_despawn = HashSet::new();
@@ -194,22 +200,41 @@ pub fn bullet_collision_system(
                 },
             ));
         }
+        // 1% chance for rocket launcher
+        else if rng.gen_bool(0.01) {
+            use crate::loot::components::*;
+            use crate::weapon::components::{Weapon, WeaponType};
 
-        // Play random enemy death sound for each enemy killed (only if AssetServer is available)
-        if let Some(asset_server) = &asset_server {
+            let weapon = Weapon {
+                weapon_type: WeaponType::RocketLauncher,
+                fire_rate: 10.0, // 10 seconds between shots
+                damage: 30.0, // Higher damage due to area effect
+                last_fired: -10.0, // Prevent immediate firing
+            };
+
+            commands.spawn((
+                Sprite::from_color(Color::srgb(1.0, 0.5, 0.0), Vec2::new(18.0, 18.0)), // Orange for rocket launcher loot
+                Transform::from_translation(Vec3::new(enemy_pos.x, enemy_pos.y, 0.5)),
+                LootItem {
+                    loot_type: LootType::Weapon(weapon),
+                },
+            ));
+        }
+
+        // Play random enemy death sound for each enemy killed (only if AssetServer and AudioChannel are available)
+        if let (Some(asset_server), Some(enemy_channel), Some(sound_limiter)) =
+            (asset_server.as_ref(), enemy_channel.as_mut(), sound_limiter.as_mut()) {
             let sound_paths = [
                 "sounds/397276__whisperbandnumber1__grunt1.wav",
                 "sounds/547200__mrfossy__voice_adultmale_paingrunts_04.wav",
             ];
             let random_index = (rand::random::<f32>() * sound_paths.len() as f32) as usize;
-            let death_sound_handle: Handle<AudioSource> = asset_server.load(sound_paths[random_index]);
-
-                    commands.spawn((
-                        AudioPlayer(death_sound_handle),
-                        PlaybackSettings::ONCE,
-                        EnemyDeathSound,
-                        AudioCleanupTimer(Timer::from_seconds(3.0, TimerMode::Once)), // Cleanup after 3 seconds
-                    ));
+            crate::audio::plugin::play_limited_sound(
+                enemy_channel.as_mut(),
+                asset_server,
+                sound_paths[random_index],
+                sound_limiter.as_mut(),
+            );
         }
     }
 
