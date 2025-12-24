@@ -15,7 +15,7 @@ impl Default for EnemySpawnState {
     fn default() -> Self {
         Self {
             time_since_last_spawn: 0.0,
-            spawn_rate_per_second: 5.0, // Start with 5 enemies per second
+            spawn_rate_per_second: 1.25, // Start with 1.25 enemies per second
             time_since_last_rate_increase: 0.0,
             rate_level: 0,
         }
