@@ -1,8 +1,9 @@
 use bevy::prelude::*;
 use rand::Rng;
 
+use crate::enemies::components::*;
 use crate::game::components::*;
-use crate::game::player::components::*;
+use crate::player::components::*;
 use crate::states::*;
 
 pub fn setup_game(
@@ -44,13 +45,16 @@ pub fn game_input(
     }
 }
 
+
 #[allow(clippy::type_complexity)]
 pub fn cleanup_game(
     mut commands: Commands,
-    query: Query<Entity, Or<(With<Player>, With<Rock>)>>,
+    query: Query<Entity, Or<(With<Player>, With<Rock>, With<Enemy>)>>,
 ) {
     // Don't despawn the camera - let the UI system reuse it
-    for entity in &query {
-        commands.entity(entity).despawn();
+    for entity in query.iter() {
+        if let Ok(mut entity_commands) = commands.get_entity(entity) {
+            entity_commands.despawn();
+        }
     }
 }
