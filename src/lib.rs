@@ -1,6 +1,8 @@
+pub mod bullets;
 pub mod enemies;
 pub mod game;
 pub mod player;
+pub mod score;
 pub mod ui;
 pub mod states;
 pub mod prelude;

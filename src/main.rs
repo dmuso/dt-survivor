@@ -13,7 +13,11 @@ fn main() {
 mod tests {
     use super::*;
     use donny_tango_survivor::prelude::*;
+    use donny_tango_survivor::bullets::systems::bullet_collision_system;
+    use donny_tango_survivor::score::Score;
+    use donny_tango_survivor::bullets::Bullet;
     use bevy::app::App;
+    use bevy::ecs::system::RunSystemOnce;
 
     #[test]
     fn test_game_state_default() {
@@ -148,9 +152,9 @@ mod tests {
         let _rock_count = app.world_mut().query::<&Rock>().iter(app.world()).count();
         assert_eq!(_rock_count, 15, "Should have 15 rocks in InGame");
 
-        // Verify UI elements are gone
+        // Verify score display UI element exists in InGame state
         let has_ui_ingame = app.world_mut().query::<&Node>().iter(app.world()).next().is_some();
-        assert!(!has_ui_ingame, "Should have no UI nodes in InGame state");
+        assert!(has_ui_ingame, "Should have UI nodes (score display) in InGame state");
 
         // Transition back to Intro state
         app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::Intro);
@@ -225,5 +229,152 @@ mod tests {
 
         assert!(final_camera_exists, "Camera should persist throughout all transitions");
         assert!(final_has_content, "Should have renderable content after all transitions");
+    }
+
+    #[test]
+    fn test_scoring_integration_full_flow() {
+        let mut app = App::new();
+
+        // Add minimal plugins for core functionality
+        app.add_plugins((
+            bevy::state::app::StatesPlugin,
+            bevy::time::TimePlugin::default(),
+            bevy::input::InputPlugin::default(),
+        ));
+
+        // Initialize game state
+        app.init_state::<GameState>();
+
+        // Add our plugins (without UI plugin to avoid asset dependencies)
+        app.add_plugins(game_plugin);
+
+        // Transition to InGame state
+        app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
+        app.update();
+
+        // Verify we're in InGame state
+        assert_eq!(*app.world().get_resource::<State<GameState>>().unwrap(), GameState::InGame);
+
+        // Verify score starts at 0
+        let initial_score = app.world().get_resource::<Score>().unwrap();
+        assert_eq!(initial_score.0, 0, "Score should start at 0");
+
+        // Create a bullet and enemy for collision testing
+        let bullet_entity = app.world_mut().spawn((
+            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            Bullet {
+                direction: Vec2::new(1.0, 0.0),
+                speed: 100.0,
+                lifetime: Timer::from_seconds(15.0, TimerMode::Once),
+            },
+        )).id();
+
+        let enemy_entity = app.world_mut().spawn((
+            Transform::from_translation(Vec3::new(10.0, 0.0, 0.0)),
+            Enemy { speed: 50.0, strength: 10.0 },
+        )).id();
+
+        // Run collision system
+        let _ = app.world_mut().run_system_once(bullet_collision_system);
+
+        // Verify both entities are despawned
+        assert!(!app.world().entities().contains(bullet_entity), "Bullet should be despawned after collision");
+        assert!(!app.world().entities().contains(enemy_entity), "Enemy should be despawned after collision");
+
+        // Verify score incremented
+        let updated_score = app.world().get_resource::<Score>().unwrap();
+        assert_eq!(updated_score.0, 1, "Score should increment to 1 after enemy defeat");
+    }
+
+    #[test]
+    fn test_scoring_integration_multiple_enemies() {
+        let mut app = App::new();
+
+        // Add minimal plugins for core functionality
+        app.add_plugins((
+            bevy::state::app::StatesPlugin,
+            bevy::time::TimePlugin::default(),
+            bevy::input::InputPlugin::default(),
+        ));
+
+        // Initialize game state
+        app.init_state::<GameState>();
+
+        // Add our plugins (without UI plugin to avoid asset dependencies)
+        app.add_plugins(game_plugin);
+
+        // Transition to InGame state
+        app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
+        app.update();
+
+        // Verify score starts at 0
+        let initial_score = app.world().get_resource::<Score>().unwrap();
+        assert_eq!(initial_score.0, 0, "Score should start at 0");
+
+        // Create multiple bullets and enemies
+        for i in 0..3 {
+            let bullet_entity = app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(0.0, i as f32 * 20.0, 0.0)),
+                Bullet {
+                    direction: Vec2::new(1.0, 0.0),
+                    speed: 100.0,
+                    lifetime: Timer::from_seconds(15.0, TimerMode::Once),
+                },
+            )).id();
+
+            let enemy_entity = app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(10.0, i as f32 * 20.0, 0.0)),
+                Enemy { speed: 50.0, strength: 10.0 },
+            )).id();
+
+            // Run collision system for each pair
+            let _ = app.world_mut().run_system_once(bullet_collision_system);
+
+            // Verify both entities are despawned
+            assert!(!app.world().entities().contains(bullet_entity), "Bullet {} should be despawned", i);
+            assert!(!app.world().entities().contains(enemy_entity), "Enemy {} should be despawned", i);
+        }
+
+        // Verify score incremented for each enemy defeated
+        let final_score = app.world().get_resource::<Score>().unwrap();
+        assert_eq!(final_score.0, 3, "Score should be 3 after defeating 3 enemies");
+    }
+
+    #[test]
+    fn test_scoring_integration_score_persistence() {
+        let mut app = App::new();
+
+        // Add minimal plugins for core functionality
+        app.add_plugins((
+            bevy::state::app::StatesPlugin,
+            bevy::time::TimePlugin::default(),
+            bevy::input::InputPlugin::default(),
+        ));
+
+        // Initialize game state
+        app.init_state::<GameState>();
+
+        // Add our plugins (without UI plugin to avoid asset dependencies)
+        app.add_plugins(game_plugin);
+
+        // Transition to InGame state
+        app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
+        app.update();
+
+        // Score some points
+        {
+            let mut score = app.world_mut().get_resource_mut::<Score>().unwrap();
+            score.0 = 5;
+        }
+
+        // Transition back to Intro and then to InGame again
+        app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::Intro);
+        app.update();
+        app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
+        app.update();
+
+        // Score should persist across state transitions (not reset)
+        let score_after_reset = app.world().get_resource::<Score>().unwrap();
+        assert_eq!(score_after_reset.0, 5, "Score should persist across state transitions");
     }
 }
