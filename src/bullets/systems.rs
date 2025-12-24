@@ -120,9 +120,9 @@ pub fn bullet_collision_system(
     bullet_query: Query<(Entity, &Transform), With<Bullet>>,
     enemy_query: Query<(Entity, &Transform), With<Enemy>>,
     mut score: ResMut<Score>,
-    asset_server: Option<Res<AssetServer>>,
-    mut enemy_channel: Option<ResMut<AudioChannel<EnemySoundChannel>>>,
-    mut sound_limiter: Option<ResMut<SoundLimiter>>,
+    _asset_server: Option<Res<AssetServer>>,
+    _enemy_channel: Option<ResMut<AudioChannel<EnemySoundChannel>>>,
+    _sound_limiter: Option<ResMut<SoundLimiter>>,
 ) {
     let mut bullets_to_despawn = HashSet::new();
     let mut enemies_to_despawn = HashSet::new();
@@ -154,87 +154,42 @@ pub fn bullet_collision_system(
         }
     }
 
-    // Second pass: despawn entities and play sounds
+    // Second pass: despawn entities, spawn experience orbs, and play sounds
+    // Despawn bullets
     for bullet_entity in bullets_to_despawn {
         commands.entity(bullet_entity).despawn();
     }
 
-    for enemy_entity in enemies_to_despawn {
+    let enemies_to_despawn_vec: Vec<Entity> = enemies_to_despawn.into_iter().collect();
+    for enemy_entity in &enemies_to_despawn_vec {
         // Get enemy position for loot spawning before despawning
-        let enemy_pos = enemy_query.get(enemy_entity).map(|(_, transform)| transform.translation.truncate()).unwrap_or(Vec2::ZERO);
+        let enemy_pos = enemy_query.get(*enemy_entity).map(|(_, transform)| transform.translation.truncate()).unwrap_or(Vec2::ZERO);
 
-        commands.entity(enemy_entity).despawn();
+        commands.entity(*enemy_entity).despawn();
 
-        // Spawn loot based on random chance
+        // Spawn experience orbs for each enemy killed
         let mut rng = rand::thread_rng();
+        let orb_count = rng.gen_range(1..=3);
 
-        // 5% chance for health pack
-        if rng.gen_bool(0.05) {
-            use crate::loot::components::*;
-
-            commands.spawn((
-                Sprite::from_color(Color::srgb(0.0, 1.0, 0.0), Vec2::new(12.0, 12.0)), // Green for health pack
-                Transform::from_translation(Vec3::new(enemy_pos.x, enemy_pos.y, 0.5)),
-                LootItem {
-                    loot_type: LootType::HealthPack { heal_amount: 25.0 },
-                },
-            ));
-        }
-        // 2% chance for laser weapon
-        else if rng.gen_bool(0.02) {
-            use crate::loot::components::*;
-            use crate::weapon::components::{Weapon, WeaponType};
-
-            let weapon = Weapon {
-                weapon_type: WeaponType::Laser,
-                fire_rate: 3.0,
-                damage: 15.0,
-                last_fired: -3.0, // Prevent immediate firing
-            };
+        for _ in 0..orb_count {
+            let value = rng.gen_range(5..=15); // 5-15 experience per orb
+            let offset_x = rng.gen_range(-10.0..=10.0);
+            let offset_y = rng.gen_range(-10.0..=10.0);
 
             commands.spawn((
-                Sprite::from_color(Color::srgb(0.0, 0.0, 1.0), Vec2::new(16.0, 16.0)), // Blue for weapon loot
-                Transform::from_translation(Vec3::new(enemy_pos.x, enemy_pos.y, 0.5)),
-                LootItem {
-                    loot_type: LootType::Weapon(weapon),
-                },
+                Sprite::from_color(
+                    Color::srgb(0.75, 0.75, 0.75), // Light grey color
+                    Vec2::new(8.0, 8.0) // Same size as bullets
+                ),
+                Transform::from_translation(
+                    Vec3::new(enemy_pos.x + offset_x, enemy_pos.y + offset_y, 0.2)
+                ),
+                    crate::experience::components::ExperienceOrb {
+                        value,
+                        pickup_radius: 50.0, // Initial pickup radius
+                        velocity: Vec2::ZERO, // Start with no velocity
+                    },
             ));
-        }
-        // 1% chance for rocket launcher
-        else if rng.gen_bool(0.01) {
-            use crate::loot::components::*;
-            use crate::weapon::components::{Weapon, WeaponType};
-
-            let weapon = Weapon {
-                weapon_type: WeaponType::RocketLauncher,
-                fire_rate: 10.0, // 10 seconds between shots
-                damage: 30.0, // Higher damage due to area effect
-                last_fired: -10.0, // Prevent immediate firing
-            };
-
-            commands.spawn((
-                Sprite::from_color(Color::srgb(1.0, 0.5, 0.0), Vec2::new(18.0, 18.0)), // Orange for rocket launcher loot
-                Transform::from_translation(Vec3::new(enemy_pos.x, enemy_pos.y, 0.5)),
-                LootItem {
-                    loot_type: LootType::Weapon(weapon),
-                },
-            ));
-        }
-
-        // Play random enemy death sound for each enemy killed (only if AssetServer and AudioChannel are available)
-        if let (Some(asset_server), Some(enemy_channel), Some(sound_limiter)) =
-            (asset_server.as_ref(), enemy_channel.as_mut(), sound_limiter.as_mut()) {
-            let sound_paths = [
-                "sounds/397276__whisperbandnumber1__grunt1.wav",
-                "sounds/547200__mrfossy__voice_adultmale_paingrunts_04.wav",
-            ];
-            let random_index = (rand::random::<f32>() * sound_paths.len() as f32) as usize;
-            crate::audio::plugin::play_limited_sound(
-                enemy_channel.as_mut(),
-                asset_server,
-                sound_paths[random_index],
-                sound_limiter.as_mut(),
-            );
         }
     }
 

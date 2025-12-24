@@ -29,6 +29,11 @@ pub fn setup_game(
             max_health: 100.0,
             regen_rate: 1.0, // 1 health per second (was 1% of 100)
         },
+        crate::experience::components::PlayerExperience {
+            current: 0,
+            level: 1,
+            pickup_radius: 50.0, // Initial pickup radius
+        },
     ));
 
     // Spawn random rocks scattered throughout the scene
@@ -57,7 +62,7 @@ pub fn game_input(
 #[allow(clippy::type_complexity)]
 pub fn cleanup_game(
     mut commands: Commands,
-    query: Query<Entity, Or<(With<Player>, With<Rock>, With<Enemy>, With<crate::loot::components::LootItem>, With<crate::weapon::components::Weapon>, With<crate::laser::components::LaserBeam>)>>,
+    query: Query<Entity, Or<(With<Player>, With<Rock>, With<Enemy>, With<crate::loot::components::LootItem>, With<crate::weapon::components::Weapon>, With<crate::laser::components::LaserBeam>, With<crate::experience::components::ExperienceOrb>)>>,
 ) {
     // Don't despawn the camera - let the UI system reuse it
     // Collect entities first to avoid iterator invalidation issues

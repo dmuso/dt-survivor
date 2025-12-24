@@ -223,6 +223,21 @@ pub fn setup_game_ui(
                     HealthBar,
                 ));
             });
+
+            // Level display
+            health_container.spawn((
+                Text::new("Lv. 1"),
+                TextFont {
+                    font_size: 24.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(1.0, 1.0, 0.0)), // Yellow for level
+                Node {
+                    margin: UiRect::top(Val::Px(10.0)),
+                    ..default()
+                },
+                crate::experience::components::PlayerLevelDisplay,
+            ));
         });
     });
 }

@@ -215,7 +215,6 @@ pub fn update_rocket_visuals(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::weapon::components::{Weapon, WeaponType};
     use crate::loot::components::LootItem;
 

@@ -1,6 +1,7 @@
 pub mod audio;
 pub mod bullets;
 pub mod enemies;
+pub mod experience;
 pub mod game;
 pub mod inventory;
 pub mod laser;
@@ -14,6 +15,7 @@ pub mod weapon;
 pub mod prelude;
 
 pub use audio::plugin as audio_plugin;
+pub use experience::plugin as experience_plugin;
 pub use game::plugin as game_plugin;
 pub use inventory::plugin as inventory_plugin;
 pub use laser::plugin as laser_plugin;
