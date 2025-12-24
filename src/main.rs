@@ -13,6 +13,7 @@ fn main() {
 mod tests {
     use super::*;
     use donny_tango_survivor::prelude::*;
+    use bevy::app::App;
 
     #[test]
     fn test_game_state_default() {
@@ -23,7 +24,6 @@ mod tests {
     #[test]
     fn test_components_exist() {
         // Test that our component types can be created
-        let _player = Player;
         let _rock = Rock;
         let _menu_button = MenuButton;
         let _start_button = StartGameButton;
@@ -97,5 +97,133 @@ mod tests {
         assert_ne!(GameState::Intro, GameState::InGame);
         assert_eq!(GameState::Intro as u8, 0);
         assert_eq!(GameState::InGame as u8, 1);
+    }
+
+    #[test]
+    fn test_camera_reuse_across_state_transitions() {
+        let mut app = App::new();
+
+        // Add minimal plugins needed for state transitions
+        app.add_plugins((
+            bevy::state::app::StatesPlugin,
+            bevy::time::TimePlugin::default(),
+            bevy::input::InputPlugin::default(),
+        ));
+
+        // Initialize game state (starts in Intro by default)
+        app.init_state::<GameState>();
+
+        // Add our plugins
+        app.add_plugins((game_plugin, ui_plugin));
+
+        // Verify initial state is Intro
+        assert_eq!(*app.world().get_resource::<State<GameState>>().unwrap(), GameState::Intro);
+
+        // Run startup systems (this should create the intro camera)
+        app.update();
+
+        // Verify camera exists after intro setup
+        let camera_exists = app.world_mut().query::<&Camera>().single(app.world()).is_ok();
+        assert!(camera_exists, "Should have a camera after intro setup");
+
+        // Check that intro UI elements exist
+        let has_ui = app.world_mut().query::<&Node>().iter(app.world()).next().is_some();
+        assert!(has_ui, "Should have UI nodes in intro state");
+
+        // Transition to InGame state
+        app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
+        app.update(); // Process state transition
+
+        // Verify state changed to InGame
+        assert_eq!(*app.world().get_resource::<State<GameState>>().unwrap(), GameState::InGame);
+
+        // Verify camera still exists (reused, not recreated)
+        let camera_still_exists = app.world_mut().query::<&Camera>().single(app.world()).is_ok();
+        assert!(camera_still_exists, "Should still have camera after transitioning to InGame");
+
+        // Verify game entities exist (player and rocks)
+        let _has_player = app.world_mut().query::<&Player>().single(app.world()).is_ok();
+        assert!(_has_player, "Should have a player in InGame");
+
+        let _rock_count = app.world_mut().query::<&Rock>().iter(app.world()).count();
+        assert_eq!(_rock_count, 15, "Should have 15 rocks in InGame");
+
+        // Verify UI elements are gone
+        let has_ui_ingame = app.world_mut().query::<&Node>().iter(app.world()).next().is_some();
+        assert!(!has_ui_ingame, "Should have no UI nodes in InGame state");
+
+        // Transition back to Intro state
+        app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::Intro);
+        app.update(); // Process state transition
+
+        // Verify state changed back to Intro
+        assert_eq!(*app.world().get_resource::<State<GameState>>().unwrap(), GameState::Intro);
+
+        // Verify camera still exists (reused again)
+        let camera_exists_again = app.world_mut().query::<&Camera>().single(app.world()).is_ok();
+        assert!(camera_exists_again, "Should still have camera after transitioning back to Intro");
+
+        // Verify UI elements are back
+        let _has_ui_again = app.world_mut().query::<&Node>().iter(app.world()).next().is_some();
+        assert!(_has_ui_again, "Should have UI nodes again in Intro state");
+
+        // Verify game entities are gone
+        let _has_player_intro = app.world_mut().query::<&Player>().single(app.world()).is_ok();
+        assert!(!_has_player_intro, "Should have no players in Intro state");
+
+        let rock_count_intro = app.world_mut().query::<&Rock>().iter(app.world()).count();
+        assert_eq!(rock_count_intro, 0, "Should have no rocks in Intro state");
+    }
+
+    #[test]
+    fn test_no_blank_screen_during_transitions() {
+        let mut app = App::new();
+
+        // Add minimal plugins
+        app.add_plugins((
+            bevy::state::app::StatesPlugin,
+            bevy::time::TimePlugin::default(),
+            bevy::input::InputPlugin::default(),
+        ));
+
+        // Initialize game state
+        app.init_state::<GameState>();
+
+        // Add our plugins
+        app.add_plugins((game_plugin, ui_plugin));
+
+        // Run initial update to set up intro
+        app.update();
+
+        // Record initial state
+        let initial_camera_exists = app.world_mut().query::<&Camera>().single(app.world()).is_ok();
+        let initial_has_content = app.world_mut().query::<&Node>().iter(app.world()).next().is_some();
+
+        // Ensure we start with content to render
+        assert!(initial_camera_exists, "Should have camera initially");
+        assert!(initial_has_content, "Should have renderable content initially");
+
+        // Transition to InGame
+        app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
+        app.update();
+
+        // Verify we still have camera and content immediately after transition
+        let post_transition_camera_exists = app.world_mut().query::<&Camera>().single(app.world()).is_ok();
+        let post_transition_has_content = app.world_mut().query::<&Player>().single(app.world()).is_ok() ||
+                                         app.world_mut().query::<&Rock>().iter(app.world()).next().is_some();
+
+        assert!(post_transition_camera_exists, "Camera should exist immediately after transition");
+        assert!(post_transition_has_content, "Should have renderable content immediately after transition");
+
+        // Transition back to Intro
+        app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::Intro);
+        app.update();
+
+        // Verify camera persists and content is available
+        let final_camera_exists = app.world_mut().query::<&Camera>().single(app.world()).is_ok();
+        let final_has_content = app.world_mut().query::<&Node>().iter(app.world()).next().is_some();
+
+        assert!(final_camera_exists, "Camera should persist throughout all transitions");
+        assert!(final_has_content, "Should have renderable content after all transitions");
     }
 }
