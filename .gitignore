@@ -1,0 +1,21 @@
+# Rust build output
+target/
+
+# Backup files
+**/*.rs.bk
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+
+# Log files
+*.log
