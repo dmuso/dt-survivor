@@ -3,6 +3,7 @@ use crate::rocket_launcher::components::*;
 use crate::enemies::components::*;
 use bevy_kira_audio::prelude::*;
 use crate::audio::plugin::*;
+use crate::game::events::EnemyDeathEvent;
 
 pub fn rocket_spawning_system(
     time: Res<Time>,
@@ -155,6 +156,7 @@ pub fn area_damage_system(
     explosion_query: Query<&Explosion>,
     enemy_query: Query<(Entity, &Transform), With<Enemy>>,
     mut score: ResMut<crate::score::Score>,
+    mut enemy_death_events: MessageWriter<EnemyDeathEvent>,
     asset_server: Option<Res<AssetServer>>,
     mut enemy_channel: Option<ResMut<AudioChannel<EnemySoundChannel>>>,
     mut sound_limiter: Option<ResMut<SoundLimiter>>,
@@ -174,7 +176,16 @@ pub fn area_damage_system(
 
             // Kill enemies in explosion radius
             for enemy_entity in enemies_to_kill {
-                commands.entity(enemy_entity).despawn();
+                // Get enemy position for event
+                let enemy_pos = enemy_query.get(enemy_entity).map(|(_, transform)| transform.translation.truncate()).unwrap_or(Vec2::ZERO);
+
+                // Send enemy death event for centralized loot/experience handling
+                enemy_death_events.write(EnemyDeathEvent {
+                    enemy_entity,
+                    position: enemy_pos,
+                });
+
+                commands.entity(enemy_entity).try_despawn();
                 score.0 += 1;
 
                 // Play death sound
@@ -213,23 +224,26 @@ pub fn update_rocket_visuals(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::weapon::components::{Weapon, WeaponType};
-    use crate::loot::components::LootItem;
+    #[cfg(test)]
+    mod tests {
+        use bevy::prelude::*;
+        use crate::weapon::components::{Weapon, WeaponType};
+        use crate::loot::components::LootItem;
 
     #[test]
     fn test_rocket_loot_placement() {
         // Test that rocket launcher loot is created with correct properties
         let weapon = Weapon {
             weapon_type: WeaponType::RocketLauncher,
+            level: 1,
             fire_rate: 10.0,
-            damage: 30.0,
+            base_damage: 30.0,
             last_fired: -10.0,
         };
 
         let loot = LootItem {
             loot_type: crate::loot::components::LootType::Weapon(weapon.clone()),
+            velocity: Vec2::ZERO,
         };
 
         // Verify loot type is weapon
@@ -237,7 +251,7 @@ mod tests {
             crate::loot::components::LootType::Weapon(loot_weapon) => {
                 assert!(matches!(loot_weapon.weapon_type, WeaponType::RocketLauncher));
                 assert_eq!(loot_weapon.fire_rate, 10.0);
-                assert_eq!(loot_weapon.damage, 30.0);
+                assert_eq!(loot_weapon.base_damage, 30.0);
             }
             _ => panic!("Expected weapon loot"),
         }

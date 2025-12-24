@@ -28,11 +28,11 @@ pub fn setup_game(
             health: 100.0,
             max_health: 100.0,
             regen_rate: 1.0, // 1 health per second (was 1% of 100)
+            pickup_radius: 50.0, // Radius within which loot is attracted to player
         },
         crate::experience::components::PlayerExperience {
             current: 0,
             level: 1,
-            pickup_radius: 50.0, // Initial pickup radius
         },
     ));
 
@@ -202,6 +202,7 @@ mod tests {
                 health: 100.0,
                 max_health: 100.0,
                 regen_rate: 1.0,
+                pickup_radius: 50.0,
             },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
@@ -233,6 +234,7 @@ mod tests {
                 health: 100.0,
                 max_health: 100.0,
                 regen_rate: 1.0,
+                pickup_radius: 50.0,
             },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
@@ -265,6 +267,7 @@ mod tests {
                 health: 100.0,
                 max_health: 100.0,
                 regen_rate: 1.0,
+                pickup_radius: 50.0,
             },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
@@ -312,20 +315,21 @@ mod tests {
         app.init_resource::<ScreenTintEffect>();
         app.init_resource::<Time>();
 
-        // Create player at (0, 0) with 10 health (will die on next hit)
+        // Create player at (0, 0) with 100 health
         let player_entity = app.world_mut().spawn((
             Player {
                 speed: 200.0,
-                health: 10.0,
+                health: 100.0,
                 max_health: 100.0,
                 regen_rate: 1.0,
+                pickup_radius: 50.0,
             },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 
         // Create enemy at (10, 0) - within collision distance
         app.world_mut().spawn((
-            Enemy { speed: 50.0, strength: 15.0 }, // Strong enemy
+            Enemy { speed: 50.0, strength: 150.0 }, // Lethal enemy (more than player health)
             Transform::from_translation(Vec3::new(10.0, 0.0, 0.0)),
         ));
 
@@ -361,6 +365,7 @@ mod tests {
                 health: 100.0,
                 max_health: 100.0,
                 regen_rate: 1.0,
+                pickup_radius: 50.0,
             },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         ));

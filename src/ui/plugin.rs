@@ -13,6 +13,7 @@ pub fn plugin(app: &mut App) {
             update_health_display,
             update_screen_tint,
             update_weapon_icons,
+            update_weapon_level_displays,
         ).run_if(in_state(GameState::InGame)))
         .add_systems(PostUpdate, update_weapon_slots.run_if(in_state(GameState::InGame)))
         .add_systems(OnEnter(GameState::GameOver), setup_game_over_ui)

@@ -353,26 +353,24 @@ pub fn setup_weapon_slots(
         },
     ))
     .with_children(|container| {
-        for i in 0..5 {
+        // Create slots for each weapon type (pistol, laser, etc.)
+        let weapon_types = ["pistol", "laser", "rocket_launcher"];
+
+        for (i, weapon_type) in weapon_types.iter().enumerate() {
             container.spawn((
                 Node {
-                    width: Val::Px(40.0),  // 2x player size (20x20)
-                    height: Val::Px(40.0),
+                    width: Val::Px(50.0),  // Larger to accommodate level text
+                    height: Val::Px(50.0),
                     justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
+                    flex_direction: FlexDirection::Column,
                     ..default()
                 },
-                if i == 0 {
-                    // Slot 0: equipped weapon - dark blue background
-                    BackgroundColor(Color::srgb(0.1, 0.1, 0.3))
-                } else {
-                    // Empty slots: light gray background
-                    BackgroundColor(Color::srgb(0.3, 0.3, 0.3))
-                },
+                BackgroundColor(Color::srgb(0.2, 0.2, 0.2)),
                 WeaponSlot { slot_index: i },
             ))
             .with_children(|slot| {
-                // Weapon icon for each slot (will be updated by update_weapon_icons system)
+                // Weapon icon
                 slot.spawn((
                     Node {
                         width: Val::Px(30.0),
@@ -380,7 +378,18 @@ pub fn setup_weapon_slots(
                         ..default()
                     },
                     BackgroundColor(Color::srgba(0.3, 0.3, 0.3, 0.5)), // Initially gray/transparent
-                    WeaponIcon { slot_index: i },
+                    WeaponIcon { weapon_type: weapon_type.to_string() },
+                ));
+
+                // Level text
+                slot.spawn((
+                    Text::new(""),
+                    TextFont {
+                        font_size: 12.0,
+                        ..default()
+                    },
+                    TextColor(Color::srgb(1.0, 1.0, 1.0)),
+                    WeaponLevelDisplay { weapon_type: weapon_type.to_string() },
                 ));
 
                 if i == 0 {
@@ -421,9 +430,9 @@ pub fn update_weapon_slots(
     mut fill_query: Query<&mut BackgroundColor, With<WeaponTimerFill>>,
     mut size_query: Query<&mut Node, With<WeaponTimerFill>>,
 ) {
-    // Find the weapon in slot 0 (pistol) for the timer display
+    // Find the pistol weapon for the timer display
     for (weapon, equipped) in weapon_query.iter() {
-        if equipped.slot_index == 0 {
+        if equipped.weapon_type == "pistol" {
             let time_since_fired = time.elapsed_secs() - weapon.last_fired;
             let progress = (time_since_fired / weapon.fire_rate).clamp(0.0, 1.0);
 
@@ -453,7 +462,7 @@ pub fn update_weapon_icons(
     mut icon_query: Query<(&mut BackgroundColor, &WeaponIcon)>,
 ) {
     for (mut bg_color, icon) in icon_query.iter_mut() {
-        if let Some(weapon) = &inventory.slots[icon.slot_index] {
+        if let Some(weapon) = inventory.get_weapon_by_type(&icon.weapon_type) {
             // Set color based on weapon type
             *bg_color = BackgroundColor(match weapon.weapon_type {
                 WeaponType::Pistol { .. } => Color::srgb(1.0, 1.0, 0.0), // Yellow for pistol
@@ -461,8 +470,21 @@ pub fn update_weapon_icons(
                 _ => Color::srgb(0.5, 0.5, 0.5), // Gray for other weapons
             });
         } else {
-            // Empty slot - make it transparent or gray
-            *bg_color = BackgroundColor(Color::srgba(0.3, 0.3, 0.3, 0.5));
+            // No weapon of this type - make it transparent
+            *bg_color = BackgroundColor(Color::srgba(0.3, 0.3, 0.3, 0.3));
+        }
+    }
+}
+
+pub fn update_weapon_level_displays(
+    inventory: Res<Inventory>,
+    mut text_query: Query<(&mut Text, &WeaponLevelDisplay)>,
+) {
+    for (mut text, display) in text_query.iter_mut() {
+        if let Some(weapon) = inventory.get_weapon_by_type(&display.weapon_type) {
+            **text = format!("Lv.{}", weapon.level);
+        } else {
+            **text = "".to_string();
         }
     }
 }

@@ -3,6 +3,7 @@ use crate::laser::components::*;
 use crate::enemies::components::*;
 use bevy_kira_audio::prelude::*;
 use crate::audio::plugin::*;
+use crate::game::events::EnemyDeathEvent;
 
 #[cfg(test)]
 mod tests {
@@ -53,6 +54,7 @@ mod tests {
     #[test]
     fn test_laser_beam_collision() {
         let mut app = App::new();
+        app.add_message::<crate::game::events::EnemyDeathEvent>();
         app.add_systems(Update, laser_beam_collision_system);
 
         // Create laser beam with some elapsed time to make it thick
@@ -123,6 +125,7 @@ pub fn laser_beam_collision_system(
     mut commands: Commands,
     laser_query: Query<&LaserBeam>,
     mut enemy_query: Query<(Entity, &Transform, &mut Enemy)>,
+    mut enemy_death_events: MessageWriter<EnemyDeathEvent>,
     asset_server: Option<Res<AssetServer>>,
     mut enemy_channel: Option<ResMut<AudioChannel<EnemySoundChannel>>>,
     mut sound_limiter: Option<ResMut<SoundLimiter>>,
@@ -150,8 +153,14 @@ pub fn laser_beam_collision_system(
 
                         // If enemy is close enough to the laser beam
                         if distance_to_line < laser.get_thickness() / 2.0 + 10.0 { // 10px tolerance
+                            // Send enemy death event for centralized loot/experience handling
+                            enemy_death_events.write(EnemyDeathEvent {
+                                enemy_entity,
+                                position: enemy_pos,
+                            });
+
                             // Despawn enemy immediately (like bullet collision)
-                            commands.entity(enemy_entity).despawn();
+                            commands.entity(enemy_entity).try_despawn();
 
                             // Play enemy death sound
                             if let (Some(asset_server), Some(enemy_channel), Some(sound_limiter)) =

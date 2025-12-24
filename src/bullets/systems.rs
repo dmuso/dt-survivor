@@ -9,7 +9,7 @@ use crate::bullets::components::*;
 use crate::enemies::components::*;
 use crate::player::components::*;
 use crate::score::Score;
-use rand::Rng;
+use crate::game::events::EnemyDeathEvent;
 
 #[derive(Resource)]
 pub struct BulletSpawnTimer(pub Timer);
@@ -120,6 +120,7 @@ pub fn bullet_collision_system(
     bullet_query: Query<(Entity, &Transform), With<Bullet>>,
     enemy_query: Query<(Entity, &Transform), With<Enemy>>,
     mut score: ResMut<Score>,
+    mut enemy_death_events: MessageWriter<EnemyDeathEvent>,
     _asset_server: Option<Res<AssetServer>>,
     _enemy_channel: Option<ResMut<AudioChannel<EnemySoundChannel>>>,
     _sound_limiter: Option<ResMut<SoundLimiter>>,
@@ -157,7 +158,7 @@ pub fn bullet_collision_system(
     // Second pass: despawn entities, spawn experience orbs, and play sounds
     // Despawn bullets
     for bullet_entity in bullets_to_despawn {
-        commands.entity(bullet_entity).despawn();
+        commands.entity(bullet_entity).try_despawn();
     }
 
     let enemies_to_despawn_vec: Vec<Entity> = enemies_to_despawn.into_iter().collect();
@@ -165,32 +166,13 @@ pub fn bullet_collision_system(
         // Get enemy position for loot spawning before despawning
         let enemy_pos = enemy_query.get(*enemy_entity).map(|(_, transform)| transform.translation.truncate()).unwrap_or(Vec2::ZERO);
 
-        commands.entity(*enemy_entity).despawn();
+        // Send enemy death event for centralized loot/experience handling
+        enemy_death_events.write(EnemyDeathEvent {
+            enemy_entity: *enemy_entity,
+            position: enemy_pos,
+        });
 
-        // Spawn experience orbs for each enemy killed
-        let mut rng = rand::thread_rng();
-        let orb_count = rng.gen_range(1..=3);
-
-        for _ in 0..orb_count {
-            let value = rng.gen_range(5..=15); // 5-15 experience per orb
-            let offset_x = rng.gen_range(-10.0..=10.0);
-            let offset_y = rng.gen_range(-10.0..=10.0);
-
-            commands.spawn((
-                Sprite::from_color(
-                    Color::srgb(0.75, 0.75, 0.75), // Light grey color
-                    Vec2::new(8.0, 8.0) // Same size as bullets
-                ),
-                Transform::from_translation(
-                    Vec3::new(enemy_pos.x + offset_x, enemy_pos.y + offset_y, 0.2)
-                ),
-                    crate::experience::components::ExperienceOrb {
-                        value,
-                        pickup_radius: 50.0, // Initial pickup radius
-                        velocity: Vec2::ZERO, // Start with no velocity
-                    },
-            ));
-        }
+        commands.entity(*enemy_entity).try_despawn();
     }
 
     // Update score
@@ -259,8 +241,11 @@ mod tests {
     fn test_bullet_collision_detection() {
         let mut app = App::new();
 
-        // Initialize score resource
+        // Initialize resources and add plugins
         app.init_resource::<Score>();
+        app.add_message::<crate::game::events::EnemyDeathEvent>();
+        app.add_systems(Update, bullet_collision_system);
+        app.add_systems(Update, crate::loot::systems::enemy_death_system);
 
         // Create bullet at (0, 0)
         let bullet_entity = app.world_mut().spawn((
@@ -278,7 +263,7 @@ mod tests {
             Enemy { speed: 50.0, strength: 10.0 },
         )).id();
 
-        let _ = app.world_mut().run_system_once(bullet_collision_system);
+        app.update();
 
         // Both bullet and enemy should be despawned
         assert!(!app.world().entities().contains(bullet_entity));
@@ -293,8 +278,11 @@ mod tests {
     fn test_bullet_collision_no_collision() {
         let mut app = App::new();
 
-        // Initialize score resource
+        // Initialize resources
         app.init_resource::<Score>();
+        app.add_message::<crate::game::events::EnemyDeathEvent>();
+        app.add_systems(Update, bullet_collision_system);
+        app.add_systems(Update, crate::loot::systems::enemy_death_system);
 
         // Create bullet at (0, 0)
         let bullet_entity = app.world_mut().spawn((
@@ -312,7 +300,7 @@ mod tests {
             Enemy { speed: 50.0, strength: 10.0 },
         )).id();
 
-        let _ = app.world_mut().run_system_once(bullet_collision_system);
+        app.update();
 
         // Both bullet and enemy should still exist
         assert!(app.world().entities().contains(bullet_entity));

@@ -272,27 +272,23 @@ mod tests {
         use donny_tango_survivor::inventory::resources::Inventory;
 
         let inventory = Inventory::default();
-        assert_eq!(inventory.slots.len(), 5, "Inventory should have 5 slots");
 
-        // Check that slot 0 has a weapon
-        assert!(inventory.slots[0].is_some(), "Slot 0 should have a weapon");
+        // Check that pistol is in inventory
+        assert!(inventory.get_weapon_by_type("pistol").is_some(), "Pistol should be in inventory");
 
-        let weapon = inventory.slots[0].as_ref().unwrap();
+        let weapon = inventory.get_weapon_by_type("pistol").unwrap();
         assert_eq!(weapon.fire_rate, 2.0, "Default weapon should have 2 second fire rate");
         assert_eq!(weapon.last_fired, -2.0, "Default weapon should start with last_fired = -2.0 to prevent immediate firing");
-        assert_eq!(weapon.damage, 1.0, "Default weapon should have 1.0 damage");
+        assert_eq!(weapon.base_damage, 1.0, "Default weapon should have 1.0 base damage");
+        assert_eq!(weapon.level, 1, "Default weapon should start at level 1");
+        assert_eq!(weapon.damage(), 1.25, "Default weapon should have 1.25 total damage (1.0 * 1 * 1.25)");
 
         // Check weapon type
-        if let donny_tango_survivor::weapon::components::WeaponType::Pistol { bullet_count, spread_angle } = &weapon.weapon_type {
-            assert_eq!(*bullet_count, 5, "Default pistol should fire 5 bullets");
-            assert_eq!(*spread_angle, 15.0, "Default pistol should have 15 degree spread");
+        if let donny_tango_survivor::weapon::components::WeaponType::Pistol { bullet_count, spread_angle } = weapon.weapon_type {
+            assert_eq!(bullet_count, 5, "Default pistol should fire 5 bullets");
+            assert_eq!(spread_angle, 15.0, "Default pistol should have 15 degree spread");
         } else {
             panic!("Default weapon should be a pistol");
-        }
-
-        // Check that slots 1-4 are empty
-        for i in 1..5 {
-            assert!(inventory.slots[i].is_none(), "Slots 1-4 should be empty");
         }
     }
 
@@ -336,7 +332,7 @@ mod tests {
         }
 
         if let Ok(equipped) = world.query::<&EquippedWeapon>().single(world) {
-            assert_eq!(equipped.slot_index, 0, "Weapon should be equipped in slot 0");
+            assert_eq!(equipped.weapon_type, "pistol", "Weapon should be pistol");
         }
     }
 
@@ -414,11 +410,11 @@ mod tests {
         // Check that weapon slots are created
         let world = app.world_mut();
         let slot_count = world.query::<&WeaponSlot>().iter(world).count();
-        assert_eq!(slot_count, 5, "Should have 5 weapon slots");
+        assert_eq!(slot_count, 3, "Should have 3 weapon slots (pistol, laser, rocket_launcher)");
 
         // Check that weapon icons exist for all slots
         let icon_count = world.query::<&WeaponIcon>().iter(world).count();
-        assert_eq!(icon_count, 5, "Should have 5 weapon icons for all slots");
+        assert_eq!(icon_count, 3, "Should have 3 weapon icons for all slots");
 
         // Check that weapon timer fill exists
         let timer_fill_count = world.query::<&WeaponTimerFill>().iter(world).count();

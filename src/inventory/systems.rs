@@ -22,6 +22,7 @@ use crate::player::components::*;
                 health: 100.0,
                 max_health: 100.0,
                 regen_rate: 1.0,
+                pickup_radius: 50.0,
             },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         ));
@@ -33,7 +34,7 @@ use crate::player::components::*;
         // Note: In a real scenario, this would create weapon entities, but for testing
         // the initialization logic, we verify the inventory is set up correctly
         let inventory = app.world().get_resource::<Inventory>().unwrap();
-        assert!(inventory.slots[0].is_some()); // Pistol should be in slot 0
+        assert!(inventory.get_weapon_by_type("pistol").is_some()); // Pistol should be in inventory
     }
 
     #[test]
@@ -48,6 +49,7 @@ use crate::player::components::*;
                 health: 100.0,
                 max_health: 100.0,
                 regen_rate: 1.0,
+                pickup_radius: 50.0,
             },
             Transform::from_translation(Vec3::new(100.0, 200.0, 0.0)),
         )).id();
@@ -56,11 +58,12 @@ use crate::player::components::*;
         let weapon_entity = app.world_mut().spawn((
             Weapon {
                 weapon_type: WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 },
+                level: 1,
                 fire_rate: 2.0,
-                damage: 1.0,
+                base_damage: 1.0,
                 last_fired: 0.0,
             },
-            EquippedWeapon { slot_index: 0 },
+            EquippedWeapon { weapon_type: "pistol".to_string() },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 
@@ -74,33 +77,51 @@ use crate::player::components::*;
     }
 
     #[test]
-    fn test_inventory_slot_assignment() {
+    fn test_inventory_weapon_management() {
         let mut app = App::new();
-        app.init_resource::<Inventory>();
+        // Start with empty inventory for this test
+        app.insert_resource(Inventory { weapons: std::collections::HashMap::new() });
 
         let mut inventory = app.world_mut().get_resource_mut::<Inventory>().unwrap();
 
-        // Add weapons to different slots
-        inventory.slots[0] = Some(Weapon {
+        // Add weapons of different types
+        let pistol = Weapon {
             weapon_type: WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 },
+            level: 1,
             fire_rate: 2.0,
-            damage: 1.0,
+            base_damage: 1.0,
             last_fired: 0.0,
-        });
+        };
 
-        inventory.slots[2] = Some(Weapon {
+        let laser = Weapon {
             weapon_type: WeaponType::Laser,
+            level: 1,
             fire_rate: 3.0,
-            damage: 15.0,
+            base_damage: 15.0,
             last_fired: 0.0,
-        });
+        };
 
-        // Check that slots are correctly assigned
-        assert!(inventory.slots[0].is_some());
-        assert!(inventory.slots[1].is_none());
-        assert!(inventory.slots[2].is_some());
-        assert!(inventory.slots[3].is_none());
-        assert!(inventory.slots[4].is_none());
+        // Add new weapons
+        assert!(inventory.add_or_level_weapon(pistol.clone()));
+        assert!(inventory.add_or_level_weapon(laser.clone()));
+
+        // Check that weapons are in inventory
+        assert!(inventory.get_weapon_by_type("pistol").is_some());
+        assert!(inventory.get_weapon_by_type("laser").is_some());
+
+        // Try to add the same weapon again - should level up
+        let pistol_level_2 = Weapon {
+            weapon_type: WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 },
+            level: 1,
+            fire_rate: 2.0,
+            base_damage: 1.0,
+            last_fired: 0.0,
+        };
+        assert!(inventory.add_or_level_weapon(pistol_level_2));
+
+        // Check that pistol leveled up
+        let pistol_weapon = inventory.get_weapon_by_type("pistol").unwrap();
+        assert_eq!(pistol_weapon.level, 2);
     }
 }
 
@@ -111,15 +132,13 @@ pub fn inventory_initialization_system(
 ) {
     // Only initialize if there are no weapon entities yet
     if weapon_query.is_empty() {
-        // Create separate weapon entities for each equipped weapon
-        for (slot_index, weapon_option) in inventory.slots.iter().enumerate() {
-            if let Some(weapon) = weapon_option {
-                commands.spawn((
-                    weapon.clone(),
-                    EquippedWeapon { slot_index },
-                    Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
-                ));
-            }
+        // Create separate weapon entities for each weapon in inventory
+        for (weapon_id, weapon) in inventory.iter_weapons() {
+            commands.spawn((
+                weapon.clone(),
+                EquippedWeapon { weapon_type: weapon_id.clone() },
+                Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            ));
         }
     }
 }

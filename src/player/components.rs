@@ -6,6 +6,7 @@ pub struct Player {
     pub health: f32,
     pub max_health: f32,
     pub regen_rate: f32, // health per second
+    pub pickup_radius: f32, // Radius within which loot is attracted to player
 }
 
 #[derive(Component)]
@@ -26,11 +27,13 @@ mod tests {
             health: 100.0,
             max_health: 100.0,
             regen_rate: 1.0,
+            pickup_radius: 50.0,
         };
         assert_eq!(player.speed, 150.0);
         assert_eq!(player.health, 100.0);
         assert_eq!(player.max_health, 100.0);
         assert_eq!(player.regen_rate, 1.0);
+        assert_eq!(player.pickup_radius, 50.0);
 
         // Test default player speed and health
         let default_player = Player {
@@ -38,11 +41,13 @@ mod tests {
             health: 100.0,
             max_health: 100.0,
             regen_rate: 1.0,
+            pickup_radius: 50.0,
         };
         assert_eq!(default_player.speed, 200.0);
         assert_eq!(default_player.health, 100.0);
         assert_eq!(default_player.max_health, 100.0);
         assert_eq!(default_player.regen_rate, 1.0);
+        assert_eq!(default_player.pickup_radius, 50.0);
     }
 
     #[test]
@@ -52,12 +57,14 @@ mod tests {
             health: 100.0,
             max_health: 100.0,
             regen_rate: 1.0,
+            pickup_radius: 50.0,
         };
         let fast_player = Player {
             speed: 500.0,
             health: 100.0,
             max_health: 100.0,
             regen_rate: 1.0,
+            pickup_radius: 50.0,
         };
 
         assert_eq!(slow_player.speed, 100.0);

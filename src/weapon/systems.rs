@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy_kira_audio::prelude::*;
 use rand::Rng;
 use crate::weapon::components::*;
-use crate::bullets::components::Bullet;
+
 use crate::enemies::components::*;
 use crate::player::components::*;
 use crate::audio::plugin::*;
@@ -25,6 +25,7 @@ mod tests {
                 health: 100.0,
                 max_health: 100.0,
                 regen_rate: 1.0,
+                pickup_radius: 50.0,
             },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         ));
@@ -42,11 +43,12 @@ mod tests {
         app.world_mut().spawn((
             Weapon {
                 weapon_type: WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 },
+                level: 1,
                 fire_rate: 0.1, // Very fast for testing
-                damage: 1.0,
+                base_damage: 1.0,
                 last_fired: 10.0, // Ready to fire
             },
-            EquippedWeapon { slot_index: 0 },
+            EquippedWeapon { weapon_type: "pistol".to_string() },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         ));
 
@@ -71,6 +73,7 @@ mod tests {
                 health: 100.0,
                 max_health: 100.0,
                 regen_rate: 1.0,
+                pickup_radius: 50.0,
             },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         ));
@@ -96,11 +99,12 @@ mod tests {
         app.world_mut().spawn((
             Weapon {
                 weapon_type: WeaponType::Laser,
+                level: 1,
                 fire_rate: 0.1, // Very fast for testing
-                damage: 15.0,
+                base_damage: 15.0,
                 last_fired: 10.0, // Ready to fire
             },
-            EquippedWeapon { slot_index: 0 },
+            EquippedWeapon { weapon_type: "laser".to_string() },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         ));
 
@@ -125,6 +129,7 @@ mod tests {
                 health: 100.0,
                 max_health: 100.0,
                 regen_rate: 1.0,
+                pickup_radius: 50.0,
             },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         ));
@@ -144,22 +149,24 @@ mod tests {
         app.world_mut().spawn((
             Weapon {
                 weapon_type: WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 },
+                level: 1,
                 fire_rate: 0.1,
-                damage: 1.0,
+                base_damage: 1.0,
                 last_fired: 10.0,
             },
-            EquippedWeapon { slot_index: 0 },
+            EquippedWeapon { weapon_type: "pistol".to_string() },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         ));
 
         app.world_mut().spawn((
             Weapon {
                 weapon_type: WeaponType::Laser,
+                level: 1,
                 fire_rate: 0.1,
-                damage: 15.0,
+                base_damage: 15.0,
                 last_fired: 10.0,
             },
-            EquippedWeapon { slot_index: 1 },
+            EquippedWeapon { weapon_type: "laser".to_string() },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         ));
 
@@ -229,45 +236,22 @@ pub fn weapon_firing_system(
                 let base_direction = (target_pos - player_pos).normalize();
 
                 match &weapon.weapon_type {
-                    WeaponType::Pistol { bullet_count: _, spread_angle } => {
-                        // Spawn bullets with spread (ported from bullet_spawning_system)
-                        let spread_angle_rad = spread_angle.to_radians();
-                        for i in -2..=2 {
-                            let angle_offset = i as f32 * spread_angle_rad;
-                            // Rotate the base direction by the spread angle
-                            let cos_offset = angle_offset.cos();
-                            let sin_offset = angle_offset.sin();
-                            let direction = Vec2::new(
-                                base_direction.x * cos_offset - base_direction.y * sin_offset,
-                                base_direction.x * sin_offset + base_direction.y * cos_offset,
-                            );
-
-                            commands.spawn((
-                                Sprite::from_color(Color::srgb(1.0, 1.0, 0.0), Vec2::new(8.0, 8.0)), // Yellow bullet
-                                Transform::from_translation(player_transform.translation + Vec3::new(0.0, 0.0, 0.1)),
-                                Bullet {
-                                    direction,
-                                    speed: 200.0,
-                                    lifetime: Timer::from_seconds(15.0, TimerMode::Once),
-                                },
-                            ));
-                        }
-
-                        // Play weapon sound effect (only if AssetServer and AudioChannel are available)
-                        if let (Some(asset_server), Some(weapon_channel), Some(sound_limiter)) =
-                            (asset_server.as_ref(), weapon_channel.as_mut(), sound_limiter.as_mut()) {
-                            crate::audio::plugin::play_limited_sound(
-                                weapon_channel.as_mut(),
-                                asset_server,
-                                "sounds/143610__dwoboyle__weapons-synth-blast-02.wav",
-                                sound_limiter.as_mut(),
-                            );
-                        }
+                    WeaponType::Pistol { .. } => {
+                        // Delegate pistol firing to pistol module
+                        crate::pistol::systems::fire_pistol(
+                            &mut commands,
+                            &weapon,
+                            player_transform,
+                            target_pos,
+                            asset_server.as_ref(),
+                            weapon_channel.as_mut(),
+                            sound_limiter.as_mut(),
+                        );
                     }
                      WeaponType::Laser => {
                          // Create a laser beam entity
                          use crate::laser::components::LaserBeam;
-                         commands.spawn(LaserBeam::new(player_pos, base_direction, weapon.damage));
+                          commands.spawn(LaserBeam::new(player_pos, base_direction, weapon.damage()));
 
                          // Play laser sound effect
                          if let (Some(asset_server), Some(weapon_channel), Some(sound_limiter)) =
@@ -286,7 +270,7 @@ pub fn weapon_firing_system(
 
                          // Create a rocket projectile
                          use crate::rocket_launcher::components::RocketProjectile;
-                         let (mut rocket, transform) = RocketProjectile::new(player_transform.translation.truncate(), base_direction, weapon.damage);
+                          let (mut rocket, transform) = RocketProjectile::new(player_transform.translation.truncate(), base_direction, weapon.damage());
                          rocket.target_position = target_pos;
                          commands.spawn((
                              rocket,

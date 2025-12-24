@@ -3,7 +3,6 @@ use bevy::prelude::*;
 #[derive(Component)]
 pub struct ExperienceOrb {
     pub value: u32,
-    pub pickup_radius: f32,
     pub velocity: Vec2,
 }
 
@@ -11,7 +10,6 @@ pub struct ExperienceOrb {
 pub struct PlayerExperience {
     pub current: u32,
     pub level: u32,
-    pub pickup_radius: f32, // Radius within which orbs are attracted to player
 }
 
 #[derive(Component)]

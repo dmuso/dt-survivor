@@ -23,6 +23,7 @@ mod tests {
                 health: 100.0,
                 max_health: 100.0,
                 regen_rate: 1.0,
+                pickup_radius: 50.0,
             },
             Transform::from_translation(Vec3::new(50.0, 25.0, 0.0)),
         ));
@@ -73,6 +74,7 @@ mod tests {
             health: 50.0,
             max_health: 100.0,
             regen_rate: 2.0, // 2 health per second
+            pickup_radius: 50.0,
         }).id();
 
         // Set damage timer to indicate no recent damage (more than 3 seconds ago)
@@ -119,6 +121,7 @@ mod tests {
             health: 50.0,
             max_health: 100.0,
             regen_rate: 2.0,
+            pickup_radius: 50.0,
         }).id();
 
         // Set damage timer to indicate recent damage (less than 3 seconds ago)
@@ -154,6 +157,7 @@ mod tests {
             health: 99.0,
             max_health: 100.0,
             regen_rate: 5.0, // Fast regeneration
+            pickup_radius: 50.0,
         }).id();
 
         // Set damage timer to indicate no recent damage

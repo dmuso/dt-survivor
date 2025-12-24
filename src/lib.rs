@@ -6,6 +6,7 @@ pub mod game;
 pub mod inventory;
 pub mod laser;
 pub mod loot;
+pub mod pistol;
 pub mod player;
 pub mod rocket_launcher;
 pub mod score;

@@ -25,7 +25,7 @@ pub struct WeaponSlot {
 
 #[derive(Component)]
 pub struct WeaponIcon {
-    pub slot_index: usize,
+    pub weapon_type: String, // weapon type identifier
 }
 
 #[derive(Component)]
@@ -33,3 +33,8 @@ pub struct WeaponTimer;
 
 #[derive(Component)]
 pub struct WeaponTimerFill;
+
+#[derive(Component)]
+pub struct WeaponLevelDisplay {
+    pub weapon_type: String,
+}

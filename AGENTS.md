@@ -50,7 +50,71 @@ src/
 │   ├── components.rs   # UI components (buttons, menus, HUD)
 │   ├── systems.rs      # UI interaction systems
 │   └── plugin.rs       # UI plugin composition
-└── [future modules]    # Additional feature modules as needed
+├── pistol/             # Pistol weapon behavior
+│   ├── mod.rs
+│   ├── components.rs   # Pistol-specific components and configuration
+│   └── systems.rs      # Pistol firing logic and systems
+├── weapon/             # Generic weapon management
+│   ├── mod.rs
+│   ├── components.rs   # Weapon components and types
+│   ├── resources.rs    # Weapon resources
+│   ├── systems.rs      # Weapon firing coordination
+│   └── plugin.rs       # Weapon plugin composition
+├── inventory/          # Player inventory management
+│   ├── mod.rs
+│   ├── components.rs   # Inventory components
+│   ├── resources.rs    # Inventory storage
+│   ├── systems.rs      # Inventory systems
+│   └── plugin.rs       # Inventory plugin composition
+├── bullets/            # Bullet entities and behavior
+│   ├── mod.rs
+│   ├── components.rs   # Bullet components
+│   └── systems.rs      # Bullet movement and collision
+├── laser/              # Laser weapon behavior
+│   ├── mod.rs
+│   ├── components.rs   # Laser components
+│   ├── systems.rs      # Laser systems
+│   └── plugin.rs       # Laser plugin composition
+├── rocket_launcher/    # Rocket launcher weapon behavior
+│   ├── mod.rs
+│   ├── components.rs   # Rocket components
+│   ├── systems.rs      # Rocket systems
+│   └── plugin.rs       # Rocket launcher plugin composition
+├── loot/               # Loot spawning and pickup
+│   ├── mod.rs
+│   ├── components.rs   # Loot components
+│   ├── systems.rs      # Loot systems
+│   └── plugin.rs       # Loot plugin composition
+├── enemies/            # Enemy entities and AI
+│   ├── mod.rs
+│   ├── components.rs   # Enemy components
+│   └── systems.rs      # Enemy AI and behavior
+├── player/             # Player entity and controls
+│   ├── mod.rs
+│   ├── components.rs   # Player components
+│   └── systems.rs      # Player systems
+├── experience/         # Experience and leveling
+│   ├── mod.rs
+│   ├── components.rs   # Experience components
+│   ├── resources.rs    # Experience resources
+│   ├── systems.rs      # Experience systems
+│   └── plugin.rs       # Experience plugin composition
+├── score/              # Score tracking
+│   ├── mod.rs
+│   ├── components.rs   # Score components
+│   ├── resources.rs    # Score resources
+│   └── systems.rs      # Score systems
+├── audio/              # Audio management
+│   ├── mod.rs
+│   ├── components.rs   # Audio components
+│   ├── systems.rs      # Audio systems
+│   └── plugin.rs       # Audio plugin composition
+└── game/               # Core game logic and resources
+    ├── mod.rs
+    ├── components.rs   # Game components
+    ├── resources.rs    # Game resources
+    ├── systems.rs      # Game systems
+    └── plugin.rs       # Game plugin composition
 ```
 
 ### Module Organization Patterns

@@ -4,6 +4,7 @@ use crate::weapon::components::Weapon;
 #[derive(Component)]
 pub struct LootItem {
     pub loot_type: LootType,
+    pub velocity: Vec2,
 }
 
 #[derive(Clone, Debug)]
