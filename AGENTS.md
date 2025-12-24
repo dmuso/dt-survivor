@@ -17,6 +17,7 @@ All development tooling commands require Nix Shell to run.
 - You should maintain 90% code coverage via automated tests
 - Run linting and testing after every change
 - Fix any errors or warnings that you get as feedback from linting and tests
+- Write tests inline with code
 
 ## File Structure and Code Organization
 
