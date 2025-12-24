@@ -5,8 +5,8 @@ use crate::weapon::components::{Weapon, WeaponType};
 use crate::player::components::*;
 use crate::inventory::resources::*;
 use crate::inventory::components::*;
-use crate::audio::LootPickupSound;
-use crate::audio::AudioCleanupTimer;
+use bevy_kira_audio::prelude::*;
+use crate::audio::plugin::*;
 use crate::game::resources::ScreenTintEffect;
 
 pub fn loot_spawning_system(
@@ -57,6 +57,7 @@ pub fn loot_spawning_system(
 
 // This system is now handled directly in the bullet collision system
 
+#[allow(clippy::too_many_arguments)]
 pub fn player_loot_collision_system(
     mut commands: Commands,
     player_query: Query<&Transform, With<Player>>,
@@ -65,6 +66,8 @@ pub fn player_loot_collision_system(
     mut player_query_mut: Query<(Entity, &mut Player)>,
     mut screen_tint: ResMut<ScreenTintEffect>,
     asset_server: Option<Res<AssetServer>>,
+    mut loot_channel: Option<ResMut<AudioChannel<LootSoundChannel>>>,
+    mut sound_limiter: Option<ResMut<SoundLimiter>>,
 ) {
     if let Ok(player_transform) = player_query.single() {
         let player_pos = player_transform.translation.truncate();
@@ -104,14 +107,14 @@ pub fn player_loot_collision_system(
                 }
 
                 // Play pickup sound
-                if let Some(ref asset_server) = asset_server {
-                    let pickup_sound_handle: Handle<AudioSource> = asset_server.load("sounds/366104__original_sound__confirmation-downward.wav");
-                    commands.spawn((
-                        AudioPlayer(pickup_sound_handle),
-                        PlaybackSettings::ONCE,
-                        LootPickupSound,
-                        AudioCleanupTimer(Timer::from_seconds(2.0, TimerMode::Once)),
-                    ));
+                if let (Some(asset_server), Some(loot_channel), Some(sound_limiter)) =
+                    (asset_server.as_ref(), loot_channel.as_mut(), sound_limiter.as_mut()) {
+                    crate::audio::plugin::play_limited_sound(
+                        loot_channel.as_mut(),
+                        asset_server,
+                        "sounds/366104__original_sound__confirmation-downward.wav",
+                        sound_limiter.as_mut(),
+                    );
                 }
 
                 // Remove the loot item
