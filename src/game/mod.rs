@@ -1,9 +1,9 @@
 pub mod components;
-pub mod player;
+pub mod resources;
 pub mod systems;
 pub mod plugin;
 
 pub use components::*;
-pub use player::*;
+pub use resources::*;
 pub use systems::*;
 pub use plugin::*;
