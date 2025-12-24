@@ -22,7 +22,12 @@ pub fn setup_game(
     commands.spawn((
         Sprite::from_color(Color::srgb(0.0, 1.0, 0.0), Vec2::new(20.0, 20.0)), // Green player
         Transform::from_translation(Vec3::new(0.0, 0.0, 1.0)),
-        Player { speed: 200.0, health: 100.0 },
+        Player {
+            speed: 200.0,
+            health: 100.0,
+            max_health: 100.0,
+            regen_rate: 1.0, // 1 health per second (was 1% of 100)
+        },
     ));
 
     // Spawn random rocks scattered throughout the scene
@@ -69,15 +74,17 @@ pub fn cleanup_game(
 
 pub fn player_enemy_collision_system(
     player_transform_query: Query<&Transform, With<Player>>,
-    mut player_query: Query<&mut Player>,
+    mut player_query: Query<(Entity, &mut Player)>,
     enemy_query: Query<(&Transform, &Enemy)>,
     mut damage_timer: ResMut<PlayerDamageTimer>,
+    mut screen_tint: ResMut<ScreenTintEffect>,
+    mut commands: Commands,
     time: Res<Time>,
 ) {
     let Ok(player_transform) = player_transform_query.single() else {
         return;
     };
-    let Ok(mut player) = player_query.single_mut() else {
+    let Ok((player_entity, mut player)) = player_query.single_mut() else {
         return;
     };
 
@@ -122,6 +129,17 @@ pub fn player_enemy_collision_system(
 
             if distance < 15.0 {
                 player.health -= enemy.strength;
+
+                // Apply slow modifier (40% speed reduction for 3 seconds)
+                commands.entity(player_entity).insert(SlowModifier {
+                    remaining_duration: 3.0,
+                    speed_multiplier: 0.6, // 40% reduction
+                });
+
+                // Apply red screen tint for 0.1 seconds
+                screen_tint.remaining_duration = 0.1;
+                screen_tint.color = Color::srgba(1.0, 0.0, 0.0, 0.15); // Red with 15% opacity
+
                 break; // Only take damage from one enemy per tick
             }
         }
@@ -142,6 +160,19 @@ pub fn player_death_system(
     }
 }
 
+pub fn update_screen_tint_timer(
+    time: Res<Time>,
+    mut screen_tint: ResMut<ScreenTintEffect>,
+) {
+    if screen_tint.remaining_duration > 0.0 {
+        screen_tint.remaining_duration -= time.delta_secs();
+    } else {
+        // Reset tint when duration expires
+        screen_tint.remaining_duration = 0.0;
+        screen_tint.color = Color::NONE; // No tint
+    }
+}
+
 
 
 #[cfg(test)]
@@ -155,11 +186,17 @@ mod tests {
     fn test_player_enemy_collision_immediate_damage() {
         let mut app = App::new();
         app.init_resource::<PlayerDamageTimer>();
+        app.init_resource::<ScreenTintEffect>();
         app.init_resource::<Time>();
 
         // Create player at (0, 0) with 100 health
         let player_entity = app.world_mut().spawn((
-            Player { speed: 200.0, health: 100.0 },
+            Player {
+                speed: 200.0,
+                health: 100.0,
+                max_health: 100.0,
+                regen_rate: 1.0,
+            },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 
@@ -181,10 +218,16 @@ mod tests {
     fn test_player_enemy_collision_no_damage_when_not_touching() {
         let mut app = App::new();
         app.init_resource::<PlayerDamageTimer>();
+        app.init_resource::<ScreenTintEffect>();
 
         // Create player at (0, 0) with 100 health
         let player_entity = app.world_mut().spawn((
-            Player { speed: 200.0, health: 100.0 },
+            Player {
+                speed: 200.0,
+                health: 100.0,
+                max_health: 100.0,
+                regen_rate: 1.0,
+            },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 
@@ -206,11 +249,17 @@ mod tests {
     fn test_player_enemy_collision_damage_cooldown() {
         let mut app = App::new();
         app.init_resource::<PlayerDamageTimer>();
+        app.init_resource::<ScreenTintEffect>();
         app.init_resource::<Time>();
 
         // Create player at (0, 0) with 100 health
         let player_entity = app.world_mut().spawn((
-            Player { speed: 200.0, health: 100.0 },
+            Player {
+                speed: 200.0,
+                health: 100.0,
+                max_health: 100.0,
+                regen_rate: 1.0,
+            },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 
@@ -254,11 +303,17 @@ mod tests {
     fn test_player_death_on_zero_health() {
         let mut app = App::new();
         app.init_resource::<PlayerDamageTimer>();
+        app.init_resource::<ScreenTintEffect>();
         app.init_resource::<Time>();
 
         // Create player at (0, 0) with 10 health (will die on next hit)
         let player_entity = app.world_mut().spawn((
-            Player { speed: 200.0, health: 10.0 },
+            Player {
+                speed: 200.0,
+                health: 10.0,
+                max_health: 100.0,
+                regen_rate: 1.0,
+            },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 
@@ -283,6 +338,7 @@ mod tests {
     fn test_damage_timer_reset_when_not_touching() {
         let mut app = App::new();
         app.init_resource::<PlayerDamageTimer>();
+        app.init_resource::<ScreenTintEffect>();
         app.init_resource::<Time>();
 
         // Set timer to some value
@@ -294,7 +350,12 @@ mod tests {
 
         // Create player at (0, 0) with 100 health
         app.world_mut().spawn((
-            Player { speed: 200.0, health: 100.0 },
+            Player {
+                speed: 200.0,
+                health: 100.0,
+                max_health: 100.0,
+                regen_rate: 1.0,
+            },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         ));
 

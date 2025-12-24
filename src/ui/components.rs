@@ -14,3 +14,6 @@ pub struct HealthDisplay;
 
 #[derive(Component)]
 pub struct HealthBar;
+
+#[derive(Component)]
+pub struct ScreenTint;

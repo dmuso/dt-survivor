@@ -27,3 +27,9 @@ pub struct PlayerDamageTimer {
     pub time_since_last_damage: f32,
     pub has_taken_damage: bool,
 }
+
+#[derive(Resource, Default)]
+pub struct ScreenTintEffect {
+    pub remaining_duration: f32,
+    pub color: Color,
+}

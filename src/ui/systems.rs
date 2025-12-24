@@ -166,6 +166,17 @@ pub fn setup_game_ui(
         },
     ))
     .with_children(|parent| {
+        // Screen tint overlay (initially transparent)
+        parent.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                ..default()
+            },
+            BackgroundColor(Color::NONE),
+            ScreenTint,
+        ));
         // Health display container (top left)
         parent.spawn((
             Node {
@@ -214,6 +225,15 @@ pub fn setup_game_ui(
     });
 }
 
+pub fn update_screen_tint(
+    screen_tint_effect: Res<crate::game::resources::ScreenTintEffect>,
+    mut tint_query: Query<&mut BackgroundColor, With<ScreenTint>>,
+) {
+    for mut background_color in &mut tint_query {
+        *background_color = BackgroundColor(screen_tint_effect.color);
+    }
+}
+
 pub fn update_health_display(
     player_query: Query<&Player>,
     mut health_text_query: Query<&mut Text, (With<HealthDisplay>, Without<HealthBar>)>,
@@ -226,7 +246,7 @@ pub fn update_health_display(
         }
 
         // Update health bar width and color
-        let health_percentage = (player.health / 100.0).max(0.0).min(1.0);
+        let health_percentage = (player.health / 100.0).clamp(0.0, 1.0);
         let bar_color = if player.health > 60.0 {
             Color::srgb(0.0, 1.0, 0.0) // Green
         } else if player.health > 30.0 {
@@ -309,5 +329,21 @@ pub fn game_over_input(
     } else if keyboard_input.just_pressed(KeyCode::Escape) {
         // Go back to intro menu
         next_state.set(GameState::Intro);
+    }
+}
+
+#[allow(clippy::type_complexity)]
+pub fn cleanup_game_over(
+    mut commands: Commands,
+    query: Query<Entity, Or<(With<Node>, With<Text>)>>,
+) {
+    // Clean up game over UI elements and any remaining InGame UI
+    let entities: Vec<Entity> = query.iter().collect();
+    for entity in entities {
+        commands.queue(move |world: &mut World| {
+            if world.get_entity(entity).is_ok() {
+                let _ = world.despawn(entity);
+            }
+        });
     }
 }
