@@ -1,11 +1,14 @@
 use bevy::prelude::*;
 #[cfg(test)]
 use std::time::Duration;
+use std::collections::HashSet;
 
+use crate::audio::{WeaponSound, EnemyDeathSound, AudioCleanupTimer};
 use crate::bullets::components::*;
 use crate::enemies::components::*;
 use crate::player::components::*;
 use crate::score::Score;
+use rand::Rng;
 
 #[derive(Resource)]
 pub struct BulletSpawnTimer(pub Timer);
@@ -20,6 +23,7 @@ pub fn bullet_spawning_system(
     mut commands: Commands,
     time: Res<Time>,
     mut spawn_timer: ResMut<BulletSpawnTimer>,
+    asset_server: Option<Res<AssetServer>>,
     player_query: Query<&Transform, With<Player>>,
     enemy_query: Query<&Transform, With<Enemy>>,
 ) {
@@ -58,19 +62,43 @@ pub fn bullet_spawning_system(
         return;
     };
 
-    // Calculate direction towards closest enemy
-    let direction = (target_pos - player_pos).normalize();
+    // Calculate base direction towards closest enemy
+    let base_direction = (target_pos - player_pos).normalize();
 
-    // Spawn bullet
-    commands.spawn((
-        Sprite::from_color(Color::srgb(1.0, 1.0, 0.0), Vec2::new(8.0, 8.0)), // Yellow bullet
-        Transform::from_translation(player_transform.translation + Vec3::new(0.0, 0.0, 0.1)), // Slightly above player
-        Bullet {
-            direction,
-            speed: 200.0,
-            lifetime: Timer::from_seconds(15.0, TimerMode::Once),
-        },
-    ));
+    // Spawn 5 bullets in a burst with slight directional spread
+    let spread_angle = std::f32::consts::PI / 12.0; // 15 degrees spread between bullets
+    for i in -2..=2 {
+        let angle_offset = i as f32 * spread_angle;
+        // Rotate the base direction by the spread angle
+        let cos_offset = angle_offset.cos();
+        let sin_offset = angle_offset.sin();
+        let direction = Vec2::new(
+            base_direction.x * cos_offset - base_direction.y * sin_offset,
+            base_direction.x * sin_offset + base_direction.y * cos_offset,
+        );
+
+        // Spawn bullet
+        commands.spawn((
+            Sprite::from_color(Color::srgb(1.0, 1.0, 0.0), Vec2::new(8.0, 8.0)), // Yellow bullet
+            Transform::from_translation(player_transform.translation + Vec3::new(0.0, 0.0, 0.1)), // Slightly above player
+            Bullet {
+                direction,
+                speed: 200.0,
+                lifetime: Timer::from_seconds(15.0, TimerMode::Once),
+            },
+        ));
+    }
+
+    // Play weapon sound effect once for the burst (only if AssetServer is available)
+    if let Some(asset_server) = asset_server {
+        let weapon_sound_handle: Handle<AudioSource> = asset_server.load("sounds/143610__dwoboyle__weapons-synth-blast-02.wav");
+        commands.spawn((
+            AudioPlayer(weapon_sound_handle),
+            PlaybackSettings::ONCE,
+            WeaponSound,
+            AudioCleanupTimer(Timer::from_seconds(2.0, TimerMode::Once)), // Cleanup after 2 seconds
+        ));
+    }
 }
 
 pub fn bullet_movement_system(
@@ -88,25 +116,105 @@ pub fn bullet_collision_system(
     bullet_query: Query<(Entity, &Transform), With<Bullet>>,
     enemy_query: Query<(Entity, &Transform), With<Enemy>>,
     mut score: ResMut<Score>,
+    asset_server: Option<Res<AssetServer>>,
 ) {
+    let mut bullets_to_despawn = HashSet::new();
+    let mut enemies_to_despawn = HashSet::new();
+    let mut enemies_killed = 0;
+
+    // First pass: detect all collisions
     for (bullet_entity, bullet_transform) in bullet_query.iter() {
+        if bullets_to_despawn.contains(&bullet_entity) {
+            continue; // This bullet is already marked for despawn
+        }
+
         let bullet_pos = bullet_transform.translation.truncate();
 
         for (enemy_entity, enemy_transform) in enemy_query.iter() {
+            if enemies_to_despawn.contains(&enemy_entity) {
+                continue; // This enemy is already marked for despawn
+            }
+
             let enemy_pos = enemy_transform.translation.truncate();
             let distance = bullet_pos.distance(enemy_pos);
 
             // Simple collision detection - if bullet is close enough to enemy
             if distance < 15.0 {
-                // Despawn both bullet and enemy
-                commands.entity(bullet_entity).despawn();
-                commands.entity(enemy_entity).despawn();
-                // Increment score when enemy is defeated
-                score.0 += 1;
+                bullets_to_despawn.insert(bullet_entity);
+                enemies_to_despawn.insert(enemy_entity);
+                enemies_killed += 1;
                 break; // Only hit one enemy per bullet
             }
         }
     }
+
+    // Second pass: despawn entities and play sounds
+    for bullet_entity in bullets_to_despawn {
+        commands.entity(bullet_entity).despawn();
+    }
+
+    for enemy_entity in enemies_to_despawn {
+        // Get enemy position for loot spawning before despawning
+        let enemy_pos = enemy_query.get(enemy_entity).map(|(_, transform)| transform.translation.truncate()).unwrap_or(Vec2::ZERO);
+
+        commands.entity(enemy_entity).despawn();
+
+        // Spawn loot based on random chance
+        let mut rng = rand::thread_rng();
+
+        // 5% chance for health pack
+        if rng.gen_bool(0.05) {
+            use crate::loot::components::*;
+
+            commands.spawn((
+                Sprite::from_color(Color::srgb(0.0, 1.0, 0.0), Vec2::new(12.0, 12.0)), // Green for health pack
+                Transform::from_translation(Vec3::new(enemy_pos.x, enemy_pos.y, 0.5)),
+                LootItem {
+                    loot_type: LootType::HealthPack { heal_amount: 25.0 },
+                },
+            ));
+        }
+        // 2% chance for laser weapon
+        else if rng.gen_bool(0.02) {
+            use crate::loot::components::*;
+            use crate::weapon::components::{Weapon, WeaponType};
+
+            let weapon = Weapon {
+                weapon_type: WeaponType::Laser,
+                fire_rate: 3.0,
+                damage: 15.0,
+                last_fired: -3.0, // Prevent immediate firing
+            };
+
+            commands.spawn((
+                Sprite::from_color(Color::srgb(0.0, 0.0, 1.0), Vec2::new(16.0, 16.0)), // Blue for weapon loot
+                Transform::from_translation(Vec3::new(enemy_pos.x, enemy_pos.y, 0.5)),
+                LootItem {
+                    loot_type: LootType::Weapon(weapon),
+                },
+            ));
+        }
+
+        // Play random enemy death sound for each enemy killed (only if AssetServer is available)
+        if let Some(asset_server) = &asset_server {
+            let sound_paths = [
+                "sounds/397276__whisperbandnumber1__grunt1.wav",
+                "sounds/547200__mrfossy__voice_adultmale_paingrunts_04.wav",
+            ];
+            let random_index = (rand::random::<f32>() * sound_paths.len() as f32) as usize;
+            let death_sound_handle: Handle<AudioSource> = asset_server.load(sound_paths[random_index]);
+
+                    commands.spawn((
+                        AudioPlayer(death_sound_handle),
+                        PlaybackSettings::ONCE,
+                        EnemyDeathSound,
+                        AudioCleanupTimer(Timer::from_seconds(3.0, TimerMode::Once)), // Cleanup after 3 seconds
+                    ));
+        }
+    }
+
+    // Update score
+    score.0 += enemies_killed;
 }
 
 pub fn bullet_lifetime_system(
