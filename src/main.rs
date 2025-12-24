@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy_kira_audio::prelude::*;
 use donny_tango_survivor::{
     audio_plugin,
     game_plugin,
@@ -8,8 +9,21 @@ use donny_tango_survivor::{
 };
 
 fn main() {
+    // Get the current directory and construct the assets path
+    let current_dir = std::env::current_dir().expect("Failed to get current directory");
+    let assets_path = current_dir.join("assets");
+
+    println!("Current directory: {:?}", current_dir);
+    println!("Assets path: {:?}", assets_path);
+
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.build()
+            .disable::<bevy::audio::AudioPlugin>()
+            .set(AssetPlugin {
+                file_path: assets_path.to_string_lossy().to_string(),
+                ..default()
+            }))
+        .add_plugins(AudioPlugin)
         .init_state::<GameState>()
         .add_plugins((audio_plugin, game_plugin, inventory_plugin, ui_plugin))
         .run();
