@@ -2,19 +2,24 @@ use bevy::prelude::*;
 use rand::Rng;
 
 use crate::game::components::*;
+use crate::game::player::components::*;
 use crate::states::*;
 
 pub fn setup_game(
     mut commands: Commands,
+    camera_query: Query<Entity, With<Camera>>,
 ) {
-    // Spawn game camera
-    commands.spawn(Camera2d);
+    // Reuse existing camera if available, otherwise spawn new one
+    if camera_query.is_empty() {
+        commands.spawn(Camera2d);
+    }
+    // If camera exists, we reuse it (no action needed)
 
     // Spawn player in the center of the screen
     commands.spawn((
         Sprite::from_color(Color::srgb(0.0, 1.0, 0.0), Vec2::new(20.0, 20.0)), // Green player
-        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
-        Player,
+        Transform::from_translation(Vec3::new(0.0, 0.0, 1.0)),
+        Player { speed: 200.0 },
     ));
 
     // Spawn random rocks scattered throughout the scene
@@ -42,8 +47,9 @@ pub fn game_input(
 #[allow(clippy::type_complexity)]
 pub fn cleanup_game(
     mut commands: Commands,
-    query: Query<Entity, Or<(With<Camera2d>, With<Node>, With<Player>, With<Rock>)>>,
+    query: Query<Entity, Or<(With<Player>, With<Rock>)>>,
 ) {
+    // Don't despawn the camera - let the UI system reuse it
     for entity in &query {
         commands.entity(entity).despawn();
     }

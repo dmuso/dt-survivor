@@ -4,9 +4,13 @@ use crate::ui::components::*;
 
 pub fn setup_intro(
     mut commands: Commands,
+    camera_query: Query<Entity, With<Camera>>,
 ) {
-    // Spawn UI camera
-    commands.spawn(Camera2d);
+    // Reuse existing camera if available, otherwise spawn new one
+    if camera_query.is_empty() {
+        commands.spawn(Camera2d);
+    }
+    // Create UI elements (camera is reused if it exists)
 
     // Spawn basic UI root
     commands.spawn((
@@ -135,8 +139,9 @@ pub fn button_interactions(
 #[allow(clippy::type_complexity)]
 pub fn cleanup_intro(
     mut commands: Commands,
-    query: Query<Entity, Or<(With<Camera2d>, With<MenuButton>, With<Node>, With<Text>)>>,
+    query: Query<Entity, Or<(With<MenuButton>, With<Node>, With<Text>)>>,
 ) {
+    // Clean up UI elements but preserve the camera
     for entity in &query {
         commands.entity(entity).despawn();
     }
