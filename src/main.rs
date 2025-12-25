@@ -6,7 +6,6 @@ use donny_tango_survivor::{
     experience_plugin,
     game_plugin,
     inventory_plugin,
-    powerup_plugin,
     ui_plugin,
     states::GameState
 };
@@ -28,7 +27,7 @@ fn main() {
             }))
         .add_plugins(AudioPlugin)
         .init_state::<GameState>()
-        .add_plugins((audio_plugin, combat_plugin, experience_plugin, game_plugin, inventory_plugin, powerup_plugin, ui_plugin))
+        .add_plugins((audio_plugin, combat_plugin, experience_plugin, game_plugin, inventory_plugin, ui_plugin))
         .run();
 }
 
@@ -513,7 +512,9 @@ mod tests {
         let initial_score = app.world().get_resource::<Score>().unwrap();
         assert_eq!(initial_score.0, 0, "Score should start at 0");
 
-        // Create multiple bullets and enemies
+        // Create multiple bullets and enemies at once
+        let mut bullet_entities = Vec::new();
+        let mut enemy_entities = Vec::new();
         for i in 0..3 {
             let bullet_entity = app.world_mut().spawn((
                 Transform::from_translation(Vec3::new(0.0, i as f32 * 20.0, 0.0)),
@@ -523,18 +524,24 @@ mod tests {
                     lifetime: Timer::from_seconds(15.0, TimerMode::Once),
                 },
             )).id();
+            bullet_entities.push(bullet_entity);
 
             let enemy_entity = app.world_mut().spawn((
                 Transform::from_translation(Vec3::new(10.0, i as f32 * 20.0, 0.0)),
                 Enemy { speed: 50.0, strength: 10.0 },
             )).id();
+            enemy_entities.push(enemy_entity);
+        }
 
-            // Run collision systems for each pair
-            let _ = app.world_mut().run_system_once(bullet_collision_detection);
-            let _ = app.world_mut().run_system_once(bullet_collision_effects);
+        // Run collision systems once for all pairs
+        let _ = app.world_mut().run_system_once(bullet_collision_detection);
+        let _ = app.world_mut().run_system_once(bullet_collision_effects);
 
-            // Verify both entities are despawned
+        // Verify all entities are despawned
+        for (i, &bullet_entity) in bullet_entities.iter().enumerate() {
             assert!(!app.world().entities().contains(bullet_entity), "Bullet {} should be despawned", i);
+        }
+        for (i, &enemy_entity) in enemy_entities.iter().enumerate() {
             assert!(!app.world().entities().contains(enemy_entity), "Enemy {} should be despawned", i);
         }
 

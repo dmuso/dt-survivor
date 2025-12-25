@@ -7,6 +7,7 @@ use crate::inventory::systems::{inventory_initialization_system, weapon_follow_p
 use crate::enemy_death::plugin as enemy_death_plugin;
 use crate::laser::plugin as laser_plugin;
 use crate::loot::plugin as loot_plugin;
+use crate::powerup::plugin as powerup_plugin;
 use crate::rocket_launcher::plugin as rocket_launcher_plugin;
 use crate::player::systems::*;
 use crate::weapon::systems::*;
@@ -23,7 +24,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<ScreenTintEffect>()
         .add_message::<PlayerEnemyCollisionEvent>()
         .add_message::<BulletEnemyCollisionEvent>()
-        .add_plugins((enemy_death_plugin, laser_plugin, loot_plugin, rocket_launcher_plugin))
+        .add_plugins((enemy_death_plugin, laser_plugin, loot_plugin, powerup_plugin, rocket_launcher_plugin))
         .add_systems(OnEnter(GameState::InGame), (
             setup_game,
             inventory_initialization_system,
