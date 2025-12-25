@@ -12,3 +12,17 @@ pub struct EnemyDeathEvent {
 pub struct LootDropEvent {
     pub position: Vec2,
 }
+
+/// Event fired when player collides with an enemy
+#[derive(Message)]
+pub struct PlayerEnemyCollisionEvent {
+    pub player_entity: Entity,
+    pub enemy_entity: Entity,
+}
+
+/// Event fired when a bullet collides with an enemy
+#[derive(Message)]
+pub struct BulletEnemyCollisionEvent {
+    pub bullet_entity: Entity,
+    pub enemy_entity: Entity,
+}

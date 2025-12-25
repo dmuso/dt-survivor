@@ -256,11 +256,12 @@ pub fn weapon_firing_system(
                          // Play laser sound effect
                          if let (Some(asset_server), Some(weapon_channel), Some(sound_limiter)) =
                              (asset_server.as_ref(), weapon_channel.as_mut(), sound_limiter.as_mut()) {
-                             crate::audio::plugin::play_limited_sound(
+                             crate::audio::plugin::play_limited_sound_with_volume(
                                  weapon_channel.as_mut(),
                                  asset_server,
                                  "sounds/72639__chipfork71__laser01rev.wav",
                                  sound_limiter.as_mut(),
+                                 0.7, // Reduce laser firing sound volume by 30%
                              );
                          }
                      }

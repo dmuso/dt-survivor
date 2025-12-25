@@ -208,8 +208,6 @@ pub fn update_rocket_visuals(
     #[cfg(test)]
     mod tests {
 use bevy::prelude::*;
-use crate::rocket_launcher::components::*;
-use crate::enemies::components::*;
         use crate::weapon::components::{Weapon, WeaponType};
         use crate::loot::components::LootItem;
 

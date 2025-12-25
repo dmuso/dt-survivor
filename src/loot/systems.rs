@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use rand::Rng;
 use crate::loot::components::*;
+use crate::loot::events::*;
 use crate::weapon::components::{Weapon, WeaponType};
 use crate::player::components::*;
 use crate::inventory::resources::*;
@@ -57,8 +58,9 @@ pub fn loot_spawning_system(
             commands.spawn((
                 Sprite::from_color(color, Vec2::new(16.0, 16.0)),
                 Transform::from_translation(Vec3::new(x, y, 0.5)),
-                LootItem {
-                    loot_type: LootType::Weapon(weapon),
+                DroppedItem {
+                    pickup_state: PickupState::Idle,
+                    item_data: ItemData::Weapon(weapon),
                     velocity: Vec2::ZERO,
                 },
             ));
@@ -67,8 +69,9 @@ pub fn loot_spawning_system(
             commands.spawn((
                 Sprite::from_color(Color::srgb(0.0, 1.0, 0.0), Vec2::new(12.0, 12.0)), // Green for health pack
                 Transform::from_translation(Vec3::new(x, y, 0.5)),
-                LootItem {
-                    loot_type: LootType::HealthPack { heal_amount: 25.0 },
+                DroppedItem {
+                    pickup_state: PickupState::Idle,
+                    item_data: ItemData::HealthPack { heal_amount: 25.0 },
                     velocity: Vec2::ZERO,
                 },
             ));
@@ -211,10 +214,11 @@ pub fn loot_drop_system(
                 Transform::from_translation(
                     Vec3::new(enemy_pos.x + offset_x, enemy_pos.y + offset_y, 0.2)
                 ),
-                    crate::experience::components::ExperienceOrb {
-                        value,
-                        velocity: Vec2::ZERO, // Start with no velocity
-                    },
+                DroppedItem {
+                    pickup_state: PickupState::Idle,
+                    item_data: ItemData::Experience { amount: value },
+                    velocity: Vec2::ZERO,
+                },
             ));
         }
 
@@ -282,6 +286,11 @@ pub fn loot_drop_system(
                 LootType::HealthPack { .. } => (Color::srgb(0.0, 1.0, 0.0), Vec2::new(12.0, 12.0)), // Green for health pack
             };
 
+            let item_data = match loot_type {
+                LootType::Weapon(weapon) => ItemData::Weapon(weapon),
+                LootType::HealthPack { heal_amount } => ItemData::HealthPack { heal_amount },
+            };
+
             commands.spawn((
                 Sprite::from_color(color, size),
                 Transform::from_translation(Vec3::new(
@@ -289,8 +298,9 @@ pub fn loot_drop_system(
                     enemy_pos.y + offset_y,
                     0.5
                 )),
-                LootItem {
-                    loot_type,
+                DroppedItem {
+                    pickup_state: PickupState::Idle,
+                    item_data,
                     velocity: Vec2::ZERO,
                 },
             ));
@@ -301,25 +311,24 @@ pub fn loot_drop_system(
 #[allow(clippy::too_many_arguments)]
 pub fn player_loot_collision_system(
     mut commands: Commands,
-    player_query: Query<&Transform, With<Player>>,
+    mut player_query: Query<(&Transform, &mut Player), With<Player>>,
     loot_query: Query<(Entity, &Transform, &LootItem)>,
     weapon_query: Query<(Entity, &Weapon)>,
     mut inventory: ResMut<Inventory>,
-    mut player_query_mut: Query<(Entity, &mut Player)>,
     mut screen_tint: ResMut<ScreenTintEffect>,
     asset_server: Option<Res<AssetServer>>,
     mut loot_channel: Option<ResMut<AudioChannel<LootSoundChannel>>>,
     mut sound_limiter: Option<ResMut<SoundLimiter>>,
 ) {
-    if let Ok(player_transform) = player_query.single() {
+    if let Ok((player_transform, mut player)) = player_query.single_mut() {
         let player_pos = player_transform.translation.truncate();
 
         for (loot_entity, loot_transform, loot_item) in loot_query.iter() {
             let loot_pos = loot_transform.translation.truncate();
             let distance = player_pos.distance(loot_pos);
 
-            // Collision detection - same as player-enemy collision
-            if distance < 15.0 {
+            // Collision detection - use player's pickup radius
+            if distance < player.pickup_radius {
                 match &loot_item.loot_type {
                     LootType::Weapon(weapon) => {
                         // Try to add or level up the weapon
@@ -332,28 +341,24 @@ pub fn player_loot_collision_system(
                                 commands.entity(entity).despawn();
                             }
 
-                            // Create new weapon entities for all weapons in inventory
-                            if let Ok(player_transform) = player_query.single() {
-                                for (weapon_id, weapon) in inventory.iter_weapons() {
-                                    commands.spawn((
-                                        weapon.clone(),
-                                        EquippedWeapon { weapon_type: weapon_id.clone() },
-                                        Transform::from_translation(player_transform.translation),
-                                    ));
-                                }
-                            }
+                             // Create new weapon entities for all weapons in inventory
+                             for (weapon_id, weapon) in inventory.iter_weapons() {
+                                 commands.spawn((
+                                     weapon.clone(),
+                                     EquippedWeapon { weapon_type: weapon_id.clone() },
+                                     Transform::from_translation(player_transform.translation),
+                                 ));
+                             }
                         }
                     }
-                    LootType::HealthPack { heal_amount } => {
-                        // Heal the player
-                        if let Ok((_, mut player)) = player_query_mut.single_mut() {
-                            player.health = (player.health + heal_amount).min(player.max_health);
-                        }
+                     LootType::HealthPack { heal_amount } => {
+                         // Heal the player
+                         player.health = (player.health + heal_amount).min(player.max_health);
 
-                        // Apply green screen tint for 0.2 seconds
-                        screen_tint.remaining_duration = 0.2;
-                        screen_tint.color = Color::srgba(0.0, 1.0, 0.0, 0.2); // Green with 20% opacity
-                    }
+                         // Apply green screen tint for 0.2 seconds
+                         screen_tint.remaining_duration = 0.2;
+                         screen_tint.color = Color::srgba(0.0, 1.0, 0.0, 0.2); // Green with 20% opacity
+                     }
                 }
 
                 // Play pickup sound
@@ -375,6 +380,222 @@ pub fn player_loot_collision_system(
 }
 
 // Enemy death events are now handled directly in the bullet collision system
+
+// ECS-based pickup systems
+
+/// System that detects when dropped items enter pickup range and starts attraction
+pub fn detect_pickup_collisions(
+    mut pickup_events: MessageWriter<PickupEvent>,
+    player_query: Query<(Entity, &Transform, &Player), With<Player>>,
+    item_query: Query<(Entity, &Transform, &DroppedItem), With<DroppedItem>>,
+) {
+    if let Ok((player_entity, player_transform, player)) = player_query.single() {
+        let player_pos = player_transform.translation.truncate();
+
+        for (item_entity, item_transform, item) in item_query.iter() {
+            if item.pickup_state == PickupState::Idle {
+                let item_pos = item_transform.translation.truncate();
+                let distance = player_pos.distance(item_pos);
+
+                if distance <= player.pickup_radius {
+                    pickup_events.write(PickupEvent {
+                        item_entity,
+                        player_entity,
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// System that applies magnetic attraction physics to items being picked up
+pub fn update_item_attraction(
+    mut item_query: Query<(&Transform, &mut DroppedItem), With<DroppedItem>>,
+    player_query: Query<(&Transform, &Player), With<Player>>,
+    time: Res<Time>,
+) {
+    if let Ok((player_transform, player)) = player_query.single() {
+        let player_pos = player_transform.translation.truncate();
+
+        for (item_transform, mut item) in item_query.iter_mut() {
+            if item.pickup_state == PickupState::BeingAttracted {
+                let item_pos = item_transform.translation.truncate();
+                let distance = player_pos.distance(item_pos);
+
+                if distance > 5.0 { // Avoid orbiting when very close
+                    let max_distance = player.pickup_radius;
+                    let distance_ratio = (distance / max_distance).clamp(0.1, 1.0);
+                    let acceleration_multiplier = 1.0 / distance_ratio;
+
+                    // Use different acceleration based on item type
+                    let base_acceleration = match &item.item_data {
+                        ItemData::Experience { .. } => 800.0,  // Fastest for XP
+                        ItemData::Weapon(_) | ItemData::HealthPack { .. } => 600.0, // Medium for loot
+                        ItemData::Powerup(_) => 400.0, // Slower for powerups
+                    };
+
+                    let acceleration = base_acceleration * acceleration_multiplier;
+                    let base_steering = base_acceleration * 1.25; // Steering is stronger than acceleration
+                    let steering_strength = base_steering * acceleration_multiplier;
+
+                    let direction_to_player = (player_pos - item_pos).normalize();
+                    item.velocity += direction_to_player * acceleration * time.delta_secs();
+
+                    // Apply steering to correct direction
+                    let current_speed = item.velocity.length();
+                    if current_speed > 0.1 {
+                        let desired_velocity = direction_to_player * current_speed;
+                        let steering_vector = desired_velocity - item.velocity;
+
+                        let max_steering = steering_strength * time.delta_secs();
+                        let steering_magnitude = steering_vector.length();
+                        let clamped_steering = if steering_magnitude > max_steering {
+                            steering_vector.normalize() * max_steering
+                        } else {
+                            steering_vector
+                        };
+
+                        item.velocity += clamped_steering;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// System that updates item positions based on velocity
+pub fn update_item_movement(
+    time: Res<Time>,
+    mut item_query: Query<(&mut Transform, &DroppedItem), With<DroppedItem>>,
+) {
+    for (mut transform, item) in item_query.iter_mut() {
+        if item.pickup_state == PickupState::BeingAttracted {
+            let movement = item.velocity * time.delta_secs();
+            transform.translation += movement.extend(0.0);
+        }
+    }
+}
+
+/// System that processes pickup events and triggers effect events
+pub fn process_pickup_events(
+    mut _commands: Commands,
+    mut pickup_events: MessageReader<PickupEvent>,
+    mut item_query: Query<&mut DroppedItem>,
+    mut effect_events: MessageWriter<ItemEffectEvent>,
+) {
+    for event in pickup_events.read() {
+        if let Ok(mut item) = item_query.get_mut(event.item_entity) {
+            item.pickup_state = PickupState::PickedUp;
+            effect_events.write(ItemEffectEvent {
+                item_entity: event.item_entity,
+                item_data: item.item_data.clone(),
+                player_entity: event.player_entity,
+            });
+        }
+    }
+}
+
+/// System that applies pickup effects (decoupled from collision detection)
+pub fn apply_item_effects(
+    mut commands: Commands,
+    mut effect_events: MessageReader<ItemEffectEvent>,
+    mut player_query: Query<(&Transform, &mut Player)>,
+    mut player_exp_query: Query<&mut crate::experience::components::PlayerExperience>,
+    weapon_query: Query<(Entity, &Weapon)>,
+    mut inventory: ResMut<Inventory>,
+    mut active_powerups: ResMut<crate::powerup::components::ActivePowerups>,
+    mut screen_tint: ResMut<ScreenTintEffect>,
+    asset_server: Option<Res<AssetServer>>,
+    mut audio_channel: Option<ResMut<AudioChannel<LootSoundChannel>>>,
+    mut sound_limiter: Option<ResMut<SoundLimiter>>,
+) {
+    for event in effect_events.read() {
+        match &event.item_data {
+            ItemData::Weapon(weapon) => {
+                // Add weapon to inventory
+                if inventory.add_or_level_weapon(weapon.clone()) {
+                    // Recreate all weapon entities to reflect changes
+                    let weapon_entities: Vec<Entity> = weapon_query.iter().map(|(entity, _)| entity).collect();
+                    for entity in weapon_entities {
+                        commands.entity(entity).despawn();
+                    }
+
+                    // Create new weapon entities for all weapons in inventory
+                    if let Ok((player_transform, _)) = player_query.get(event.player_entity) {
+                        for (weapon_id, weapon) in inventory.iter_weapons() {
+                            commands.spawn((
+                                weapon.clone(),
+                                EquippedWeapon { weapon_type: weapon_id.clone() },
+                                Transform::from_translation(player_transform.translation),
+                            ));
+                        }
+                    }
+
+                    // Play pickup sound
+                    play_pickup_sound(&asset_server, &mut audio_channel, &mut sound_limiter);
+                }
+            }
+            ItemData::HealthPack { heal_amount } => {
+                // Heal player
+                if let Ok((_, mut player)) = player_query.get_mut(event.player_entity) {
+                    player.health = (player.health + heal_amount).min(player.max_health);
+                    screen_tint.remaining_duration = 0.2;
+                    screen_tint.color = Color::srgba(0.0, 1.0, 0.0, 0.2);
+                }
+                play_pickup_sound(&asset_server, &mut audio_channel, &mut sound_limiter);
+            }
+            ItemData::Experience { amount } => {
+                // Add experience
+                if let Ok(mut player_exp) = player_exp_query.get_mut(event.player_entity) {
+                    player_exp.current += amount;
+                    // Level up logic would go here
+                }
+                play_pickup_sound(&asset_server, &mut audio_channel, &mut sound_limiter);
+            }
+            ItemData::Powerup(powerup_type) => {
+                // Add powerup
+                active_powerups.add_powerup(powerup_type.clone());
+                play_pickup_sound(&asset_server, &mut audio_channel, &mut sound_limiter);
+            }
+        }
+
+        // Mark item as consumed
+        commands.entity(event.item_entity).insert(DroppedItem {
+            pickup_state: PickupState::Consumed,
+            item_data: event.item_data.clone(),
+            velocity: Vec2::ZERO,
+        });
+    }
+}
+
+/// System that cleans up consumed items
+pub fn cleanup_consumed_items(
+    mut commands: Commands,
+    item_query: Query<(Entity, &DroppedItem), With<DroppedItem>>,
+) {
+    for (entity, item) in item_query.iter() {
+        if item.pickup_state == PickupState::Consumed {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// Helper function to play pickup sound
+fn play_pickup_sound(
+    asset_server: &Option<Res<AssetServer>>,
+    audio_channel: &mut Option<ResMut<AudioChannel<LootSoundChannel>>>,
+    sound_limiter: &mut Option<ResMut<SoundLimiter>>,
+) {
+    if let (Some(asset_server), Some(audio_channel), Some(sound_limiter)) =
+        (asset_server, audio_channel, sound_limiter) {
+        crate::audio::plugin::play_limited_sound(
+            audio_channel.as_mut(),
+            asset_server,
+            "sounds/366104__original_sound__confirmation-downward.wav",
+            sound_limiter.as_mut(),
+        );
+    }
+}
 
 #[cfg(test)]
 mod tests {

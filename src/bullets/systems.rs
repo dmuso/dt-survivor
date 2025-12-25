@@ -9,7 +9,7 @@ use crate::bullets::components::*;
 use crate::enemies::components::*;
 use crate::player::components::*;
 use crate::score::Score;
-use crate::game::events::EnemyDeathEvent;
+use crate::game::events::{EnemyDeathEvent, BulletEnemyCollisionEvent};
 
 #[derive(Resource)]
 pub struct BulletSpawnTimer(pub Timer);
@@ -115,10 +115,37 @@ pub fn bullet_movement_system(
     }
 }
 
-pub fn bullet_collision_system(
-    mut commands: Commands,
+/// System that detects bullet-enemy collisions and fires events
+pub fn bullet_collision_detection(
     bullet_query: Query<(Entity, &Transform), With<Bullet>>,
     enemy_query: Query<(Entity, &Transform), With<Enemy>>,
+    mut collision_events: MessageWriter<BulletEnemyCollisionEvent>,
+) {
+    // Detect all collisions and fire events
+    for (bullet_entity, bullet_transform) in bullet_query.iter() {
+        let bullet_pos = bullet_transform.translation.truncate();
+
+        for (enemy_entity, enemy_transform) in enemy_query.iter() {
+            let enemy_pos = enemy_transform.translation.truncate();
+            let distance = bullet_pos.distance(enemy_pos);
+
+            // Simple collision detection - if bullet is close enough to enemy
+            if distance < 15.0 {
+                collision_events.write(BulletEnemyCollisionEvent {
+                    bullet_entity,
+                    enemy_entity,
+                });
+                break; // Only hit one enemy per bullet
+            }
+        }
+    }
+}
+
+/// System that applies effects when bullets collide with enemies
+pub fn bullet_collision_effects(
+    mut commands: Commands,
+    mut collision_events: MessageReader<BulletEnemyCollisionEvent>,
+    enemy_query: Query<&Transform, With<Enemy>>,
     mut score: ResMut<Score>,
     mut enemy_death_events: MessageWriter<EnemyDeathEvent>,
 ) {
@@ -126,50 +153,30 @@ pub fn bullet_collision_system(
     let mut enemies_to_despawn = HashSet::new();
     let mut enemies_killed = 0;
 
-    // First pass: detect all collisions
-    for (bullet_entity, bullet_transform) in bullet_query.iter() {
-        if bullets_to_despawn.contains(&bullet_entity) {
-            continue; // This bullet is already marked for despawn
-        }
-
-        let bullet_pos = bullet_transform.translation.truncate();
-
-        for (enemy_entity, enemy_transform) in enemy_query.iter() {
-            if enemies_to_despawn.contains(&enemy_entity) {
-                continue; // This enemy is already marked for despawn
-            }
-
-            let enemy_pos = enemy_transform.translation.truncate();
-            let distance = bullet_pos.distance(enemy_pos);
-
-            // Simple collision detection - if bullet is close enough to enemy
-            if distance < 15.0 {
-                bullets_to_despawn.insert(bullet_entity);
-                enemies_to_despawn.insert(enemy_entity);
-                enemies_killed += 1;
-                break; // Only hit one enemy per bullet
-            }
-        }
+    // Process collision events
+    for event in collision_events.read() {
+        bullets_to_despawn.insert(event.bullet_entity);
+        enemies_to_despawn.insert(event.enemy_entity);
+        enemies_killed += 1;
     }
 
-    // Second pass: despawn entities, spawn experience orbs, and play sounds
     // Despawn bullets
     for bullet_entity in bullets_to_despawn {
         commands.entity(bullet_entity).try_despawn();
     }
 
-    let enemies_to_despawn_vec: Vec<Entity> = enemies_to_despawn.into_iter().collect();
-    for enemy_entity in &enemies_to_despawn_vec {
+    // Handle enemy deaths
+    for enemy_entity in enemies_to_despawn {
         // Get enemy position for loot spawning before despawning
-        let enemy_pos = enemy_query.get(*enemy_entity).map(|(_, transform)| transform.translation.truncate()).unwrap_or(Vec2::ZERO);
+        let enemy_pos = enemy_query.get(enemy_entity).map(|transform| transform.translation.truncate()).unwrap_or(Vec2::ZERO);
 
         // Send enemy death event for centralized loot/experience handling
         enemy_death_events.write(EnemyDeathEvent {
-            enemy_entity: *enemy_entity,
+            enemy_entity,
             position: enemy_pos,
         });
 
-        commands.entity(*enemy_entity).try_despawn();
+        commands.entity(enemy_entity).try_despawn();
     }
 
     // Update score
@@ -241,8 +248,9 @@ mod tests {
         // Initialize resources and add plugins
         app.init_resource::<Score>();
         app.add_message::<crate::game::events::EnemyDeathEvent>();
-        app.add_systems(Update, bullet_collision_system);
-        app.add_systems(Update, crate::loot::systems::enemy_death_system);
+        app.add_message::<crate::game::events::BulletEnemyCollisionEvent>();
+        app.add_systems(Update, (bullet_collision_detection, bullet_collision_effects));
+        app.add_systems(Update, crate::enemy_death::enemy_death_system);
 
         // Create bullet at (0, 0)
         let bullet_entity = app.world_mut().spawn((
@@ -278,8 +286,9 @@ mod tests {
         // Initialize resources
         app.init_resource::<Score>();
         app.add_message::<crate::game::events::EnemyDeathEvent>();
-        app.add_systems(Update, bullet_collision_system);
-        app.add_systems(Update, crate::loot::systems::enemy_death_system);
+        app.add_message::<crate::game::events::BulletEnemyCollisionEvent>();
+        app.add_systems(Update, (bullet_collision_detection, bullet_collision_effects));
+        app.add_systems(Update, crate::enemy_death::enemy_death_system);
 
         // Create bullet at (0, 0)
         let bullet_entity = app.world_mut().spawn((

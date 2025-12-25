@@ -35,7 +35,8 @@ fn main() {
 mod tests {
     use super::*;
     use donny_tango_survivor::prelude::*;
-    use donny_tango_survivor::bullets::systems::bullet_collision_system;
+    use donny_tango_survivor::bullets::systems::bullet_collision_detection;
+    use donny_tango_survivor::bullets::systems::bullet_collision_effects;
     use donny_tango_survivor::score::Score;
     use donny_tango_survivor::bullets::Bullet;
     use donny_tango_survivor::weapon::systems::weapon_firing_system;
@@ -469,8 +470,9 @@ mod tests {
             Enemy { speed: 50.0, strength: 10.0 },
         )).id();
 
-        // Run collision system
-        let _ = app.world_mut().run_system_once(bullet_collision_system);
+        // Run collision systems
+        let _ = app.world_mut().run_system_once(bullet_collision_detection);
+        let _ = app.world_mut().run_system_once(bullet_collision_effects);
 
         // Verify both entities are despawned
         assert!(!app.world().entities().contains(bullet_entity), "Bullet should be despawned after collision");
@@ -526,8 +528,9 @@ mod tests {
                 Enemy { speed: 50.0, strength: 10.0 },
             )).id();
 
-            // Run collision system for each pair
-            let _ = app.world_mut().run_system_once(bullet_collision_system);
+            // Run collision systems for each pair
+            let _ = app.world_mut().run_system_once(bullet_collision_detection);
+            let _ = app.world_mut().run_system_once(bullet_collision_effects);
 
             // Verify both entities are despawned
             assert!(!app.world().entities().contains(bullet_entity), "Bullet {} should be despawned", i);

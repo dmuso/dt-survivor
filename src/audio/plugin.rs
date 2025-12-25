@@ -81,16 +81,34 @@ pub fn play_limited_sound<T>(
     sound_path: &'static str,
     sound_limiter: &mut SoundLimiter,
 ) {
+    play_limited_sound_with_volume(channel, asset_server, sound_path, sound_limiter, 1.0);
+}
+
+// Helper function to play sounds with limiting, dynamic volume compression, and custom volume multiplier
+pub fn play_limited_sound_with_volume<T>(
+    channel: &mut AudioChannel<T>,
+    asset_server: &Res<AssetServer>,
+    sound_path: &'static str,
+    sound_limiter: &mut SoundLimiter,
+    custom_volume_multiplier: f32,
+) {
     if sound_limiter.sounds_this_frame < sound_limiter.max_sounds_per_frame {
-        // Apply volume compression to prevent clipping
+        // Apply volume compression to prevent clipping, then apply custom volume multiplier
         // Convert linear volume multiplier to decibels
-        let volume_db = if sound_limiter.volume_multiplier > 0.0 {
+        let base_volume_db = if sound_limiter.volume_multiplier > 0.0 {
             20.0 * sound_limiter.volume_multiplier.log10()
         } else {
             -60.0 // Very quiet if multiplier is 0
         };
+        // Apply custom volume multiplier (convert to dB and add)
+        let custom_volume_db = if custom_volume_multiplier > 0.0 {
+            20.0 * custom_volume_multiplier.log10()
+        } else {
+            -60.0 // Very quiet if multiplier is 0
+        };
+        let final_volume_db = base_volume_db + custom_volume_db;
         channel.play(asset_server.load(sound_path))
-            .with_volume(Decibels(volume_db));
+            .with_volume(Decibels(final_volume_db));
         sound_limiter.sounds_this_frame += 1;
     }
 }

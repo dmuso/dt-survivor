@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod tests {
+    use bevy::prelude::*;
     use crate::powerup::components::*;
     use crate::powerup::systems::*;
     use crate::player::components::*;

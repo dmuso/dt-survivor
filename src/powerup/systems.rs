@@ -29,7 +29,7 @@ pub fn powerup_spawning_system(
             // Spawn the powerup with pulsing animation
             let color = selected_type.color();
             commands.spawn((
-                Sprite::from_color(color, Vec2::new(16.0, 16.0)),
+                Sprite::from_color(color, Vec2::new(21.0, 21.0)), // 30% larger than 16.0
                 Transform::from_translation(Vec3::new(enemy_pos.x, enemy_pos.y, 0.5)),
                 PowerupItem {
                     powerup_type: selected_type,
@@ -61,19 +61,19 @@ pub fn powerup_pulse_system(
 /// System to handle powerup pickup and collision with player
 pub fn powerup_pickup_system(
     mut commands: Commands,
-    player_query: Query<&Transform, With<Player>>,
+    player_query: Query<(&Transform, &Player), With<Player>>,
     powerup_query: Query<(Entity, &Transform, &PowerupItem)>,
     mut active_powerups: ResMut<ActivePowerups>,
 ) {
-    if let Ok(player_transform) = player_query.single() {
+    if let Ok((player_transform, player)) = player_query.single() {
         let player_pos = player_transform.translation.truncate();
 
         for (powerup_entity, powerup_transform, powerup_item) in powerup_query.iter() {
             let powerup_pos = powerup_transform.translation.truncate();
             let distance = player_pos.distance(powerup_pos);
 
-            // Collision detection
-            if distance < 15.0 {
+            // Collision detection - use player's pickup radius
+            if distance < player.pickup_radius {
                 // Apply the powerup effect
                 active_powerups.add_powerup(powerup_item.powerup_type.clone());
 

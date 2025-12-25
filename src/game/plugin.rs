@@ -13,6 +13,7 @@ use crate::weapon::systems::*;
 use crate::game::resources::{PlayerPosition, EnemySpawnState, PlayerDamageTimer, ScreenTintEffect};
 use crate::game::systems::update_screen_tint_timer;
 use crate::score::*;
+use crate::game::events::{PlayerEnemyCollisionEvent, BulletEnemyCollisionEvent};
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<PlayerPosition>()
@@ -20,27 +21,32 @@ pub fn plugin(app: &mut App) {
         .init_resource::<EnemySpawnState>()
         .init_resource::<PlayerDamageTimer>()
         .init_resource::<ScreenTintEffect>()
+        .add_message::<PlayerEnemyCollisionEvent>()
+        .add_message::<BulletEnemyCollisionEvent>()
         .add_plugins((enemy_death_plugin, laser_plugin, loot_plugin, rocket_launcher_plugin))
         .add_systems(OnEnter(GameState::InGame), (
             setup_game,
             inventory_initialization_system,
         ))
         .add_systems(Update, (
-            game_input,
-            player_movement,
-            camera_follow_player,
-            update_slow_modifiers,
-            player_health_regeneration_system,
-            enemy_spawning_system,
-            enemy_movement_system,
-            weapon_follow_player_system,
-            bullet_movement_system,
-            bullet_collision_system,
-            bullet_lifetime_system,
-            player_enemy_collision_system,
-            player_death_system,
-            update_screen_tint_timer,
-        ).run_if(in_state(GameState::InGame)))
+            game_input.run_if(in_state(GameState::InGame)),
+            player_movement.run_if(in_state(GameState::InGame)),
+            camera_follow_player.run_if(in_state(GameState::InGame)),
+            update_slow_modifiers.run_if(in_state(GameState::InGame)),
+            player_health_regeneration_system.run_if(in_state(GameState::InGame)),
+            enemy_spawning_system.run_if(in_state(GameState::InGame)),
+            enemy_movement_system.run_if(in_state(GameState::InGame)),
+            weapon_follow_player_system.run_if(in_state(GameState::InGame)),
+            bullet_movement_system.run_if(in_state(GameState::InGame)),
+            bullet_collision_detection.run_if(in_state(GameState::InGame)),
+            bullet_collision_effects.run_if(in_state(GameState::InGame)),
+            bullet_lifetime_system.run_if(in_state(GameState::InGame)),
+            player_enemy_collision_detection.run_if(in_state(GameState::InGame)),
+            player_enemy_damage_system.run_if(in_state(GameState::InGame)),
+            player_enemy_effect_system.run_if(in_state(GameState::InGame)),
+            player_death_system.run_if(in_state(GameState::InGame)),
+            update_screen_tint_timer.run_if(in_state(GameState::InGame)),
+        ))
         .add_systems(PostUpdate, weapon_firing_system.run_if(in_state(GameState::InGame)))
         .add_systems(OnExit(GameState::InGame), cleanup_game);
 
