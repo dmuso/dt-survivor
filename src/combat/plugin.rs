@@ -79,4 +79,82 @@ mod tests {
         // System set configuration is validated at runtime
         app.update();
     }
+
+    #[test]
+    fn test_combat_plugin_integration_with_game_state() {
+        use super::super::components::Health;
+        use std::time::Duration;
+
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::time::TimePlugin::default(),
+            bevy::state::app::StatesPlugin,
+        ));
+        app.init_state::<GameState>();
+        app.add_plugins(plugin);
+
+        // Transition to InGame state
+        app.world_mut()
+            .get_resource_mut::<bevy::state::state::NextState<GameState>>()
+            .unwrap()
+            .set(GameState::InGame);
+        app.update();
+
+        // Spawn an entity with Health and send damage event
+        let entity = app
+            .world_mut()
+            .spawn((Health::new(100.0), Transform::default()))
+            .id();
+        app.world_mut()
+            .write_message(DamageEvent::new(entity, 30.0));
+
+        // Advance time and run systems
+        {
+            let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+            time.advance_by(Duration::from_millis(16));
+        }
+        app.update();
+
+        // Verify damage was applied
+        let health = app.world().get::<Health>(entity).unwrap();
+        assert_eq!(health.current, 70.0, "Combat plugin should apply damage in InGame state");
+    }
+
+    #[test]
+    fn test_combat_plugin_inactive_in_intro_state() {
+        use super::super::components::Health;
+        use std::time::Duration;
+
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::time::TimePlugin::default(),
+            bevy::state::app::StatesPlugin,
+        ));
+        app.init_state::<GameState>(); // Starts in Intro state
+        app.add_plugins(plugin);
+
+        app.update();
+
+        // Spawn an entity with Health and send damage event
+        let entity = app
+            .world_mut()
+            .spawn((Health::new(100.0), Transform::default()))
+            .id();
+        app.world_mut()
+            .write_message(DamageEvent::new(entity, 30.0));
+
+        // Advance time and run systems
+        {
+            let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+            time.advance_by(Duration::from_millis(16));
+        }
+        app.update();
+
+        // Verify damage was NOT applied (we're in Intro state)
+        let health = app.world().get::<Health>(entity).unwrap();
+        assert_eq!(
+            health.current, 100.0,
+            "Combat plugin should not apply damage in Intro state"
+        );
+    }
 }

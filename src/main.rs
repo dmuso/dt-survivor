@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use bevy_kira_audio::prelude::*;
 use donny_tango_survivor::{
     audio_plugin,
+    combat_plugin,
     experience_plugin,
     game_plugin,
     inventory_plugin,
@@ -27,7 +28,7 @@ fn main() {
             }))
         .add_plugins(AudioPlugin)
         .init_state::<GameState>()
-        .add_plugins((audio_plugin, experience_plugin, game_plugin, inventory_plugin, powerup_plugin, ui_plugin))
+        .add_plugins((audio_plugin, combat_plugin, experience_plugin, game_plugin, inventory_plugin, powerup_plugin, ui_plugin))
         .run();
 }
 
