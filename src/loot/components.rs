@@ -27,7 +27,3 @@ pub enum ItemData {
 /// Marker component for loot pickup sound effects
 #[derive(Component)]
 pub struct LootPickupSound;
-
-/// Timer component for loot pickup audio cleanup
-#[derive(Component)]
-pub struct LootAudioCleanupTimer(pub Timer);

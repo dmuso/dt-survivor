@@ -18,7 +18,3 @@ pub struct PlayerLevelDisplay;
 /// Marker component for experience pickup sound effects
 #[derive(Component)]
 pub struct ExperiencePickupSound;
-
-/// Timer component for experience pickup audio cleanup
-#[derive(Component)]
-pub struct ExperienceAudioCleanupTimer(pub Timer);
