@@ -249,8 +249,15 @@ mod tests {
         app.init_resource::<Score>();
         app.add_message::<crate::game::events::EnemyDeathEvent>();
         app.add_message::<crate::game::events::BulletEnemyCollisionEvent>();
-        app.add_systems(Update, (bullet_collision_detection, bullet_collision_effects));
-        app.add_systems(Update, crate::enemy_death::enemy_death_system);
+        app.add_message::<crate::game::events::LootDropEvent>();
+        app.init_resource::<crate::enemy_death::components::EnemyDeathSoundTimer>();
+        app.add_plugins(bevy::time::TimePlugin::default());
+        // Chain the systems so collision detection writes events before effects reads them
+        app.add_systems(Update, (
+            bullet_collision_detection,
+            bullet_collision_effects,
+            crate::enemy_death::enemy_death_system,
+        ).chain());
 
         // Create bullet at (0, 0)
         let bullet_entity = app.world_mut().spawn((
@@ -287,6 +294,9 @@ mod tests {
         app.init_resource::<Score>();
         app.add_message::<crate::game::events::EnemyDeathEvent>();
         app.add_message::<crate::game::events::BulletEnemyCollisionEvent>();
+        app.add_message::<crate::game::events::LootDropEvent>();
+        app.init_resource::<crate::enemy_death::components::EnemyDeathSoundTimer>();
+        app.add_plugins(bevy::time::TimePlugin::default());
         app.add_systems(Update, (bullet_collision_detection, bullet_collision_effects));
         app.add_systems(Update, crate::enemy_death::enemy_death_system);
 
