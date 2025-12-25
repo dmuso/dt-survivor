@@ -1,5 +1,9 @@
 use bevy::prelude::*;
+use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::ecs::world::World;
+use bevy::post_process::bloom::Bloom;
+use bevy::render::view::Hdr;
+use bevy_lit::prelude::*;
 use rand::Rng;
 
 use crate::combat::components::Health;
@@ -9,6 +13,7 @@ use crate::game::resources::{PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
 use crate::game::events::*;
 use crate::player::components::*;
 use crate::states::*;
+use crate::whisper::components::{WhisperDrop, WhisperCompanion, WhisperArc};
 
 
 pub fn setup_game(
@@ -17,7 +22,20 @@ pub fn setup_game(
 ) {
     // Reuse existing camera if available, otherwise spawn new one
     if camera_query.is_empty() {
-        commands.spawn(Camera2d);
+        commands.spawn((
+            Camera2d,
+            Hdr,
+            Tonemapping::TonyMcMapface,
+            Bloom {
+                intensity: 0.3,
+                ..default()
+            },
+            Lighting2dSettings::default(),
+            AmbientLight2d {
+                color: Color::WHITE,
+                intensity: 0.2,
+            },
+        ));
     }
     // If camera exists, we reuse it (no action needed)
 
@@ -63,7 +81,7 @@ pub fn game_input(
 #[allow(clippy::type_complexity)]
 pub fn cleanup_game(
     mut commands: Commands,
-    query: Query<Entity, Or<(With<Player>, With<Rock>, With<Enemy>, With<crate::loot::components::DroppedItem>, With<crate::weapon::components::Weapon>, With<crate::laser::components::LaserBeam>, With<crate::experience::components::ExperienceOrb>)>>,
+    query: Query<Entity, Or<(With<Player>, With<Rock>, With<Enemy>, With<crate::loot::components::DroppedItem>, With<crate::weapon::components::Weapon>, With<crate::laser::components::LaserBeam>, With<crate::experience::components::ExperienceOrb>, With<WhisperDrop>, With<WhisperCompanion>, With<WhisperArc>)>>,
 ) {
     // Don't despawn the camera - let the UI system reuse it
     // Collect entities first to avoid iterator invalidation issues

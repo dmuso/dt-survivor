@@ -1,5 +1,7 @@
 use bevy::prelude::*;
+use bevy_hanabi::prelude::*;
 use bevy_kira_audio::prelude::*;
+use bevy_lit::prelude::*;
 use donny_tango_survivor::{
     audio_plugin,
     combat_plugin,
@@ -26,6 +28,8 @@ fn main() {
                 ..default()
             }))
         .add_plugins(AudioPlugin)
+        .add_plugins(HanabiPlugin)
+        .add_plugins(Lighting2dPlugin)
         .init_state::<GameState>()
         .add_plugins((audio_plugin, combat_plugin, experience_plugin, game_plugin, inventory_plugin, ui_plugin))
         .run();
@@ -273,30 +277,19 @@ mod tests {
     fn test_inventory_initialization() {
         use donny_tango_survivor::inventory::resources::Inventory;
 
+        // Inventory starts empty - pistol is added when Whisper is collected
         let inventory = Inventory::default();
         let pistol_type = WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 };
 
-        // Check that pistol is in inventory
-        assert!(inventory.get_weapon(&pistol_type).is_some(), "Pistol should be in inventory");
-
-        let weapon = inventory.get_weapon(&pistol_type).unwrap();
-        assert_eq!(weapon.fire_rate, 2.0, "Default weapon should have 2 second fire rate");
-        assert_eq!(weapon.last_fired, -2.0, "Default weapon should start with last_fired = -2.0 to prevent immediate firing");
-        assert_eq!(weapon.base_damage, 1.0, "Default weapon should have 1.0 base damage");
-        assert_eq!(weapon.level, 1, "Default weapon should start at level 1");
-        assert_eq!(weapon.damage(), 1.25, "Default weapon should have 1.25 total damage (1.0 * 1 * 1.25)");
-
-        // Check weapon type
-        if let donny_tango_survivor::weapon::components::WeaponType::Pistol { bullet_count, spread_angle } = weapon.weapon_type {
-            assert_eq!(bullet_count, 5, "Default pistol should fire 5 bullets");
-            assert_eq!(spread_angle, 15.0, "Default pistol should have 15 degree spread");
-        } else {
-            panic!("Default weapon should be a pistol");
-        }
+        // Check that inventory is empty by default
+        assert!(inventory.get_weapon(&pistol_type).is_none(), "Inventory should be empty by default");
+        assert_eq!(inventory.weapons.len(), 0, "Inventory should have no weapons initially");
     }
 
     #[test]
     fn test_weapon_equipped_to_player() {
+        // Since weapons are only equipped after Whisper is collected,
+        // this test verifies that player starts WITHOUT weapons
         let mut app = App::new();
 
         // Add minimal plugins
@@ -316,31 +309,23 @@ mod tests {
         app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
         app.update();
 
-        // Check that player exists and has weapon component
-        let world = app.world_mut();
         // Check that player exists
+        let world = app.world_mut();
         let player_count = world.query::<&Player>().iter(world).count();
         assert_eq!(player_count, 1, "Should have exactly one player");
 
-        // Check that weapon entities exist
+        // Player starts with no weapons - weapons are added when Whisper is collected
         let weapon_count = world.query::<&Weapon>().iter(world).count();
-        assert_eq!(weapon_count, 1, "Should have exactly one weapon entity");
+        assert_eq!(weapon_count, 0, "Should have no weapon entities until Whisper is collected");
 
         let equipped_count = world.query::<&EquippedWeapon>().iter(world).count();
-        assert_eq!(equipped_count, 1, "Should have exactly one equipped weapon");
-
-        // Check weapon properties
-        if let Ok(weapon) = world.query::<&Weapon>().single(world) {
-            assert_eq!(weapon.fire_rate, 2.0, "Equipped weapon should have correct fire rate");
-        }
-
-        if let Ok(equipped) = world.query::<&EquippedWeapon>().single(world) {
-            assert!(matches!(equipped.weapon_type, WeaponType::Pistol { .. }), "Weapon should be pistol");
-        }
+        assert_eq!(equipped_count, 0, "Should have no equipped weapons until Whisper is collected");
     }
 
     #[test]
     fn test_weapon_firing_spawns_bullets() {
+        use donny_tango_survivor::whisper::resources::WeaponOrigin;
+
         let mut app = App::new();
 
         // Add minimal plugins
@@ -359,6 +344,39 @@ mod tests {
         // Transition to InGame state
         app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
         app.update();
+
+        // Simulate Whisper collection by setting WeaponOrigin position
+        app.world_mut().resource_mut::<WeaponOrigin>().position = Some(Vec2::new(0.0, 0.0));
+
+        // Add pistol to inventory (simulating Whisper collection)
+        {
+            let mut inventory = app.world_mut().resource_mut::<Inventory>();
+            inventory.add_or_level_weapon(Weapon {
+                weapon_type: WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 },
+                level: 1,
+                fire_rate: 2.0,
+                base_damage: 1.0,
+                last_fired: -2.0,
+            });
+        }
+
+        // Create weapon entity
+        let player_pos = {
+            let mut query = app.world_mut().query::<&Transform>();
+            query.single(app.world()).map(|t| t.translation).unwrap_or(Vec3::ZERO)
+        };
+
+        app.world_mut().spawn((
+            Weapon {
+                weapon_type: WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 },
+                level: 1,
+                fire_rate: 2.0,
+                base_damage: 1.0,
+                last_fired: -2.0,
+            },
+            EquippedWeapon { weapon_type: WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 } },
+            Transform::from_translation(player_pos),
+        ));
 
         // Create an enemy to target
         app.world_mut().spawn((
