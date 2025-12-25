@@ -6,6 +6,7 @@ use donny_tango_survivor::{
     experience_plugin,
     game_plugin,
     inventory_plugin,
+    movement_plugin,
     ui_plugin,
     states::GameState
 };
@@ -27,7 +28,7 @@ fn main() {
             }))
         .add_plugins(AudioPlugin)
         .init_state::<GameState>()
-        .add_plugins((audio_plugin, combat_plugin, experience_plugin, game_plugin, inventory_plugin, ui_plugin))
+        .add_plugins((audio_plugin, combat_plugin, experience_plugin, game_plugin, inventory_plugin, movement_plugin, ui_plugin))
         .run();
 }
 
