@@ -1,15 +1,20 @@
 use bevy::prelude::*;
 
 use crate::game::sets::GameSet;
-use crate::movement::systems::apply_velocity;
+use crate::movement::systems::{apply_knockback, apply_velocity, enemy_movement_system, player_movement};
 use crate::states::GameState;
 
 /// Plugin that adds the movement module's systems to the app.
-/// The apply_velocity system runs in the GameSet::Movement set during InGame state.
+/// Systems run in the GameSet::Movement set during InGame state.
 pub fn plugin(app: &mut App) {
     app.add_systems(
         Update,
-        apply_velocity
+        (
+            player_movement,
+            apply_velocity,
+            apply_knockback,
+            enemy_movement_system,
+        )
             .in_set(GameSet::Movement)
             .run_if(in_state(GameState::InGame)),
     );
@@ -18,6 +23,7 @@ pub fn plugin(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game::resources::PlayerPosition;
     use crate::movement::components::Velocity;
     use std::time::Duration;
 
@@ -25,10 +31,12 @@ mod tests {
     fn test_plugin_can_be_added_to_app() {
         let mut app = App::new();
 
-        // Add required plugins and states
+        // Add required plugins, states, and resources
         app.add_plugins(bevy::time::TimePlugin::default());
+        app.add_plugins(bevy::input::InputPlugin::default());
         app.add_plugins(bevy::state::app::StatesPlugin);
         app.init_state::<GameState>();
+        app.init_resource::<PlayerPosition>();
 
         // Configure the game set
         app.configure_sets(
@@ -47,10 +55,12 @@ mod tests {
     fn test_plugin_system_runs_in_game_state() {
         let mut app = App::new();
 
-        // Add required plugins and states
+        // Add required plugins, states, and resources
         app.add_plugins(bevy::time::TimePlugin::default());
+        app.add_plugins(bevy::input::InputPlugin::default());
         app.add_plugins(bevy::state::app::StatesPlugin);
         app.init_state::<GameState>();
+        app.init_resource::<PlayerPosition>();
 
         // Configure the game set
         app.configure_sets(
@@ -115,10 +125,12 @@ mod tests {
     fn test_plugin_system_does_not_run_in_other_states() {
         let mut app = App::new();
 
-        // Add required plugins and states
+        // Add required plugins, states, and resources
         app.add_plugins(bevy::time::TimePlugin::default());
+        app.add_plugins(bevy::input::InputPlugin::default());
         app.add_plugins(bevy::state::app::StatesPlugin);
         app.init_state::<GameState>();
+        app.init_resource::<PlayerPosition>();
 
         // Configure the game set
         app.configure_sets(

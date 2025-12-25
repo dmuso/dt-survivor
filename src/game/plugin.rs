@@ -8,9 +8,10 @@ use crate::inventory::systems::{inventory_initialization_system, weapon_follow_p
 use crate::enemy_death::plugin as enemy_death_plugin;
 use crate::laser::plugin as laser_plugin;
 use crate::loot::plugin as loot_plugin;
+use crate::movement::plugin as movement_plugin;
 use crate::powerup::plugin as powerup_plugin;
 use crate::rocket_launcher::plugin as rocket_launcher_plugin;
-use crate::player::systems::*;
+use crate::player::systems::{camera_follow_player, update_slow_modifiers, player_health_regeneration_system};
 use crate::weapon::systems::*;
 use crate::game::resources::{PlayerPosition, EnemySpawnState, PlayerDamageTimer, ScreenTintEffect};
 use crate::game::systems::update_screen_tint_timer;
@@ -25,7 +26,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<ScreenTintEffect>()
         .add_message::<PlayerEnemyCollisionEvent>()
         .add_message::<BulletEnemyCollisionEvent>()
-        .add_plugins((enemy_death_plugin, laser_plugin, loot_plugin, powerup_plugin, rocket_launcher_plugin))
+        .add_plugins((enemy_death_plugin, laser_plugin, loot_plugin, movement_plugin, powerup_plugin, rocket_launcher_plugin))
         // Configure GameSet ordering: Input -> Movement -> Combat -> Spawning -> Effects -> Cleanup
         .configure_sets(
             Update,
@@ -51,13 +52,11 @@ pub fn plugin(app: &mut App) {
                 .in_set(GameSet::Input)
                 .run_if(in_state(GameState::InGame)),
         )
-        // Movement systems
+        // Movement systems (player_movement and enemy_movement_system are in movement_plugin)
         .add_systems(
             Update,
             (
-                player_movement,
                 camera_follow_player,
-                enemy_movement_system,
                 weapon_follow_player_system,
                 bullet_movement_system,
             )

@@ -82,23 +82,6 @@ pub fn enemy_spawning_system(
     }
 }
 
-pub fn enemy_movement_system(
-    mut enemy_query: Query<(&mut Transform, &Enemy)>,
-    player_position: Res<PlayerPosition>,
-    time: Res<Time>,
-) {
-    let player_pos = player_position.0;
-
-    for (mut transform, enemy) in enemy_query.iter_mut() {
-        let enemy_pos = transform.translation.truncate();
-        let direction = (player_pos - enemy_pos).normalize();
-
-        // Move enemy towards player
-        let movement = direction * enemy.speed * time.delta_secs();
-        transform.translation += movement.extend(0.0);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

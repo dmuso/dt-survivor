@@ -191,49 +191,6 @@ mod tests {
     }
 }
 
-pub fn player_movement(
-    mouse_button_input: Res<ButtonInput<MouseButton>>,
-    windows: Query<&Window>,
-    mut player_query: Query<(&mut Transform, &Player, Option<&SlowModifier>)>,
-    camera_query: Query<(&Camera, &GlobalTransform)>,
-    time: Res<Time>,
-) {
-    if !mouse_button_input.pressed(MouseButton::Left) {
-        return;
-    }
-
-    let Ok((camera, camera_transform)) = camera_query.single() else {
-        return;
-    };
-    let Ok(window) = windows.single() else {
-        return;
-    };
-
-    if let Some(cursor_position) = window.cursor_position() {
-        // Convert screen coordinates to world coordinates
-        let world_position = camera
-            .viewport_to_world(camera_transform, cursor_position)
-            .map(|ray| ray.origin.truncate())
-            .unwrap_or_default();
-
-        for (mut transform, player, slow_modifier) in player_query.iter_mut() {
-            let player_pos = transform.translation.truncate();
-            let direction = (world_position - player_pos).normalize();
-
-            // Calculate effective speed considering slow modifiers
-            let effective_speed = if let Some(slow) = slow_modifier {
-                player.speed * slow.speed_multiplier
-            } else {
-                player.speed
-            };
-
-            // Move player towards cursor
-            let movement = direction * effective_speed * time.delta_secs();
-            transform.translation += movement.extend(0.0);
-        }
-    }
-}
-
 pub fn camera_follow_player(
     player_query: Query<&Transform, With<Player>>,
     mut camera_query: Query<&mut Transform, (With<Camera>, Without<Player>)>,
