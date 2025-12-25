@@ -6,10 +6,10 @@ use std::collections::HashSet;
 use bevy_kira_audio::prelude::*;
 use crate::audio::plugin::*;
 use crate::bullets::components::*;
+use crate::combat::DamageEvent;
 use crate::enemies::components::*;
+use crate::game::events::BulletEnemyCollisionEvent;
 use crate::player::components::*;
-use crate::score::Score;
-use crate::game::events::{EnemyDeathEvent, BulletEnemyCollisionEvent};
 
 #[derive(Resource)]
 pub struct BulletSpawnTimer(pub Timer);
@@ -142,22 +142,19 @@ pub fn bullet_collision_detection(
 }
 
 /// System that applies effects when bullets collide with enemies
+/// Sends DamageEvent to damage enemies through the combat system
 pub fn bullet_collision_effects(
     mut commands: Commands,
     mut collision_events: MessageReader<BulletEnemyCollisionEvent>,
-    enemy_query: Query<&Transform, With<Enemy>>,
-    mut score: ResMut<Score>,
-    mut enemy_death_events: MessageWriter<EnemyDeathEvent>,
+    mut damage_events: MessageWriter<DamageEvent>,
 ) {
     let mut bullets_to_despawn = HashSet::new();
-    let mut enemies_to_despawn = HashSet::new();
-    let mut enemies_killed = 0;
+    let mut enemies_damaged = HashSet::new();
 
     // Process collision events
     for event in collision_events.read() {
         bullets_to_despawn.insert(event.bullet_entity);
-        enemies_to_despawn.insert(event.enemy_entity);
-        enemies_killed += 1;
+        enemies_damaged.insert(event.enemy_entity);
     }
 
     // Despawn bullets
@@ -165,22 +162,14 @@ pub fn bullet_collision_effects(
         commands.entity(bullet_entity).try_despawn();
     }
 
-    // Handle enemy deaths
-    for enemy_entity in enemies_to_despawn {
-        // Get enemy position for loot spawning before despawning
-        let enemy_pos = enemy_query.get(enemy_entity).map(|transform| transform.translation.truncate()).unwrap_or(Vec2::ZERO);
-
-        // Send enemy death event for centralized loot/experience handling
-        enemy_death_events.write(EnemyDeathEvent {
+    // Send damage events to enemies (combat system handles death)
+    for enemy_entity in enemies_damaged {
+        damage_events.write(DamageEvent::with_source(
             enemy_entity,
-            position: enemy_pos,
-        });
-
-        commands.entity(enemy_entity).try_despawn();
+            BULLET_DAMAGE,
+            enemy_entity, // source could be the bullet, but we already despawned it
+        ));
     }
-
-    // Update score
-    score.0 += enemies_killed;
 }
 
 pub fn bullet_lifetime_system(
@@ -242,22 +231,39 @@ mod tests {
     }
 
     #[test]
-    fn test_bullet_collision_detection() {
+    fn test_bullet_collision_sends_damage_event() {
+        use crate::combat::{CheckDeath, DamageEvent, Health};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
         let mut app = App::new();
 
+        // Counter for damage events
+        #[derive(Resource, Clone)]
+        struct DamageEventCounter(Arc<AtomicUsize>);
+
+        fn count_damage_events(
+            mut events: MessageReader<DamageEvent>,
+            counter: Res<DamageEventCounter>,
+        ) {
+            for _ in events.read() {
+                counter.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let counter = DamageEventCounter(Arc::new(AtomicUsize::new(0)));
+        app.insert_resource(counter.clone());
+
         // Initialize resources and add plugins
-        app.init_resource::<Score>();
-        app.add_message::<crate::game::events::EnemyDeathEvent>();
+        app.add_message::<DamageEvent>();
         app.add_message::<crate::game::events::BulletEnemyCollisionEvent>();
-        app.add_message::<crate::game::events::LootDropEvent>();
-        app.init_resource::<crate::enemy_death::components::EnemyDeathSoundTimer>();
         app.add_plugins(bevy::time::TimePlugin::default());
+
         // Chain the systems so collision detection writes events before effects reads them
-        app.add_systems(Update, (
-            bullet_collision_detection,
-            bullet_collision_effects,
-            crate::enemy_death::enemy_death_system,
-        ).chain());
+        app.add_systems(
+            Update,
+            (bullet_collision_detection, bullet_collision_effects, count_damage_events).chain(),
+        );
 
         // Create bullet at (0, 0)
         let bullet_entity = app.world_mut().spawn((
@@ -269,36 +275,37 @@ mod tests {
             },
         )).id();
 
-        // Create enemy at (10, 0) - within collision distance
+        // Create enemy at (10, 0) - within collision distance, with Health
         let enemy_entity = app.world_mut().spawn((
             Transform::from_translation(Vec3::new(10.0, 0.0, 0.0)),
             Enemy { speed: 50.0, strength: 10.0 },
+            Health::new(10.0),
+            CheckDeath,
         )).id();
 
         app.update();
 
-        // Both bullet and enemy should be despawned
+        // Bullet should be despawned
         assert!(!app.world().entities().contains(bullet_entity));
-        assert!(!app.world().entities().contains(enemy_entity));
 
-        // Score should be incremented
-        let score = app.world().get_resource::<Score>().unwrap();
-        assert_eq!(score.0, 1);
+        // Enemy should still exist (damage doesn't kill instantly now)
+        assert!(app.world().entities().contains(enemy_entity));
+
+        // DamageEvent should have been sent
+        assert_eq!(counter.0.load(Ordering::SeqCst), 1);
     }
 
     #[test]
     fn test_bullet_collision_no_collision() {
+        use crate::combat::DamageEvent;
+
         let mut app = App::new();
 
         // Initialize resources
-        app.init_resource::<Score>();
-        app.add_message::<crate::game::events::EnemyDeathEvent>();
+        app.add_message::<DamageEvent>();
         app.add_message::<crate::game::events::BulletEnemyCollisionEvent>();
-        app.add_message::<crate::game::events::LootDropEvent>();
-        app.init_resource::<crate::enemy_death::components::EnemyDeathSoundTimer>();
         app.add_plugins(bevy::time::TimePlugin::default());
-        app.add_systems(Update, (bullet_collision_detection, bullet_collision_effects));
-        app.add_systems(Update, crate::enemy_death::enemy_death_system);
+        app.add_systems(Update, (bullet_collision_detection, bullet_collision_effects).chain());
 
         // Create bullet at (0, 0)
         let bullet_entity = app.world_mut().spawn((
@@ -321,10 +328,6 @@ mod tests {
         // Both bullet and enemy should still exist
         assert!(app.world().entities().contains(bullet_entity));
         assert!(app.world().entities().contains(enemy_entity));
-
-        // Score should remain unchanged
-        let score = app.world().get_resource::<Score>().unwrap();
-        assert_eq!(score.0, 0);
     }
 
     #[test]

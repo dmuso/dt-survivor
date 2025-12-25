@@ -1,9 +1,10 @@
 use bevy::prelude::*;
 use rand::Rng;
 
+use crate::combat::{CheckDeath, Health};
 use crate::enemies::components::*;
-use crate::player::components::*;
 use crate::game::resources::*;
+use crate::player::components::*;
 
 pub const ENEMY_SPAWN_DISTANCE: f32 = 600.0; // Distance from player to spawn enemies
 
@@ -66,11 +67,13 @@ pub fn enemy_spawning_system(
                 spawn_pos = adjusted_pos;
             }
 
-            // Spawn enemy
+            // Spawn enemy with Health component for damage system
             commands.spawn((
                 Sprite::from_color(Color::srgb(1.0, 0.0, 0.0), Vec2::new(15.0, 15.0)), // Red enemy
                 Transform::from_translation(Vec3::new(spawn_pos.x, spawn_pos.y, 0.5)),
                 Enemy { speed: 50.0, strength: 10.0 }, // Slower than player (player is 200.0), moderate strength
+                Health::new(10.0), // Enemies have 10 HP
+                CheckDeath, // Enable death checking via combat system
             ));
         }
 
@@ -93,5 +96,65 @@ pub fn enemy_movement_system(
         // Move enemy towards player
         let movement = direction * enemy.speed * time.delta_secs();
         transform.translation += movement.extend(0.0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::combat::{CheckDeath, Health};
+
+    #[test]
+    fn test_enemy_spawns_with_health_component() {
+        use bevy::app::App;
+        use bevy::ecs::system::RunSystemOnce;
+
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin::default());
+        app.init_resource::<EnemySpawnState>();
+
+        // Spawn a player
+        app.world_mut().spawn((
+            Transform::from_translation(Vec3::ZERO),
+            Player {
+                speed: 200.0,
+                health: 100.0,
+                max_health: 100.0,
+                regen_rate: 1.0,
+                pickup_radius: 50.0,
+            },
+        ));
+
+        // Spawn a camera
+        app.world_mut().spawn((
+            Camera2d::default(),
+            GlobalTransform::default(),
+        ));
+
+        // Force a spawn by setting high spawn rate and time
+        {
+            let mut spawn_state = app.world_mut().get_resource_mut::<EnemySpawnState>().unwrap();
+            spawn_state.spawn_rate_per_second = 100.0;
+            spawn_state.time_since_last_spawn = 1.0;
+        }
+
+        let _ = app.world_mut().run_system_once(enemy_spawning_system);
+
+        // Find spawned enemies and verify they have Health and CheckDeath components
+        let mut enemy_count = 0;
+        let mut query = app.world_mut().query::<(Entity, &Enemy)>();
+        for (entity, _enemy) in query.iter(app.world()) {
+            enemy_count += 1;
+            assert!(
+                app.world().get::<Health>(entity).is_some(),
+                "Enemy should have Health component"
+            );
+            assert!(
+                app.world().get::<CheckDeath>(entity).is_some(),
+                "Enemy should have CheckDeath component"
+            );
+        }
+
+        assert!(enemy_count > 0, "At least one enemy should have spawned");
     }
 }

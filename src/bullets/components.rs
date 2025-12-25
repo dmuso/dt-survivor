@@ -1,5 +1,8 @@
 use bevy::prelude::*;
 
+/// Default bullet damage amount
+pub const BULLET_DAMAGE: f32 = 10.0;
+
 #[derive(Component)]
 pub struct Bullet {
     pub direction: Vec2,

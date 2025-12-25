@@ -1,7 +1,7 @@
 use bevy::prelude::*;
-use crate::laser::components::*;
+use crate::combat::DamageEvent;
 use crate::enemies::components::*;
-use crate::game::events::EnemyDeathEvent;
+use crate::laser::components::*;
 
 #[cfg(test)]
 mod tests {
@@ -50,10 +50,31 @@ mod tests {
     }
 
     #[test]
-    fn test_laser_beam_collision() {
+    fn test_laser_beam_collision_sends_damage_event() {
+        use crate::combat::{CheckDeath, DamageEvent, Health};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
         let mut app = App::new();
-        app.add_message::<crate::game::events::EnemyDeathEvent>();
-        app.add_systems(Update, laser_beam_collision_system);
+
+        // Counter for damage events
+        #[derive(Resource, Clone)]
+        struct DamageEventCounter(Arc<AtomicUsize>);
+
+        fn count_damage_events(
+            mut events: MessageReader<DamageEvent>,
+            counter: Res<DamageEventCounter>,
+        ) {
+            for _ in events.read() {
+                counter.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let counter = DamageEventCounter(Arc::new(AtomicUsize::new(0)));
+        app.insert_resource(counter.clone());
+
+        app.add_message::<DamageEvent>();
+        app.add_systems(Update, (laser_beam_collision_system, count_damage_events).chain());
 
         // Create laser beam with some elapsed time to make it thick
         let _laser_entity = app.world_mut().spawn(LaserBeam {
@@ -65,17 +86,22 @@ mod tests {
             damage: 15.0,
         }).id();
 
-        // Create enemy on the laser line
+        // Create enemy on the laser line with Health component
         let enemy_entity = app.world_mut().spawn((
             Enemy { speed: 50.0, strength: 10.0 },
             Transform::from_translation(Vec3::new(100.0, 0.0, 0.0)), // On laser line
+            Health::new(15.0),
+            CheckDeath,
         )).id();
 
         // Run collision system
         app.update();
 
-        // Enemy should be destroyed by the thick laser beam
-        assert!(app.world().get_entity(enemy_entity).is_err());
+        // Enemy should still exist (damage doesn't kill instantly now)
+        assert!(app.world().entities().contains(enemy_entity));
+
+        // DamageEvent should have been sent
+        assert_eq!(counter.0.load(Ordering::SeqCst), 1);
     }
 
     #[test]
@@ -119,11 +145,12 @@ pub fn update_laser_beams(
     }
 }
 
+/// Laser collision system that sends DamageEvent to enemies in the beam path
+/// The combat system handles death and score
 pub fn laser_beam_collision_system(
-    mut commands: Commands,
     laser_query: Query<&LaserBeam>,
-    mut enemy_query: Query<(Entity, &Transform, &mut Enemy)>,
-    mut enemy_death_events: MessageWriter<EnemyDeathEvent>,
+    enemy_query: Query<(Entity, &Transform), With<Enemy>>,
+    mut damage_events: MessageWriter<DamageEvent>,
 ) {
     for laser in laser_query.iter() {
         if !laser.is_active() {
@@ -134,7 +161,7 @@ pub fn laser_beam_collision_system(
         let laser_end = laser.end_pos;
         let laser_length = (laser_end - laser_start).length();
 
-        for (enemy_entity, enemy_transform, _enemy) in enemy_query.iter_mut() {
+        for (enemy_entity, enemy_transform) in enemy_query.iter() {
             let enemy_pos = enemy_transform.translation.truncate();
 
             // Check if enemy is within the laser beam bounds
@@ -146,19 +173,12 @@ pub fn laser_beam_collision_system(
                 let projection_point = laser_start + laser.direction * projection_length;
                 let distance_to_line = (enemy_pos - projection_point).length();
 
-                        // If enemy is close enough to the laser beam
-                        if distance_to_line < laser.get_thickness() / 2.0 + 10.0 { // 10px tolerance
-                            // Send enemy death event for centralized loot/experience handling
-                            enemy_death_events.write(EnemyDeathEvent {
-                                enemy_entity,
-                                position: enemy_pos,
-                            });
-
-                            // Despawn enemy immediately (like bullet collision)
-                            commands.entity(enemy_entity).try_despawn();
-
-
-                        }
+                // If enemy is close enough to the laser beam
+                if distance_to_line < laser.get_thickness() / 2.0 + 10.0 {
+                    // 10px tolerance
+                    // Send damage event to enemy (combat system handles death)
+                    damage_events.write(DamageEvent::new(enemy_entity, laser.damage));
+                }
             }
         }
     }

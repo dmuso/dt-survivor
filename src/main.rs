@@ -151,8 +151,8 @@ mod tests {
         app.init_resource::<Inventory>();
         app.init_resource::<ScreenTintEffect>();
 
-        // Add our plugins
-        app.add_plugins((game_plugin, ui_plugin));
+        // Add our plugins (combat_plugin required for damage system)
+        app.add_plugins((combat_plugin, game_plugin, ui_plugin));
 
         // Verify initial state is Intro
         assert_eq!(*app.world().get_resource::<State<GameState>>().unwrap(), GameState::Intro);
@@ -231,8 +231,8 @@ mod tests {
         app.init_resource::<Inventory>();
         app.init_resource::<ScreenTintEffect>();
 
-        // Add our plugins
-        app.add_plugins((game_plugin, ui_plugin));
+        // Add our plugins (combat_plugin required for damage system)
+        app.add_plugins((combat_plugin, game_plugin, ui_plugin));
 
         // Run initial update to set up intro
         app.update();
@@ -308,8 +308,8 @@ mod tests {
         // Initialize game state
         app.init_state::<GameState>();
 
-        // Add our plugins
-        app.add_plugins((game_plugin, inventory_plugin));
+        // Add our plugins (combat_plugin required for damage system)
+        app.add_plugins((combat_plugin, game_plugin, inventory_plugin));
 
         // Transition to InGame state
         app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
@@ -352,8 +352,8 @@ mod tests {
         // Initialize game state
         app.init_state::<GameState>();
 
-        // Add our plugins (without UI to avoid asset dependencies)
-        app.add_plugins((inventory_plugin, game_plugin));
+        // Add our plugins (combat_plugin required for damage system)
+        app.add_plugins((combat_plugin, inventory_plugin, game_plugin));
 
         // Transition to InGame state
         app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
@@ -402,8 +402,8 @@ mod tests {
         // Initialize game state
         app.init_state::<GameState>();
 
-        // Add our plugins
-        app.add_plugins((game_plugin, inventory_plugin, ui_plugin));
+        // Add our plugins (combat_plugin required for damage system)
+        app.add_plugins((combat_plugin, game_plugin, inventory_plugin, ui_plugin));
 
         // Transition to InGame state
         app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
@@ -425,6 +425,8 @@ mod tests {
 
     #[test]
     fn test_scoring_integration_full_flow() {
+        use donny_tango_survivor::combat::{CheckDeath, Health, apply_damage_system, check_death_system, handle_enemy_death_system};
+
         let mut app = App::new();
 
         // Add minimal plugins for core functionality
@@ -441,8 +443,8 @@ mod tests {
         app.init_resource::<Inventory>();
         app.init_resource::<ScreenTintEffect>();
 
-        // Add our plugins (without UI plugin to avoid asset dependencies)
-        app.add_plugins(game_plugin);
+        // Add our plugins (combat_plugin required for damage system)
+        app.add_plugins((combat_plugin, game_plugin));
 
         // Transition to InGame state
         app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
@@ -456,6 +458,7 @@ mod tests {
         assert_eq!(initial_score.0, 0, "Score should start at 0");
 
         // Create a bullet and enemy for collision testing
+        // Enemy needs Health and CheckDeath for the combat system
         let bullet_entity = app.world_mut().spawn((
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
             Bullet {
@@ -468,15 +471,20 @@ mod tests {
         let enemy_entity = app.world_mut().spawn((
             Transform::from_translation(Vec3::new(10.0, 0.0, 0.0)),
             Enemy { speed: 50.0, strength: 10.0 },
+            Health::new(10.0), // BULLET_DAMAGE is 10
+            CheckDeath,
         )).id();
 
-        // Run collision systems
+        // Run collision and combat systems in sequence
         let _ = app.world_mut().run_system_once(bullet_collision_detection);
         let _ = app.world_mut().run_system_once(bullet_collision_effects);
+        let _ = app.world_mut().run_system_once(apply_damage_system);
+        let _ = app.world_mut().run_system_once(check_death_system);
+        let _ = app.world_mut().run_system_once(handle_enemy_death_system);
 
         // Verify both entities are despawned
         assert!(!app.world().entities().contains(bullet_entity), "Bullet should be despawned after collision");
-        assert!(!app.world().entities().contains(enemy_entity), "Enemy should be despawned after collision");
+        assert!(!app.world().entities().contains(enemy_entity), "Enemy should be despawned after death");
 
         // Verify score incremented
         let updated_score = app.world().get_resource::<Score>().unwrap();
@@ -485,6 +493,8 @@ mod tests {
 
     #[test]
     fn test_scoring_integration_multiple_enemies() {
+        use donny_tango_survivor::combat::{CheckDeath, Health, apply_damage_system, check_death_system, handle_enemy_death_system};
+
         let mut app = App::new();
 
         // Add minimal plugins for core functionality
@@ -501,8 +511,8 @@ mod tests {
         app.init_resource::<Inventory>();
         app.init_resource::<ScreenTintEffect>();
 
-        // Add our plugins (without UI plugin to avoid asset dependencies)
-        app.add_plugins(game_plugin);
+        // Add our plugins (combat_plugin required for damage system)
+        app.add_plugins((combat_plugin, game_plugin));
 
         // Transition to InGame state
         app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
@@ -529,13 +539,18 @@ mod tests {
             let enemy_entity = app.world_mut().spawn((
                 Transform::from_translation(Vec3::new(10.0, i as f32 * 20.0, 0.0)),
                 Enemy { speed: 50.0, strength: 10.0 },
+                Health::new(10.0), // BULLET_DAMAGE is 10
+                CheckDeath,
             )).id();
             enemy_entities.push(enemy_entity);
         }
 
-        // Run collision systems once for all pairs
+        // Run collision and combat systems in sequence
         let _ = app.world_mut().run_system_once(bullet_collision_detection);
         let _ = app.world_mut().run_system_once(bullet_collision_effects);
+        let _ = app.world_mut().run_system_once(apply_damage_system);
+        let _ = app.world_mut().run_system_once(check_death_system);
+        let _ = app.world_mut().run_system_once(handle_enemy_death_system);
 
         // Verify all entities are despawned
         for (i, &bullet_entity) in bullet_entities.iter().enumerate() {
@@ -568,8 +583,8 @@ mod tests {
         app.init_resource::<Inventory>();
         app.init_resource::<ScreenTintEffect>();
 
-        // Add our plugins (without UI plugin to avoid asset dependencies)
-        app.add_plugins(game_plugin);
+        // Add our plugins (combat_plugin required for damage system)
+        app.add_plugins((combat_plugin, game_plugin));
 
         // Transition to InGame state
         app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);

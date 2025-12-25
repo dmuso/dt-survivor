@@ -2,6 +2,8 @@ use bevy::prelude::*;
 
 use super::components::{Health, Invincibility};
 use super::events::{DamageEvent, DeathEvent, EntityType};
+use crate::game::events::EnemyDeathEvent;
+use crate::score::Score;
 
 /// Marker component indicating an entity should have death checked
 /// Entities with Health and this component will be checked for death
@@ -50,6 +52,31 @@ pub fn tick_invincibility_system(
         invincibility.tick(time.delta());
         if invincibility.is_expired() {
             commands.entity(entity).remove::<Invincibility>();
+        }
+    }
+}
+
+/// System to handle enemy death events from the combat system
+/// Despawns enemies, updates score, and fires EnemyDeathEvent for loot/experience
+pub fn handle_enemy_death_system(
+    mut commands: Commands,
+    mut death_events: MessageReader<DeathEvent>,
+    mut enemy_death_events: MessageWriter<EnemyDeathEvent>,
+    mut score: ResMut<Score>,
+) {
+    for event in death_events.read() {
+        if event.entity_type == EntityType::Enemy {
+            // Update score
+            score.0 += 1;
+
+            // Send EnemyDeathEvent for loot/experience handling
+            enemy_death_events.write(EnemyDeathEvent {
+                enemy_entity: event.entity,
+                position: event.position.truncate(),
+            });
+
+            // Despawn the enemy
+            commands.entity(event.entity).try_despawn();
         }
     }
 }
@@ -261,6 +288,148 @@ mod tests {
 
             // Verify invincibility still exists
             assert!(app.world().get::<Invincibility>(entity).is_some());
+        }
+    }
+
+    mod handle_enemy_death_tests {
+        use super::*;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        /// Helper resource to count enemy death events
+        #[derive(Resource, Clone)]
+        struct EnemyDeathEventCounter(Arc<AtomicUsize>);
+
+        /// Helper system to count enemy death events
+        fn count_enemy_death_events(
+            mut events: MessageReader<EnemyDeathEvent>,
+            counter: Res<EnemyDeathEventCounter>,
+        ) {
+            for _ in events.read() {
+                counter.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        #[test]
+        fn test_handle_enemy_death_despawns_entity() {
+            let mut app = App::new();
+            app.add_message::<DeathEvent>();
+            app.add_message::<EnemyDeathEvent>();
+            app.init_resource::<Score>();
+            app.add_systems(Update, handle_enemy_death_system);
+
+            // Spawn enemy entity with transform
+            let entity = app
+                .world_mut()
+                .spawn(Transform::from_xyz(50.0, 100.0, 0.0))
+                .id();
+
+            // Send death event for enemy
+            app.world_mut().write_message(DeathEvent::new(
+                entity,
+                Vec3::new(50.0, 100.0, 0.0),
+                EntityType::Enemy,
+            ));
+
+            // Run the system
+            app.update();
+
+            // Verify entity was despawned
+            assert!(!app.world().entities().contains(entity));
+        }
+
+        #[test]
+        fn test_handle_enemy_death_updates_score() {
+            let mut app = App::new();
+            app.add_message::<DeathEvent>();
+            app.add_message::<EnemyDeathEvent>();
+            app.init_resource::<Score>();
+            app.add_systems(Update, handle_enemy_death_system);
+
+            // Spawn enemy entity
+            let entity = app
+                .world_mut()
+                .spawn(Transform::from_xyz(0.0, 0.0, 0.0))
+                .id();
+
+            // Send death event for enemy
+            app.world_mut().write_message(DeathEvent::new(
+                entity,
+                Vec3::ZERO,
+                EntityType::Enemy,
+            ));
+
+            // Run the system
+            app.update();
+
+            // Verify score was updated
+            let score = app.world().get_resource::<Score>().unwrap();
+            assert_eq!(score.0, 1);
+        }
+
+        #[test]
+        fn test_handle_enemy_death_fires_enemy_death_event() {
+            let mut app = App::new();
+            let counter = EnemyDeathEventCounter(Arc::new(AtomicUsize::new(0)));
+            app.insert_resource(counter.clone());
+            app.add_message::<DeathEvent>();
+            app.add_message::<EnemyDeathEvent>();
+            app.init_resource::<Score>();
+            app.add_systems(
+                Update,
+                (handle_enemy_death_system, count_enemy_death_events).chain(),
+            );
+
+            // Spawn enemy entity
+            let entity = app
+                .world_mut()
+                .spawn(Transform::from_xyz(0.0, 0.0, 0.0))
+                .id();
+
+            // Send death event for enemy
+            app.world_mut().write_message(DeathEvent::new(
+                entity,
+                Vec3::ZERO,
+                EntityType::Enemy,
+            ));
+
+            // Run the system
+            app.update();
+
+            // Verify EnemyDeathEvent was fired
+            assert_eq!(counter.0.load(Ordering::SeqCst), 1);
+        }
+
+        #[test]
+        fn test_handle_enemy_death_ignores_non_enemy_deaths() {
+            let mut app = App::new();
+            app.add_message::<DeathEvent>();
+            app.add_message::<EnemyDeathEvent>();
+            app.init_resource::<Score>();
+            app.add_systems(Update, handle_enemy_death_system);
+
+            // Spawn entity
+            let entity = app
+                .world_mut()
+                .spawn(Transform::from_xyz(0.0, 0.0, 0.0))
+                .id();
+
+            // Send death event for non-enemy (player)
+            app.world_mut().write_message(DeathEvent::new(
+                entity,
+                Vec3::ZERO,
+                EntityType::Player,
+            ));
+
+            // Run the system
+            app.update();
+
+            // Verify entity was NOT despawned (not an enemy death)
+            assert!(app.world().entities().contains(entity));
+
+            // Verify score was NOT updated
+            let score = app.world().get_resource::<Score>().unwrap();
+            assert_eq!(score.0, 0);
         }
     }
 }
