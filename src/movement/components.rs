@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use std::time::Duration;
 
 /// Component for entities that have a movement speed.
 /// This is a reusable component that can be used by any entity that needs to move.
@@ -45,6 +46,67 @@ impl Velocity {
 
     pub fn direction(&self) -> Vec2 {
         self.0.normalize_or_zero()
+    }
+}
+
+/// Component for applying temporary knockback force to an entity.
+/// Knockback has a direction, force magnitude, and duration timer.
+/// When the timer finishes, the knockback effect should be removed.
+#[derive(Component, Clone, Debug)]
+pub struct Knockback {
+    direction: Vec2,
+    force: f32,
+    duration: Timer,
+}
+
+impl Knockback {
+    /// Default knockback force when using `from_direction`.
+    pub const DEFAULT_FORCE: f32 = 300.0;
+    /// Default knockback duration in seconds.
+    pub const DEFAULT_DURATION: f32 = 0.2;
+
+    /// Create a new knockback with specific direction, force, and duration.
+    pub fn new(direction: Vec2, force: f32, duration_secs: f32) -> Self {
+        Self {
+            direction: direction.normalize_or_zero(),
+            force,
+            duration: Timer::from_seconds(duration_secs, TimerMode::Once),
+        }
+    }
+
+    /// Create a knockback with default force and duration from a direction.
+    pub fn from_direction(direction: Vec2) -> Self {
+        Self::new(direction, Self::DEFAULT_FORCE, Self::DEFAULT_DURATION)
+    }
+
+    /// Get the normalized knockback direction.
+    pub fn direction(&self) -> Vec2 {
+        self.direction
+    }
+
+    /// Get the knockback force magnitude.
+    pub fn force(&self) -> f32 {
+        self.force
+    }
+
+    /// Get the velocity vector (direction * force).
+    pub fn velocity(&self) -> Vec2 {
+        self.direction * self.force
+    }
+
+    /// Advance the knockback timer by the given duration.
+    pub fn tick(&mut self, delta: Duration) {
+        self.duration.tick(delta);
+    }
+
+    /// Check if the knockback duration has finished.
+    pub fn is_finished(&self) -> bool {
+        self.duration.is_finished()
+    }
+
+    /// Get the remaining duration as a fraction (0.0 to 1.0).
+    pub fn remaining_fraction(&self) -> f32 {
+        1.0 - self.duration.fraction()
     }
 }
 
@@ -161,5 +223,64 @@ mod tests {
 
         assert_eq!(speed.value(), 200.0);
         assert_eq!(velocity.value(), Vec2::new(50.0, 50.0));
+    }
+
+    #[test]
+    fn test_knockback_creation() {
+        let knockback = Knockback::new(Vec2::new(1.0, 0.0), 500.0, 0.3);
+        assert_eq!(knockback.direction(), Vec2::new(1.0, 0.0));
+        assert_eq!(knockback.force(), 500.0);
+        assert!(!knockback.is_finished());
+    }
+
+    #[test]
+    fn test_knockback_from_direction() {
+        let knockback = Knockback::from_direction(Vec2::new(3.0, 4.0));
+        let expected_dir = Vec2::new(3.0, 4.0).normalize();
+        assert!((knockback.direction() - expected_dir).length() < 0.001);
+        assert_eq!(knockback.force(), Knockback::DEFAULT_FORCE);
+    }
+
+    #[test]
+    fn test_knockback_from_zero_direction() {
+        let knockback = Knockback::from_direction(Vec2::ZERO);
+        assert_eq!(knockback.direction(), Vec2::ZERO);
+    }
+
+    #[test]
+    fn test_knockback_velocity() {
+        let knockback = Knockback::new(Vec2::new(1.0, 0.0), 200.0, 0.5);
+        assert_eq!(knockback.velocity(), Vec2::new(200.0, 0.0));
+
+        let knockback2 = Knockback::new(Vec2::new(0.0, 1.0), 150.0, 0.5);
+        assert_eq!(knockback2.velocity(), Vec2::new(0.0, 150.0));
+    }
+
+    #[test]
+    fn test_knockback_tick_decreases_duration() {
+        let mut knockback = Knockback::new(Vec2::new(1.0, 0.0), 500.0, 0.5);
+        assert!(!knockback.is_finished());
+
+        knockback.tick(Duration::from_secs_f32(0.3));
+        assert!(!knockback.is_finished());
+
+        knockback.tick(Duration::from_secs_f32(0.3));
+        assert!(knockback.is_finished());
+    }
+
+    #[test]
+    fn test_knockback_can_be_added_to_entity() {
+        use bevy::app::App;
+
+        let mut app = App::new();
+
+        let entity = app
+            .world_mut()
+            .spawn(Knockback::new(Vec2::new(1.0, 0.0), 300.0, 0.2))
+            .id();
+
+        let knockback = app.world().get::<Knockback>(entity).unwrap();
+        assert_eq!(knockback.force(), 300.0);
+        assert!(!knockback.is_finished());
     }
 }
