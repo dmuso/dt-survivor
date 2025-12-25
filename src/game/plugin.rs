@@ -4,15 +4,15 @@ use crate::bullets::systems::*;
 use crate::enemies::systems::*;
 use crate::game::systems::*;
 use crate::game::sets::GameSet;
-use crate::inventory::systems::{inventory_initialization_system, weapon_follow_player_system};
+use crate::inventory::systems::inventory_initialization_system;
 use crate::enemy_death::plugin as enemy_death_plugin;
 use crate::laser::plugin as laser_plugin;
 use crate::loot::plugin as loot_plugin;
 use crate::movement::plugin as movement_plugin;
 use crate::powerup::plugin as powerup_plugin;
 use crate::rocket_launcher::plugin as rocket_launcher_plugin;
+use crate::weapon::plugin as weapon_plugin;
 use crate::player::systems::{camera_follow_player, update_slow_modifiers, player_health_regeneration_system};
-use crate::weapon::systems::*;
 use crate::game::resources::{PlayerPosition, EnemySpawnState, PlayerDamageTimer, ScreenTintEffect};
 use crate::game::systems::update_screen_tint_timer;
 use crate::score::*;
@@ -26,7 +26,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<ScreenTintEffect>()
         .add_message::<PlayerEnemyCollisionEvent>()
         .add_message::<BulletEnemyCollisionEvent>()
-        .add_plugins((enemy_death_plugin, laser_plugin, loot_plugin, movement_plugin, powerup_plugin, rocket_launcher_plugin))
+        .add_plugins((enemy_death_plugin, laser_plugin, loot_plugin, movement_plugin, powerup_plugin, rocket_launcher_plugin, weapon_plugin))
         // Configure GameSet ordering: Input -> Movement -> Combat -> Spawning -> Effects -> Cleanup
         .configure_sets(
             Update,
@@ -53,11 +53,11 @@ pub fn plugin(app: &mut App) {
                 .run_if(in_state(GameState::InGame)),
         )
         // Movement systems (player_movement and enemy_movement_system are in movement_plugin)
+        // weapon_follow_player_system is now in weapon_plugin
         .add_systems(
             Update,
             (
                 camera_follow_player,
-                weapon_follow_player_system,
                 bullet_movement_system,
             )
                 .in_set(GameSet::Movement)
@@ -102,7 +102,7 @@ pub fn plugin(app: &mut App) {
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )
-        .add_systems(PostUpdate, weapon_firing_system.run_if(in_state(GameState::InGame)))
+        // weapon_firing_system is now in weapon_plugin
         .add_systems(OnExit(GameState::InGame), cleanup_game);
 }
 
