@@ -10,14 +10,10 @@ pub fn plugin(app: &mut App) {
         .add_message::<PickupEvent>()
         .add_message::<ItemEffectEvent>()
         .add_systems(Update, (
-            // Legacy systems (to be migrated)
-            loot_spawning_system.run_if(in_state(GameState::InGame)),
-            loot_attraction_system.run_if(in_state(GameState::InGame)),
-            loot_movement_system.run_if(in_state(GameState::InGame)),
+            // Loot drop system spawns DroppedItem entities from enemy deaths
             loot_drop_system.run_if(in_state(GameState::InGame)),
-            player_loot_collision_system.run_if(in_state(GameState::InGame)),
 
-            // New ECS-based systems
+            // ECS-based pickup systems
             detect_pickup_collisions.run_if(in_state(GameState::InGame)),
             update_item_attraction.run_if(in_state(GameState::InGame)),
             update_item_movement.run_if(in_state(GameState::InGame)),

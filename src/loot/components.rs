@@ -24,19 +24,6 @@ pub enum ItemData {
     Powerup(crate::powerup::components::PowerupType),
 }
 
-// Legacy components for backwards compatibility during migration
-#[derive(Component)]
-pub struct LootItem {
-    pub loot_type: LootType,
-    pub velocity: Vec2,
-}
-
-#[derive(Clone, Debug)]
-pub enum LootType {
-    Weapon(Weapon),
-    HealthPack { heal_amount: f32 },
-}
-
 /// Marker component for loot pickup sound effects
 #[derive(Component)]
 pub struct LootPickupSound;

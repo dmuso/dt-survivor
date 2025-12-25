@@ -207,34 +207,35 @@ pub fn update_rocket_visuals(
 
     #[cfg(test)]
     mod tests {
-use bevy::prelude::*;
+        use bevy::prelude::*;
         use crate::weapon::components::{Weapon, WeaponType};
-        use crate::loot::components::LootItem;
+        use crate::loot::components::{DroppedItem, PickupState, ItemData};
 
-    #[test]
-    fn test_rocket_loot_placement() {
-        // Test that rocket launcher loot is created with correct properties
-        let weapon = Weapon {
-            weapon_type: WeaponType::RocketLauncher,
-            level: 1,
-            fire_rate: 10.0,
-            base_damage: 30.0,
-            last_fired: -10.0,
-        };
+        #[test]
+        fn test_rocket_loot_placement() {
+            // Test that rocket launcher loot is created with correct properties
+            let weapon = Weapon {
+                weapon_type: WeaponType::RocketLauncher,
+                level: 1,
+                fire_rate: 10.0,
+                base_damage: 30.0,
+                last_fired: -10.0,
+            };
 
-        let loot = LootItem {
-            loot_type: crate::loot::components::LootType::Weapon(weapon.clone()),
-            velocity: Vec2::ZERO,
-        };
+            let loot = DroppedItem {
+                pickup_state: PickupState::Idle,
+                item_data: ItemData::Weapon(weapon.clone()),
+                velocity: Vec2::ZERO,
+            };
 
-        // Verify loot type is weapon
-        match &loot.loot_type {
-            crate::loot::components::LootType::Weapon(loot_weapon) => {
-                assert!(matches!(loot_weapon.weapon_type, WeaponType::RocketLauncher));
-                assert_eq!(loot_weapon.fire_rate, 10.0);
-                assert_eq!(loot_weapon.base_damage, 30.0);
+            // Verify item data is weapon
+            match &loot.item_data {
+                ItemData::Weapon(loot_weapon) => {
+                    assert!(matches!(loot_weapon.weapon_type, WeaponType::RocketLauncher));
+                    assert_eq!(loot_weapon.fire_rate, 10.0);
+                    assert_eq!(loot_weapon.base_damage, 30.0);
+                }
+                _ => panic!("Expected weapon item data"),
             }
-            _ => panic!("Expected weapon loot"),
         }
     }
-}
