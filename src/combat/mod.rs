@@ -6,4 +6,6 @@ pub mod systems;
 pub use components::{Damage, Health, Hitbox, Invincibility};
 pub use events::{DamageEvent, DeathEvent, EntityType};
 pub use plugin::{plugin, CombatSets};
-pub use systems::tick_invincibility_system;
+pub use systems::{
+    apply_damage_system, check_death_system, tick_invincibility_system, CheckDeath,
+};

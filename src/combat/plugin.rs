@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use super::events::{DamageEvent, DeathEvent};
-use super::systems::tick_invincibility_system;
+use super::systems::{apply_damage_system, check_death_system, tick_invincibility_system};
 use crate::states::GameState;
 
 /// System sets for combat systems ordering
@@ -23,6 +23,18 @@ pub fn plugin(app: &mut App) {
             Update,
             (CombatSets::Damage, CombatSets::Death, CombatSets::Cleanup)
                 .chain()
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            apply_damage_system
+                .in_set(CombatSets::Damage)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            check_death_system
+                .in_set(CombatSets::Death)
                 .run_if(in_state(GameState::InGame)),
         )
         .add_systems(
