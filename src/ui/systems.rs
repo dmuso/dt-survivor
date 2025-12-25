@@ -354,8 +354,12 @@ pub fn setup_weapon_slots(
         },
     ))
     .with_children(|container| {
-        // Create slots for each weapon type (pistol, laser, etc.)
-        let weapon_types = ["pistol", "laser", "rocket_launcher"];
+        // Create slots for each weapon type (pistol, laser, rocket_launcher)
+        let weapon_types = [
+            WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 },
+            WeaponType::Laser,
+            WeaponType::RocketLauncher,
+        ];
 
         for (i, weapon_type) in weapon_types.iter().enumerate() {
             container.spawn((
@@ -379,7 +383,7 @@ pub fn setup_weapon_slots(
                         ..default()
                     },
                     BackgroundColor(Color::srgba(0.3, 0.3, 0.3, 0.5)), // Initially gray/transparent
-                    WeaponIcon { weapon_type: weapon_type.to_string() },
+                    WeaponIcon { weapon_type: weapon_type.clone() },
                 ));
 
                 // Level text
@@ -390,7 +394,7 @@ pub fn setup_weapon_slots(
                         ..default()
                     },
                     TextColor(Color::srgb(1.0, 1.0, 1.0)),
-                    WeaponLevelDisplay { weapon_type: weapon_type.to_string() },
+                    WeaponLevelDisplay { weapon_type: weapon_type.clone() },
                 ));
 
                 if i == 0 {
@@ -433,7 +437,7 @@ pub fn update_weapon_slots(
 ) {
     // Find the pistol weapon for the timer display
     for (weapon, equipped) in weapon_query.iter() {
-        if equipped.weapon_type == "pistol" {
+        if matches!(equipped.weapon_type, WeaponType::Pistol { .. }) {
             let time_since_fired = time.elapsed_secs() - weapon.last_fired;
             let progress = (time_since_fired / weapon.fire_rate).clamp(0.0, 1.0);
 
@@ -463,11 +467,12 @@ pub fn update_weapon_icons(
     mut icon_query: Query<(&mut BackgroundColor, &WeaponIcon)>,
 ) {
     for (mut bg_color, icon) in icon_query.iter_mut() {
-        if let Some(weapon) = inventory.get_weapon_by_type(&icon.weapon_type) {
+        if let Some(weapon) = inventory.get_weapon(&icon.weapon_type) {
             // Set color based on weapon type
             *bg_color = BackgroundColor(match weapon.weapon_type {
                 WeaponType::Pistol { .. } => Color::srgb(1.0, 1.0, 0.0), // Yellow for pistol
                 WeaponType::Laser => Color::srgb(0.0, 0.0, 1.0), // Blue for laser
+                WeaponType::RocketLauncher => Color::srgb(1.0, 0.5, 0.0), // Orange for rocket launcher
                 _ => Color::srgb(0.5, 0.5, 0.5), // Gray for other weapons
             });
         } else {
@@ -482,7 +487,7 @@ pub fn update_weapon_level_displays(
     mut text_query: Query<(&mut Text, &WeaponLevelDisplay)>,
 ) {
     for (mut text, display) in text_query.iter_mut() {
-        if let Some(weapon) = inventory.get_weapon_by_type(&display.weapon_type) {
+        if let Some(weapon) = inventory.get_weapon(&display.weapon_type) {
             **text = format!("Lv.{}", weapon.level);
         } else {
             **text = "".to_string();

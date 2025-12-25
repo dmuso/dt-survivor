@@ -43,7 +43,7 @@ mod tests {
     use donny_tango_survivor::weapon::systems::weapon_firing_system;
     use donny_tango_survivor::inventory::Inventory;
     use donny_tango_survivor::game::ScreenTintEffect;
-    use donny_tango_survivor::weapon::components::Weapon;
+    use donny_tango_survivor::weapon::components::{Weapon, WeaponType};
     use donny_tango_survivor::inventory::components::EquippedWeapon;
     use donny_tango_survivor::enemies::components::Enemy;
     use donny_tango_survivor::ui::components::{WeaponSlot, WeaponIcon, WeaponTimerFill};
@@ -275,11 +275,12 @@ mod tests {
         use donny_tango_survivor::inventory::resources::Inventory;
 
         let inventory = Inventory::default();
+        let pistol_type = WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 };
 
         // Check that pistol is in inventory
-        assert!(inventory.get_weapon_by_type("pistol").is_some(), "Pistol should be in inventory");
+        assert!(inventory.get_weapon(&pistol_type).is_some(), "Pistol should be in inventory");
 
-        let weapon = inventory.get_weapon_by_type("pistol").unwrap();
+        let weapon = inventory.get_weapon(&pistol_type).unwrap();
         assert_eq!(weapon.fire_rate, 2.0, "Default weapon should have 2 second fire rate");
         assert_eq!(weapon.last_fired, -2.0, "Default weapon should start with last_fired = -2.0 to prevent immediate firing");
         assert_eq!(weapon.base_damage, 1.0, "Default weapon should have 1.0 base damage");
@@ -335,7 +336,7 @@ mod tests {
         }
 
         if let Ok(equipped) = world.query::<&EquippedWeapon>().single(world) {
-            assert_eq!(equipped.weapon_type, "pistol", "Weapon should be pistol");
+            assert!(matches!(equipped.weapon_type, WeaponType::Pistol { .. }), "Weapon should be pistol");
         }
     }
 

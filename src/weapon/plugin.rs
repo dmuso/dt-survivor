@@ -101,7 +101,7 @@ mod tests {
                 base_damage: 1.0,
                 last_fired: 0.0,
             },
-            EquippedWeapon { weapon_type: "pistol".to_string() },
+            EquippedWeapon { weapon_type: WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 } },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 
@@ -164,7 +164,7 @@ mod tests {
                 base_damage: 1.0,
                 last_fired: 0.0,
             },
-            EquippedWeapon { weapon_type: "pistol".to_string() },
+            EquippedWeapon { weapon_type: WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 } },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 

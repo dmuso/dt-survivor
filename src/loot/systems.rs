@@ -269,10 +269,10 @@ pub fn apply_item_effects(
 
                     // Create new weapon entities for all weapons in inventory
                     if let Ok((player_transform, _, _)) = player_query.get(event.player_entity) {
-                        for (weapon_id, weapon) in inventory.iter_weapons() {
+                        for (_weapon_id, weapon) in inventory.iter_weapons() {
                             commands.spawn((
                                 weapon.clone(),
-                                EquippedWeapon { weapon_type: weapon_id.clone() },
+                                EquippedWeapon { weapon_type: weapon.weapon_type.clone() },
                                 Transform::from_translation(player_transform.translation),
                             ));
                         }

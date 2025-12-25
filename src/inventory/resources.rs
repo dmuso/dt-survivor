@@ -54,8 +54,4 @@ impl Inventory {
     pub fn iter_weapons(&self) -> impl Iterator<Item = (&String, &Weapon)> {
         self.weapons.iter()
     }
-
-    pub fn get_weapon_by_type(&self, weapon_type: &str) -> Option<&Weapon> {
-        self.weapons.get(weapon_type)
-    }
 }

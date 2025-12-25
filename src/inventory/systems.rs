@@ -34,7 +34,8 @@ use crate::player::components::*;
         // Note: In a real scenario, this would create weapon entities, but for testing
         // the initialization logic, we verify the inventory is set up correctly
         let inventory = app.world().get_resource::<Inventory>().unwrap();
-        assert!(inventory.get_weapon_by_type("pistol").is_some()); // Pistol should be in inventory
+        let pistol_type = WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 };
+        assert!(inventory.get_weapon(&pistol_type).is_some()); // Pistol should be in inventory
     }
 
     #[test]
@@ -62,7 +63,7 @@ use crate::player::components::*;
                 base_damage: 1.0,
                 last_fired: 0.0,
             },
-            EquippedWeapon { weapon_type: "pistol".to_string() },
+            EquippedWeapon { weapon_type: WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 } },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 
@@ -105,8 +106,10 @@ use crate::player::components::*;
         assert!(inventory.add_or_level_weapon(laser.clone()));
 
         // Check that weapons are in inventory
-        assert!(inventory.get_weapon_by_type("pistol").is_some());
-        assert!(inventory.get_weapon_by_type("laser").is_some());
+        let pistol_type = WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 };
+        let laser_type = WeaponType::Laser;
+        assert!(inventory.get_weapon(&pistol_type).is_some());
+        assert!(inventory.get_weapon(&laser_type).is_some());
 
         // Try to add the same weapon again - should level up
         let pistol_level_2 = Weapon {
@@ -119,7 +122,7 @@ use crate::player::components::*;
         assert!(inventory.add_or_level_weapon(pistol_level_2));
 
         // Check that pistol leveled up
-        let pistol_weapon = inventory.get_weapon_by_type("pistol").unwrap();
+        let pistol_weapon = inventory.get_weapon(&pistol_type).unwrap();
         assert_eq!(pistol_weapon.level, 2);
     }
 }
@@ -132,10 +135,10 @@ pub fn inventory_initialization_system(
     // Only initialize if there are no weapon entities yet
     if weapon_query.is_empty() {
         // Create separate weapon entities for each weapon in inventory
-        for (weapon_id, weapon) in inventory.iter_weapons() {
+        for (_weapon_id, weapon) in inventory.iter_weapons() {
             commands.spawn((
                 weapon.clone(),
-                EquippedWeapon { weapon_type: weapon_id.clone() },
+                EquippedWeapon { weapon_type: weapon.weapon_type.clone() },
                 Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
             ));
         }
