@@ -9,7 +9,7 @@ use crate::pistol::components::PistolConfig;
 pub fn fire_pistol(
     commands: &mut Commands,
     weapon: &Weapon,
-    player_transform: &Transform,
+    spawn_position: Vec2,
     target_pos: Vec2,
     asset_server: Option<&Res<AssetServer>>,
     weapon_channel: Option<&mut ResMut<AudioChannel<WeaponSoundChannel>>>,
@@ -17,8 +17,7 @@ pub fn fire_pistol(
 ) {
     if let crate::weapon::components::WeaponType::Pistol { .. } = &weapon.weapon_type {
         let config = PistolConfig::default();
-        let player_pos = player_transform.translation.truncate();
-        let base_direction = (target_pos - player_pos).normalize();
+        let base_direction = (target_pos - spawn_position).normalize();
 
         // Calculate spread pattern for 5 bullets
         let spread_angle_rad = config.spread_angle.to_radians();
@@ -37,7 +36,7 @@ pub fn fire_pistol(
 
             commands.spawn((
                 Sprite::from_color(config.bullet_color, config.bullet_size),
-                Transform::from_translation(player_transform.translation + Vec3::new(0.0, 0.0, 0.1)),
+                Transform::from_translation(spawn_position.extend(0.1)),
                 Bullet {
                     direction,
                     speed: config.bullet_speed,

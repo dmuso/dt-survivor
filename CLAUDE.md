@@ -4,13 +4,21 @@ A game in the style of Vampire Survivors and Brotato, built with Rust and the Be
 
 ## Development Commands
 
-All development tooling commands require Nix Shell to run.
+Run make commands via nix-shell:
 
-- Type Checking: `nix-shell --run "cargo check"`
-- Linting: `nix-shell --run "cargo clippy"`
-- Testing: `nix-shell --run "cargo test"`
-- Building: `nix-shell --run "cargo build"`
-- Running: `nix-shell --run "cargo run"`
+```bash
+nix-shell --run "make <target>"
+```
+
+Available make targets:
+
+- `make check` - Type checking
+- `make lint` - Clippy linting
+- `make test` - Run tests (quiet mode)
+- `make build` - Debug build
+- `make build-release` - Release build
+- `make run` - Run the game
+- `make clean` - Clean build artifacts
 
 ## Testing and Linting
 

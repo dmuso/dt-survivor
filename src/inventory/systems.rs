@@ -27,12 +27,22 @@ use crate::player::components::*;
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         ));
 
+        // Add a pistol to inventory (simulating Whisper collection)
+        {
+            let mut inventory = app.world_mut().get_resource_mut::<Inventory>().unwrap();
+            inventory.add_or_level_weapon(Weapon {
+                weapon_type: WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 },
+                level: 1,
+                fire_rate: 2.0,
+                base_damage: 1.0,
+                last_fired: -2.0,
+            });
+        }
+
         // Run initialization system
         app.update();
 
         // Check that weapon entities were created for occupied slots
-        // Note: In a real scenario, this would create weapon entities, but for testing
-        // the initialization logic, we verify the inventory is set up correctly
         let inventory = app.world().get_resource::<Inventory>().unwrap();
         let pistol_type = WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 };
         assert!(inventory.get_weapon(&pistol_type).is_some()); // Pistol should be in inventory

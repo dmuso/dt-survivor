@@ -24,6 +24,9 @@ pub use crate::movement::{Knockback, Speed, Velocity};
 // Re-export weapon types
 pub use crate::weapon::WeaponType;
 
+// Re-export whisper module types
+pub use crate::whisper::{WeaponOrigin, WhisperState};
+
 #[cfg(test)]
 mod tests {
     use super::*;

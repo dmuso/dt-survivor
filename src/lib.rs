@@ -18,6 +18,7 @@ pub mod score;
 pub mod states;
 pub mod ui;
 pub mod weapon;
+pub mod whisper;
 
 pub use audio::plugin as audio_plugin;
 pub use combat::plugin as combat_plugin;
@@ -32,3 +33,4 @@ pub use powerup::plugin as powerup_plugin;
 pub use rocket_launcher::plugin as rocket_launcher_plugin;
 pub use ui::plugin as ui_plugin;
 pub use weapon::plugin as weapon_plugin;
+pub use whisper::plugin as whisper_plugin;

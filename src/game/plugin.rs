@@ -16,6 +16,7 @@ use crate::movement::plugin as movement_plugin;
 use crate::powerup::plugin as powerup_plugin;
 use crate::rocket_launcher::plugin as rocket_launcher_plugin;
 use crate::weapon::plugin as weapon_plugin;
+use crate::whisper::plugin as whisper_plugin;
 use crate::player::systems::{camera_follow_player, update_slow_modifiers, player_health_regeneration_system};
 use crate::game::resources::{PlayerPosition, EnemySpawnState, PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
 use crate::score::*;
@@ -31,7 +32,7 @@ pub fn plugin(app: &mut App) {
         .add_message::<PlayerEnemyCollisionEvent>()
         .add_message::<GameOverEvent>()
         .add_message::<BulletEnemyCollisionEvent>()
-        .add_plugins((enemy_death_plugin, laser_plugin, loot_plugin, movement_plugin, powerup_plugin, rocket_launcher_plugin, weapon_plugin))
+        .add_plugins((enemy_death_plugin, laser_plugin, loot_plugin, movement_plugin, powerup_plugin, rocket_launcher_plugin, weapon_plugin, whisper_plugin))
         // Configure GameSet ordering: Input -> Movement -> Combat -> Spawning -> Effects -> Cleanup
         .configure_sets(
             Update,

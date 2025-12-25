@@ -1,28 +1,10 @@
 use bevy::prelude::*;
 use crate::weapon::components::*;
-use std::collections::HashMap;
 
-#[derive(Resource)]
+/// Player's weapon inventory. Starts empty until Whisper is collected.
+#[derive(Resource, Default)]
 pub struct Inventory {
     pub weapons: std::collections::HashMap<String, Weapon>, // weapon_id -> Weapon
-}
-
-impl Default for Inventory {
-    fn default() -> Self {
-        let mut weapons = HashMap::new();
-        // Default pistol weapon
-        weapons.insert("pistol".to_string(), Weapon {
-            weapon_type: WeaponType::Pistol {
-                bullet_count: 5,
-                spread_angle: 15.0
-            },
-            level: 1,
-            fire_rate: 2.0,
-            base_damage: 1.0,
-            last_fired: -2.0, // Prevent immediate firing at startup
-        });
-        Self { weapons }
-    }
 }
 
 impl Inventory {

@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use crate::states::*;
 use crate::game::sets::GameSet;
 use crate::weapon::systems::*;
+use crate::whisper::resources::WeaponOrigin;
 
 /// Re-export weapon_follow_player_system from inventory for now
 /// This function is semantically about weapon behavior
@@ -9,6 +10,8 @@ pub use crate::inventory::systems::weapon_follow_player_system;
 
 pub fn plugin(app: &mut App) {
     app
+        // Ensure WeaponOrigin resource exists (initialized by whisper plugin, but ensure it here too)
+        .init_resource::<WeaponOrigin>()
         // Movement systems - weapon follows player
         .add_systems(
             Update,
