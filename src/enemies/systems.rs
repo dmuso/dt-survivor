@@ -118,11 +118,10 @@ mod tests {
             Transform::from_translation(Vec3::ZERO),
             Player {
                 speed: 200.0,
-                health: 100.0,
-                max_health: 100.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
+            Health::new(100.0),
         ));
 
         // Spawn a camera

@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+use crate::combat::components::Health;
 use crate::player::components::*;
 use crate::game::resources::*;
 
@@ -20,11 +21,10 @@ mod tests {
         app.world_mut().spawn((
             Player {
                 speed: 200.0,
-                health: 100.0,
-                max_health: 100.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
+            Health::new(100.0),
             Transform::from_translation(Vec3::new(50.0, 25.0, 0.0)),
         ));
 
@@ -69,13 +69,16 @@ mod tests {
         app.init_resource::<crate::game::resources::PlayerDamageTimer>();
 
         // Create player with 50 health (below max)
-        let player_entity = app.world_mut().spawn(Player {
-            speed: 200.0,
-            health: 50.0,
-            max_health: 100.0,
-            regen_rate: 2.0, // 2 health per second
-            pickup_radius: 50.0,
-        }).id();
+        let mut health = Health::new(100.0);
+        health.take_damage(50.0); // Set to 50 health
+        let player_entity = app.world_mut().spawn((
+            Player {
+                speed: 200.0,
+                regen_rate: 2.0, // 2 health per second
+                pickup_radius: 50.0,
+            },
+            health,
+        )).id();
 
         // Set damage timer to indicate no recent damage (more than 3 seconds ago)
         {
@@ -94,8 +97,8 @@ mod tests {
         let _ = app.world_mut().run_system_once(player_health_regeneration_system);
 
         // Player should have regenerated 1.0 health (2.0 * 0.5)
-        let player = app.world().get::<Player>(player_entity).unwrap();
-        assert_eq!(player.health, 51.0, "Player should regenerate 1.0 health");
+        let health = app.world().get::<Health>(player_entity).unwrap();
+        assert_eq!(health.current, 51.0, "Player should regenerate 1.0 health");
 
         // Run again for another 0.5 seconds
         {
@@ -105,8 +108,8 @@ mod tests {
         let _ = app.world_mut().run_system_once(player_health_regeneration_system);
 
         // Player should now have 52.0 health
-        let player = app.world().get::<Player>(player_entity).unwrap();
-        assert_eq!(player.health, 52.0, "Player should regenerate another 1.0 health");
+        let health = app.world().get::<Health>(player_entity).unwrap();
+        assert_eq!(health.current, 52.0, "Player should regenerate another 1.0 health");
     }
 
     #[test]
@@ -116,13 +119,16 @@ mod tests {
         app.init_resource::<crate::game::resources::PlayerDamageTimer>();
 
         // Create player with 50 health (below max)
-        let player_entity = app.world_mut().spawn(Player {
-            speed: 200.0,
-            health: 50.0,
-            max_health: 100.0,
-            regen_rate: 2.0,
-            pickup_radius: 50.0,
-        }).id();
+        let mut health = Health::new(100.0);
+        health.take_damage(50.0); // Set to 50 health
+        let player_entity = app.world_mut().spawn((
+            Player {
+                speed: 200.0,
+                regen_rate: 2.0,
+                pickup_radius: 50.0,
+            },
+            health,
+        )).id();
 
         // Set damage timer to indicate recent damage (less than 3 seconds ago)
         {
@@ -141,8 +147,8 @@ mod tests {
         let _ = app.world_mut().run_system_once(player_health_regeneration_system);
 
         // Player health should remain unchanged due to recent damage
-        let player = app.world().get::<Player>(player_entity).unwrap();
-        assert_eq!(player.health, 50.0, "Player should not regenerate when recent damage taken");
+        let health = app.world().get::<Health>(player_entity).unwrap();
+        assert_eq!(health.current, 50.0, "Player should not regenerate when recent damage taken");
     }
 
     #[test]
@@ -152,13 +158,16 @@ mod tests {
         app.init_resource::<crate::game::resources::PlayerDamageTimer>();
 
         // Create player with 99 health (close to max)
-        let player_entity = app.world_mut().spawn(Player {
-            speed: 200.0,
-            health: 99.0,
-            max_health: 100.0,
-            regen_rate: 5.0, // Fast regeneration
-            pickup_radius: 50.0,
-        }).id();
+        let mut health = Health::new(100.0);
+        health.take_damage(1.0); // Set to 99 health
+        let player_entity = app.world_mut().spawn((
+            Player {
+                speed: 200.0,
+                regen_rate: 5.0, // Fast regeneration
+                pickup_radius: 50.0,
+            },
+            health,
+        )).id();
 
         // Set damage timer to indicate no recent damage
         {
@@ -177,8 +186,8 @@ mod tests {
         let _ = app.world_mut().run_system_once(player_health_regeneration_system);
 
         // Player should be capped at max health (100.0), not 99.0 + 5.0 = 104.0
-        let player = app.world().get::<Player>(player_entity).unwrap();
-        assert_eq!(player.health, 100.0, "Player health should be capped at max_health");
+        let health = app.world().get::<Health>(player_entity).unwrap();
+        assert_eq!(health.current, 100.0, "Player health should be capped at max_health");
     }
 }
 
@@ -260,19 +269,19 @@ pub fn update_slow_modifiers(
 pub fn player_health_regeneration_system(
     time: Res<Time>,
     damage_timer: Res<crate::game::resources::PlayerDamageTimer>,
-    mut player_query: Query<&mut Player>,
+    mut player_query: Query<(&Player, &mut Health)>,
 ) {
     // Only regenerate if player hasn't taken damage for at least 3 seconds
     if damage_timer.has_taken_damage && damage_timer.time_since_last_damage < 3.0 {
         return;
     }
 
-    for mut player in player_query.iter_mut() {
+    for (player, mut health) in player_query.iter_mut() {
         // Only regenerate if health is below maximum
-        if player.health < player.max_health {
+        if health.current < health.max {
             // Regenerate based on the player's regen_rate (health per second)
             let regen_amount = player.regen_rate * time.delta_secs();
-            player.health = (player.health + regen_amount).min(player.max_health);
+            health.heal(regen_amount);
         }
     }
 }

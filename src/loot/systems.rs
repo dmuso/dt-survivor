@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use rand::Rng;
+use crate::combat::components::Health;
 use crate::loot::components::*;
 use crate::loot::events::*;
 use crate::weapon::components::{Weapon, WeaponType};
@@ -311,7 +312,7 @@ pub fn loot_drop_system(
 #[allow(clippy::too_many_arguments)]
 pub fn player_loot_collision_system(
     mut commands: Commands,
-    mut player_query: Query<(&Transform, &mut Player), With<Player>>,
+    mut player_query: Query<(&Transform, &Player, &mut Health), With<Player>>,
     loot_query: Query<(Entity, &Transform, &LootItem)>,
     weapon_query: Query<(Entity, &Weapon)>,
     mut inventory: ResMut<Inventory>,
@@ -320,7 +321,7 @@ pub fn player_loot_collision_system(
     mut loot_channel: Option<ResMut<AudioChannel<LootSoundChannel>>>,
     mut sound_limiter: Option<ResMut<SoundLimiter>>,
 ) {
-    if let Ok((player_transform, mut player)) = player_query.single_mut() {
+    if let Ok((player_transform, player, mut health)) = player_query.single_mut() {
         let player_pos = player_transform.translation.truncate();
 
         for (loot_entity, loot_transform, loot_item) in loot_query.iter() {
@@ -353,7 +354,7 @@ pub fn player_loot_collision_system(
                     }
                      LootType::HealthPack { heal_amount } => {
                          // Heal the player
-                         player.health = (player.health + heal_amount).min(player.max_health);
+                         health.heal(*heal_amount);
 
                          // Apply green screen tint for 0.2 seconds
                          screen_tint.remaining_duration = 0.2;
@@ -499,7 +500,7 @@ pub fn process_pickup_events(
 pub fn apply_item_effects(
     mut commands: Commands,
     mut effect_events: MessageReader<ItemEffectEvent>,
-    mut player_query: Query<(&Transform, &mut Player)>,
+    mut player_query: Query<(&Transform, &Player, &mut Health)>,
     mut player_exp_query: Query<&mut crate::experience::components::PlayerExperience>,
     weapon_query: Query<(Entity, &Weapon)>,
     mut inventory: ResMut<Inventory>,
@@ -521,7 +522,7 @@ pub fn apply_item_effects(
                     }
 
                     // Create new weapon entities for all weapons in inventory
-                    if let Ok((player_transform, _)) = player_query.get(event.player_entity) {
+                    if let Ok((player_transform, _, _)) = player_query.get(event.player_entity) {
                         for (weapon_id, weapon) in inventory.iter_weapons() {
                             commands.spawn((
                                 weapon.clone(),
@@ -537,8 +538,8 @@ pub fn apply_item_effects(
             }
             ItemData::HealthPack { heal_amount } => {
                 // Heal player
-                if let Ok((_, mut player)) = player_query.get_mut(event.player_entity) {
-                    player.health = (player.health + heal_amount).min(player.max_health);
+                if let Ok((_, _, mut health)) = player_query.get_mut(event.player_entity) {
+                    health.heal(*heal_amount);
                     screen_tint.remaining_duration = 0.2;
                     screen_tint.color = Color::srgba(0.0, 1.0, 0.0, 0.2);
                 }
@@ -632,11 +633,10 @@ mod tests {
         let _player_entity = app.world_mut().spawn((
             Player {
                 speed: 200.0,
-                health: 100.0,
-                max_health: 100.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
+            Health::new(100.0),
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 
@@ -674,14 +674,15 @@ mod tests {
         app.init_resource::<ScreenTintEffect>();
 
         // Create player at (0, 0) with 50 health
+        let mut health = Health::new(100.0);
+        health.take_damage(50.0); // Set to 50 health
         let player_entity = app.world_mut().spawn((
             Player {
                 speed: 200.0,
-                health: 50.0,
-                max_health: 100.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
+            health,
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 
@@ -698,8 +699,8 @@ mod tests {
         app.update();
 
         // Check that player health was restored
-        let player = app.world().get::<Player>(player_entity).unwrap();
-        assert_eq!(player.health, 75.0); // 50 + 25 = 75
+        let health = app.world().get::<Health>(player_entity).unwrap();
+        assert_eq!(health.current, 75.0); // 50 + 25 = 75
 
         // Check that green screen tint was applied
         let screen_tint = app.world().get_resource::<ScreenTintEffect>().unwrap();
@@ -718,11 +719,10 @@ mod tests {
         app.world_mut().spawn((
             Player {
                 speed: 200.0,
-                health: 100.0,
-                max_health: 100.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
+            Health::new(100.0),
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         ));
 

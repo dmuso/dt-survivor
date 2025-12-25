@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use bevy::prelude::*;
+    use crate::combat::components::Health;
     use crate::powerup::components::*;
     use crate::powerup::systems::*;
     use crate::player::components::*;
@@ -91,11 +92,10 @@ mod tests {
         app.world_mut().spawn((
             Player {
                 speed: 200.0,
-                health: 100.0,
-                max_health: 100.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
+            Health::new(100.0),
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         ));
 
@@ -134,11 +134,10 @@ mod tests {
         let player_entity = app.world_mut().spawn((
             Player {
                 speed: 200.0,
-                health: 100.0,
-                max_health: 100.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
+            Health::new(100.0),
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 
@@ -156,7 +155,8 @@ mod tests {
 
         // Check player stats were modified
         let player = app.world().get::<Player>(player_entity).unwrap();
-        assert_eq!(player.max_health, 125.0, "Max health should be 100 * 1.25 = 125");
+        let health = app.world().get::<Health>(player_entity).unwrap();
+        assert_eq!(health.max, 125.0, "Max health should be 100 * 1.25 = 125");
         assert_eq!(player.regen_rate, 1.25, "Regen rate should be 1.0 * 1.25 = 1.25");
         assert_eq!(player.pickup_radius, 62.5, "Pickup radius should be 50 * 1.25 = 62.5");
         assert_eq!(player.speed, 250.0, "Speed should be 200 * 1.25 = 250");
@@ -214,11 +214,10 @@ mod tests {
         let player_entity = app.world_mut().spawn((
             Player {
                 speed: 200.0,
-                health: 100.0,
-                max_health: 100.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
+            Health::new(100.0),
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 
@@ -234,8 +233,8 @@ mod tests {
         app.update();
 
         // Check stacking worked
-        let player = app.world().get::<Player>(player_entity).unwrap();
-        assert_eq!(player.max_health, 175.0, "Max health should be 100 * 1.75 = 175 (3 stacks = 75% increase)");
+        let health = app.world().get::<Health>(player_entity).unwrap();
+        assert_eq!(health.max, 175.0, "Max health should be 100 * 1.75 = 175 (3 stacks = 75% increase)");
     }
 
     #[test]

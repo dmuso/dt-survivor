@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::ecs::world::World;
+use crate::combat::components::Health;
 use crate::states::*;
 use crate::ui::components::*;
 use crate::player::components::*;
@@ -252,21 +253,21 @@ pub fn update_screen_tint(
 }
 
 pub fn update_health_display(
-    player_query: Query<&Player>,
+    player_query: Query<&Health, With<Player>>,
     mut health_text_query: Query<&mut Text, (With<HealthDisplay>, Without<HealthBar>)>,
     mut health_bar_query: Query<(&mut Node, &mut BackgroundColor), With<HealthBar>>,
 ) {
-    if let Ok(player) = player_query.single() {
+    if let Ok(health) = player_query.single() {
         // Update health text
         for mut text in &mut health_text_query {
-            *text = Text::new(format!("Health: {:.0}", player.health));
+            *text = Text::new(format!("Health: {:.0}", health.current));
         }
 
         // Update health bar width and color
-        let health_percentage = (player.health / 100.0).clamp(0.0, 1.0);
-        let bar_color = if player.health > 60.0 {
+        let health_percentage = health.percentage();
+        let bar_color = if health.current > 60.0 {
             Color::srgb(0.0, 1.0, 0.0) // Green
-        } else if player.health > 30.0 {
+        } else if health.current > 30.0 {
             Color::srgb(1.0, 1.0, 0.0) // Yellow
         } else {
             Color::srgb(1.0, 0.0, 0.0) // Red

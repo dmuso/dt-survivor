@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use bevy::ecs::world::World;
 use rand::Rng;
 
+use crate::combat::components::Health;
 use crate::enemies::components::*;
 use crate::game::components::*;
 use crate::game::resources::*;
@@ -26,11 +27,10 @@ pub fn setup_game(
         Transform::from_translation(Vec3::new(0.0, 0.0, 1.0)),
         Player {
             speed: 200.0,
-            health: 100.0,
-            max_health: 100.0,
             regen_rate: 1.0, // 1 health per second (was 1% of 100)
             pickup_radius: 50.0, // Radius within which loot is attracted to player
         },
+        Health::new(100.0), // Player health as separate component
         crate::experience::components::PlayerExperience {
             current: 0,
             level: 1,
@@ -112,11 +112,11 @@ pub fn player_enemy_collision_detection(
 pub fn player_enemy_damage_system(
     mut collision_events: MessageReader<PlayerEnemyCollisionEvent>,
     enemy_query: Query<&Enemy>,
-    mut player_query: Query<&mut Player>,
+    mut player_query: Query<&mut Health, With<Player>>,
     mut damage_timer: ResMut<PlayerDamageTimer>,
     time: Res<Time>,
 ) {
-    let Ok(mut player) = player_query.single_mut() else {
+    let Ok(mut health) = player_query.single_mut() else {
         return;
     };
 
@@ -137,7 +137,7 @@ pub fn player_enemy_damage_system(
         let can_damage = !damage_timer.has_taken_damage || damage_timer.time_since_last_damage >= 0.5;
 
         if can_damage {
-            player.health -= damage_amount;
+            health.take_damage(damage_amount);
 
             // Mark that we've taken damage
             damage_timer.has_taken_damage = true;
@@ -183,11 +183,11 @@ pub fn player_enemy_effect_system(
 }
 
 pub fn player_death_system(
-    player_query: Query<&Player>,
+    player_query: Query<&Health, With<Player>>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
-    if let Ok(player) = player_query.single() {
-        if player.health <= 0.0 {
+    if let Ok(health) = player_query.single() {
+        if health.is_dead() {
             next_state.set(GameState::GameOver);
         }
     }
@@ -234,11 +234,10 @@ mod tests {
         let player_entity = app.world_mut().spawn((
             Player {
                 speed: 200.0,
-                health: 100.0,
-                max_health: 100.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
+            Health::new(100.0),
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 
@@ -252,8 +251,8 @@ mod tests {
         app.update();
 
         // Player should take immediate damage
-        let player = app.world().get::<Player>(player_entity).unwrap();
-        assert_eq!(player.health, 90.0, "Player should take 10 damage immediately");
+        let health = app.world().get::<Health>(player_entity).unwrap();
+        assert_eq!(health.current, 90.0, "Player should take 10 damage immediately");
     }
 
     #[test]
@@ -266,11 +265,10 @@ mod tests {
         let player_entity = app.world_mut().spawn((
             Player {
                 speed: 200.0,
-                health: 100.0,
-                max_health: 100.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
+            Health::new(100.0),
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 
@@ -284,8 +282,8 @@ mod tests {
         app.update();
 
         // Player health should remain unchanged
-        let player = app.world().get::<Player>(player_entity).unwrap();
-        assert_eq!(player.health, 100.0, "Player should not take damage when not touching enemy");
+        let health = app.world().get::<Health>(player_entity).unwrap();
+        assert_eq!(health.current, 100.0, "Player should not take damage when not touching enemy");
     }
 
     #[test]
@@ -308,11 +306,10 @@ mod tests {
         let player_entity = app.world_mut().spawn((
             Player {
                 speed: 200.0,
-                health: 100.0,
-                max_health: 100.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
+            Health::new(100.0),
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 
@@ -324,8 +321,8 @@ mod tests {
 
         // First damage tick - immediate
         app.update();
-        let player = app.world().get::<Player>(player_entity).unwrap();
-        assert_eq!(player.health, 90.0, "First damage should be immediate");
+        let health = app.world().get::<Health>(player_entity).unwrap();
+        assert_eq!(health.current, 90.0, "First damage should be immediate");
 
         // Simulate 0.3 seconds passing (less than cooldown)
         {
@@ -336,8 +333,8 @@ mod tests {
 
         // Second run - should not damage yet
         app.update();
-        let player = app.world().get::<Player>(player_entity).unwrap();
-        assert_eq!(player.health, 90.0, "Should not damage during cooldown");
+        let health = app.world().get::<Health>(player_entity).unwrap();
+        assert_eq!(health.current, 90.0, "Should not damage during cooldown");
 
         // Simulate 0.6 seconds passing (more than cooldown)
         {
@@ -348,8 +345,8 @@ mod tests {
 
         // Third run - should damage again
         app.update();
-        let player = app.world().get::<Player>(player_entity).unwrap();
-        assert_eq!(player.health, 80.0, "Should damage after cooldown period");
+        let health = app.world().get::<Health>(player_entity).unwrap();
+        assert_eq!(health.current, 80.0, "Should damage after cooldown period");
     }
 
     #[test]
@@ -372,11 +369,10 @@ mod tests {
         let player_entity = app.world_mut().spawn((
             Player {
                 speed: 200.0,
-                health: 100.0,
-                max_health: 100.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
+            Health::new(100.0),
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 
@@ -390,8 +386,8 @@ mod tests {
         app.update();
 
         // Player should be dead (health <= 0)
-        let player = app.world().get::<Player>(player_entity).unwrap();
-        assert!(player.health <= 0.0, "Player health should be <= 0 after lethal damage");
+        let health = app.world().get::<Health>(player_entity).unwrap();
+        assert!(health.is_dead(), "Player health should be <= 0 after lethal damage");
 
         // Check that game state would transition (we can't easily test NextState in isolation)
         // but the logic should trigger the transition
@@ -417,11 +413,10 @@ mod tests {
         app.world_mut().spawn((
             Player {
                 speed: 200.0,
-                health: 100.0,
-                max_health: 100.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
+            Health::new(100.0),
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         ));
 

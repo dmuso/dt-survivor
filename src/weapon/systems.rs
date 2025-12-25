@@ -22,8 +22,6 @@ mod tests {
         app.world_mut().spawn((
             Player {
                 speed: 200.0,
-                health: 100.0,
-                max_health: 100.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
@@ -70,8 +68,6 @@ mod tests {
         app.world_mut().spawn((
             Player {
                 speed: 200.0,
-                health: 100.0,
-                max_health: 100.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
@@ -126,8 +122,6 @@ mod tests {
         app.world_mut().spawn((
             Player {
                 speed: 200.0,
-                health: 100.0,
-                max_health: 100.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },

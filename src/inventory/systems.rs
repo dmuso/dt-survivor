@@ -7,6 +7,7 @@ use crate::player::components::*;
     #[cfg(test)]
     mod tests {
         use super::*;
+        use crate::combat::components::Health;
         use crate::weapon::components::WeaponType;
 
     #[test]
@@ -19,11 +20,10 @@ use crate::player::components::*;
         app.world_mut().spawn((
             Player {
                 speed: 200.0,
-                health: 100.0,
-                max_health: 100.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
+            Health::new(100.0),
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         ));
 
@@ -46,11 +46,10 @@ use crate::player::components::*;
         let player_entity = app.world_mut().spawn((
             Player {
                 speed: 200.0,
-                health: 100.0,
-                max_health: 100.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
+            Health::new(100.0),
             Transform::from_translation(Vec3::new(100.0, 200.0, 0.0)),
         )).id();
 

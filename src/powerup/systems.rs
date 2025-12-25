@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use rand::Rng;
+use crate::combat::components::Health;
 use crate::powerup::components::*;
 use crate::player::components::*;
 use crate::weapon::components::*;
@@ -87,9 +88,9 @@ pub fn powerup_pickup_system(
 /// System to apply powerup effects to the player
 pub fn apply_player_powerup_effects(
     active_powerups: Res<ActivePowerups>,
-    mut player_query: Query<&mut Player>,
+    mut player_query: Query<(&mut Player, &mut Health)>,
 ) {
-    if let Ok(mut player) = player_query.single_mut() {
+    if let Ok((mut player, mut health)) = player_query.single_mut() {
         // Calculate base values (this assumes we know the original values)
         let base_max_health = 100.0;
         let base_regen_rate = 1.0;
@@ -108,14 +109,14 @@ pub fn apply_player_powerup_effects(
         let pickup_multiplier = 1.0 + (pickup_stacks as f32 * 0.25);
         let speed_multiplier = 1.0 + (speed_stacks as f32 * 0.25);
 
-        player.max_health = base_max_health * max_health_multiplier;
+        health.max = base_max_health * max_health_multiplier;
         player.regen_rate = base_regen_rate * regen_multiplier;
         player.pickup_radius = base_pickup_radius * pickup_multiplier;
         player.speed = base_speed * speed_multiplier;
 
         // Ensure health doesn't exceed new max
-        if player.health > player.max_health {
-            player.health = player.max_health;
+        if health.current > health.max {
+            health.current = health.max;
         }
     }
 }
