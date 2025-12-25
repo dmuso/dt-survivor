@@ -5,7 +5,7 @@ use rand::Rng;
 use crate::combat::components::Health;
 use crate::enemies::components::*;
 use crate::game::components::*;
-use crate::game::resources::*;
+use crate::game::resources::{PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
 use crate::game::events::*;
 use crate::player::components::*;
 use crate::states::*;
@@ -182,12 +182,30 @@ pub fn player_enemy_effect_system(
     }
 }
 
+/// System that updates the survival time tracker
+pub fn update_survival_time(time: Res<Time>, mut survival_time: ResMut<SurvivalTime>) {
+    survival_time.0 += time.delta_secs();
+}
+
+/// System that resets survival time when entering the game
+pub fn reset_survival_time(mut survival_time: ResMut<SurvivalTime>) {
+    survival_time.0 = 0.0;
+}
+
 pub fn player_death_system(
     player_query: Query<&Health, With<Player>>,
     mut next_state: ResMut<NextState<GameState>>,
+    mut game_over_events: MessageWriter<GameOverEvent>,
+    score: Res<crate::score::Score>,
+    survival_time: Res<SurvivalTime>,
 ) {
     if let Ok(health) = player_query.single() {
         if health.is_dead() {
+            // Fire the game over event before state transition
+            game_over_events.write(GameOverEvent {
+                final_score: score.0,
+                survival_time: survival_time.0,
+            });
             next_state.set(GameState::GameOver);
         }
     }
@@ -460,5 +478,140 @@ mod tests {
 
         score.0 += 5;
         assert_eq!(score.0, 6);
+    }
+
+    #[test]
+    fn test_update_survival_time() {
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin::default());
+        app.init_resource::<SurvivalTime>();
+        app.add_systems(Update, update_survival_time);
+
+        // Initial survival time should be 0
+        let time = app.world().get_resource::<SurvivalTime>().unwrap();
+        assert_eq!(time.0, 0.0);
+
+        // Run update (delta time will be small but > 0)
+        app.update();
+        let time = app.world().get_resource::<SurvivalTime>().unwrap();
+        assert!(time.0 >= 0.0, "Survival time should increase or stay at 0");
+    }
+
+    #[test]
+    fn test_reset_survival_time() {
+        let mut app = App::new();
+        app.init_resource::<SurvivalTime>();
+
+        // Set survival time to some value
+        {
+            let mut time = app.world_mut().get_resource_mut::<SurvivalTime>().unwrap();
+            time.0 = 120.5;
+        }
+
+        // Run reset system
+        app.add_systems(Update, reset_survival_time);
+        app.update();
+
+        // Survival time should be reset to 0
+        let time = app.world().get_resource::<SurvivalTime>().unwrap();
+        assert_eq!(time.0, 0.0);
+    }
+
+    #[test]
+    fn test_player_death_fires_game_over_event() {
+        use std::sync::{Arc, atomic::{AtomicU32, AtomicBool, Ordering}};
+
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin);
+        app.init_state::<GameState>();
+        app.init_resource::<Score>();
+        app.init_resource::<SurvivalTime>();
+        app.add_message::<GameOverEvent>();
+
+        // Use atomics to capture event data
+        let event_received = Arc::new(AtomicBool::new(false));
+        let captured_score = Arc::new(AtomicU32::new(0));
+        let event_received_clone = event_received.clone();
+        let captured_score_clone = captured_score.clone();
+
+        // Add systems with the producer first and consumer second, chained
+        let event_reader = move |mut events: MessageReader<GameOverEvent>| {
+            for event in events.read() {
+                event_received_clone.store(true, Ordering::SeqCst);
+                captured_score_clone.store(event.final_score, Ordering::SeqCst);
+            }
+        };
+
+        app.add_systems(Update, (player_death_system, event_reader).chain());
+
+        // Set score and survival time
+        {
+            let mut score = app.world_mut().get_resource_mut::<Score>().unwrap();
+            score.0 = 1500;
+        }
+        {
+            let mut time = app.world_mut().get_resource_mut::<SurvivalTime>().unwrap();
+            time.0 = 90.5;
+        }
+
+        // Create dead player
+        app.world_mut().spawn((
+            Player {
+                speed: 200.0,
+                regen_rate: 1.0,
+                pickup_radius: 50.0,
+            },
+            Health::new(0.0), // Dead player
+            Transform::default(),
+        ));
+
+        // Run the system
+        app.update();
+
+        // Check that GameOverEvent was fired
+        assert!(event_received.load(Ordering::SeqCst), "Should have received GameOverEvent");
+        assert_eq!(captured_score.load(Ordering::SeqCst), 1500);
+    }
+
+    #[test]
+    fn test_player_death_does_not_fire_when_alive() {
+        use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin);
+        app.init_state::<GameState>();
+        app.init_resource::<Score>();
+        app.init_resource::<SurvivalTime>();
+        app.add_message::<GameOverEvent>();
+
+        // Use atomic to capture whether event was received
+        let event_received = Arc::new(AtomicBool::new(false));
+        let event_received_clone = event_received.clone();
+
+        // Add systems with the producer first and consumer second, chained
+        let event_reader = move |mut events: MessageReader<GameOverEvent>| {
+            for _event in events.read() {
+                event_received_clone.store(true, Ordering::SeqCst);
+            }
+        };
+
+        app.add_systems(Update, (player_death_system, event_reader).chain());
+
+        // Create alive player
+        app.world_mut().spawn((
+            Player {
+                speed: 200.0,
+                regen_rate: 1.0,
+                pickup_radius: 50.0,
+            },
+            Health::new(100.0), // Alive player
+            Transform::default(),
+        ));
+
+        // Run the system
+        app.update();
+
+        // Check that no GameOverEvent was fired
+        assert!(!event_received.load(Ordering::SeqCst), "Should have no GameOverEvent when player is alive");
     }
 }

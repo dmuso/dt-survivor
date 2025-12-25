@@ -2,7 +2,11 @@ use bevy::prelude::*;
 use crate::states::*;
 use crate::bullets::systems::*;
 use crate::enemies::systems::*;
-use crate::game::systems::*;
+use crate::game::systems::{
+    cleanup_game, game_input, player_death_system, player_enemy_collision_detection,
+    player_enemy_damage_system, player_enemy_effect_system, reset_survival_time, setup_game,
+    update_screen_tint_timer, update_survival_time,
+};
 use crate::game::sets::GameSet;
 use crate::inventory::systems::inventory_initialization_system;
 use crate::enemy_death::plugin as enemy_death_plugin;
@@ -13,10 +17,9 @@ use crate::powerup::plugin as powerup_plugin;
 use crate::rocket_launcher::plugin as rocket_launcher_plugin;
 use crate::weapon::plugin as weapon_plugin;
 use crate::player::systems::{camera_follow_player, update_slow_modifiers, player_health_regeneration_system};
-use crate::game::resources::{PlayerPosition, EnemySpawnState, PlayerDamageTimer, ScreenTintEffect};
-use crate::game::systems::update_screen_tint_timer;
+use crate::game::resources::{PlayerPosition, EnemySpawnState, PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
 use crate::score::*;
-use crate::game::events::{PlayerEnemyCollisionEvent, BulletEnemyCollisionEvent};
+use crate::game::events::{PlayerEnemyCollisionEvent, BulletEnemyCollisionEvent, GameOverEvent};
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<PlayerPosition>()
@@ -24,7 +27,9 @@ pub fn plugin(app: &mut App) {
         .init_resource::<EnemySpawnState>()
         .init_resource::<PlayerDamageTimer>()
         .init_resource::<ScreenTintEffect>()
+        .init_resource::<SurvivalTime>()
         .add_message::<PlayerEnemyCollisionEvent>()
+        .add_message::<GameOverEvent>()
         .add_message::<BulletEnemyCollisionEvent>()
         .add_plugins((enemy_death_plugin, laser_plugin, loot_plugin, movement_plugin, powerup_plugin, rocket_launcher_plugin, weapon_plugin))
         // Configure GameSet ordering: Input -> Movement -> Combat -> Spawning -> Effects -> Cleanup
@@ -44,6 +49,7 @@ pub fn plugin(app: &mut App) {
         .add_systems(OnEnter(GameState::InGame), (
             setup_game,
             inventory_initialization_system,
+            reset_survival_time,
         ))
         // Input systems
         .add_systems(
@@ -91,6 +97,7 @@ pub fn plugin(app: &mut App) {
                 update_screen_tint_timer,
                 update_slow_modifiers,
                 player_health_regeneration_system,
+                update_survival_time,
             )
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),

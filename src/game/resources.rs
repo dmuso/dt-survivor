@@ -33,3 +33,25 @@ pub struct ScreenTintEffect {
     pub remaining_duration: f32,
     pub color: Color,
 }
+
+/// Tracks how long the player has survived in the current game session
+#[derive(Resource, Default)]
+pub struct SurvivalTime(pub f32);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_survival_time_default() {
+        let time = SurvivalTime::default();
+        assert_eq!(time.0, 0.0);
+    }
+
+    #[test]
+    fn test_survival_time_increment() {
+        let mut time = SurvivalTime::default();
+        time.0 += 1.5;
+        assert_eq!(time.0, 1.5);
+    }
+}
