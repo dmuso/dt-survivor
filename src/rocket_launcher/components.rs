@@ -38,15 +38,23 @@ impl RocketProjectile {
 
 #[derive(Component)]
 pub struct TargetMarker {
-    pub target_entity: Entity,
+    pub target_entity: Option<Entity>,
     pub lifetime: Timer,
 }
 
 impl TargetMarker {
-    pub fn new(target_entity: Entity) -> Self {
+    pub fn new(target_entity: Option<Entity>) -> Self {
         Self {
             target_entity,
             lifetime: Timer::from_seconds(1.0, TimerMode::Once), // Marker lasts 1 second
+        }
+    }
+
+    /// Create a marker for a position without tracking a specific entity
+    pub fn position_only() -> Self {
+        Self {
+            target_entity: None,
+            lifetime: Timer::from_seconds(1.0, TimerMode::Once),
         }
     }
 }
@@ -136,6 +144,23 @@ mod tests {
 
         explosion.current_radius = 200.0;
         assert!(!explosion.is_expanding()); // Beyond max
+    }
+
+    #[test]
+    fn test_target_marker_with_entity() {
+        let entity = Entity::from_raw_u32(42).unwrap();
+        let marker = TargetMarker::new(Some(entity));
+
+        assert_eq!(marker.target_entity, Some(entity));
+        assert_eq!(marker.lifetime.duration(), std::time::Duration::from_secs(1));
+    }
+
+    #[test]
+    fn test_target_marker_position_only() {
+        let marker = TargetMarker::position_only();
+
+        assert!(marker.target_entity.is_none());
+        assert_eq!(marker.lifetime.duration(), std::time::Duration::from_secs(1));
     }
 }
 

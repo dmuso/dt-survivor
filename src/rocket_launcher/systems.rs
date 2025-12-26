@@ -35,10 +35,7 @@ pub fn target_marking_system(
                 commands.spawn((
                     Sprite::from_color(Color::srgb(1.0, 0.0, 0.0), Vec2::new(6.0, 6.0)), // Red dot
                     Transform::from_translation(Vec3::new(target_pos.x, target_pos.y, 0.4)), // At target position
-                    TargetMarker {
-                        target_entity: Entity::from_bits(0), // Dummy entity since we're not tracking a specific enemy
-                        lifetime: Timer::from_seconds(1.0, TimerMode::Once),
-                    },
+                    TargetMarker::position_only(),
                 ));
             }
         }
