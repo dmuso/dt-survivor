@@ -95,19 +95,29 @@ pub struct LightningBolt {
 }
 
 impl LightningBolt {
-    pub fn new(angle: f32, seed: u32, center: Vec3) -> Self {
+    /// Base thickness at size 1.0
+    const BASE_THICKNESS: f32 = 1.5;
+    const BASE_TIP_THICKNESS: f32 = 0.5;
+    /// Jag amount scales with bolt length
+    const JAG_AMOUNT_RATIO: f32 = 0.15; // 15% of max_distance
+
+    /// Creates a new lightning bolt with specified max distance.
+    /// max_distance: absolute max distance in pixels (e.g., texture radius)
+    /// size_multiplier: fraction of max_distance to use (0.2 to 1.0)
+    pub fn new(angle: f32, seed: u32, center: Vec3, max_distance: f32, size_multiplier: f32) -> Self {
         let segment_count = 5u8;
-        let max_distance = 55.0;
+        let actual_distance = max_distance * size_multiplier;
+        let jag_amount = actual_distance * Self::JAG_AMOUNT_RATIO;
 
         // Generate random jagged offsets using the seed
-        let jag_offsets = Self::generate_jag_offsets(seed, segment_count);
+        let jag_offsets = Self::generate_jag_offsets(seed, segment_count, jag_amount);
         // Generate variable segment lengths (longer near center, shorter at tips)
-        let joint_distances = Self::generate_joint_distances(seed, segment_count, max_distance);
+        let joint_distances = Self::generate_joint_distances(seed, segment_count, actual_distance);
 
         Self {
             angle,
             distance: 0.0,
-            max_distance,
+            max_distance: actual_distance,
             speed: 200.0,
             base_opacity: 1.0,
             segment_count,
@@ -115,13 +125,13 @@ impl LightningBolt {
             center,
             jag_offsets,
             joint_distances,
-            base_thickness: 3.0,
-            tip_thickness: 1.0,
+            base_thickness: Self::BASE_THICKNESS * size_multiplier,
+            tip_thickness: Self::BASE_TIP_THICKNESS * size_multiplier,
         }
     }
 
     /// Generate random perpendicular offsets for jagged appearance
-    fn generate_jag_offsets(seed: u32, count: u8) -> Vec<f32> {
+    fn generate_jag_offsets(seed: u32, count: u8, jag_amount: f32) -> Vec<f32> {
         let mut offsets = Vec::with_capacity(count as usize + 1);
         offsets.push(0.0); // First point is always at center
 
@@ -129,7 +139,6 @@ impl LightningBolt {
         for i in 1..=count {
             let hash = seed.wrapping_mul(1103515245).wrapping_add(i as u32 * 12345);
             let normalized = ((hash % 1000) as f32 / 1000.0) * 2.0 - 1.0; // -1 to 1
-            let jag_amount = 8.0; // Max perpendicular offset in pixels
             offsets.push(normalized * jag_amount);
         }
 
@@ -233,13 +242,31 @@ pub struct LightningSegment {
     pub bolt_entity: Entity,
 }
 
-/// Timer for spawning lightning bolt bursts
+/// Timer for spawning lightning bolt bursts with randomized intervals
 #[derive(Component)]
-pub struct LightningSpawnTimer(pub Timer);
+pub struct LightningSpawnTimer {
+    pub timer: Timer,
+    /// Minimum interval between spawns (seconds)
+    pub min_interval: f32,
+    /// Maximum interval between spawns (seconds)
+    pub max_interval: f32,
+}
 
 impl Default for LightningSpawnTimer {
     fn default() -> Self {
-        Self(Timer::from_seconds(0.05, TimerMode::Repeating))
+        Self {
+            timer: Timer::from_seconds(0.08, TimerMode::Once),
+            min_interval: 0.04,
+            max_interval: 0.15,
+        }
+    }
+}
+
+impl LightningSpawnTimer {
+    /// Resets the timer with a new random duration
+    pub fn reset_with_random_duration(&mut self, rng: &mut impl rand::Rng) {
+        let duration = rng.gen_range(self.min_interval..=self.max_interval);
+        self.timer = Timer::from_seconds(duration, TimerMode::Once);
     }
 }
 
@@ -276,11 +303,12 @@ mod tests {
     }
 
     #[test]
-    fn test_lightning_bolt_new() {
-        let bolt = LightningBolt::new(1.57, 42, Vec3::new(10.0, 20.0, 0.5));
+    fn test_lightning_bolt_new_full_size() {
+        // max_distance=32.0 (texture radius), size_multiplier=1.0 (full size)
+        let bolt = LightningBolt::new(1.57, 42, Vec3::new(10.0, 20.0, 0.5), 32.0, 1.0);
         assert_eq!(bolt.angle, 1.57);
         assert_eq!(bolt.distance, 0.0);
-        assert_eq!(bolt.max_distance, 55.0);
+        assert_eq!(bolt.max_distance, 32.0); // 32.0 * 1.0
         assert_eq!(bolt.speed, 200.0);
         assert_eq!(bolt.base_opacity, 1.0);
         assert_eq!(bolt.segment_count, 5);
@@ -288,11 +316,36 @@ mod tests {
         assert_eq!(bolt.center, Vec3::new(10.0, 20.0, 0.5));
         assert_eq!(bolt.jag_offsets.len(), 6); // segment_count + 1
         assert_eq!(bolt.joint_distances.len(), 6); // segment_count + 1
+        assert_eq!(bolt.base_thickness, 1.5); // BASE_THICKNESS * 1.0
+        assert_eq!(bolt.tip_thickness, 0.5); // BASE_TIP_THICKNESS * 1.0
+    }
+
+    #[test]
+    fn test_lightning_bolt_size_multiplier() {
+        let max_dist = 32.0; // texture radius
+
+        // Full size bolt (100%)
+        let full_bolt = LightningBolt::new(0.0, 42, Vec3::ZERO, max_dist, 1.0);
+        assert_eq!(full_bolt.max_distance, 32.0);
+        assert_eq!(full_bolt.base_thickness, 1.5);
+        assert_eq!(full_bolt.tip_thickness, 0.5);
+
+        // Half size bolt (50%)
+        let half_bolt = LightningBolt::new(0.0, 42, Vec3::ZERO, max_dist, 0.5);
+        assert_eq!(half_bolt.max_distance, 16.0); // 32.0 * 0.5
+        assert_eq!(half_bolt.base_thickness, 0.75); // 1.5 * 0.5
+        assert_eq!(half_bolt.tip_thickness, 0.25); // 0.5 * 0.5
+
+        // Minimum size bolt (20%)
+        let min_bolt = LightningBolt::new(0.0, 42, Vec3::ZERO, max_dist, 0.2);
+        assert!((min_bolt.max_distance - 6.4).abs() < 0.001); // 32.0 * 0.2
+        assert!((min_bolt.base_thickness - 0.3).abs() < 0.001); // 1.5 * 0.2
+        assert!((min_bolt.tip_thickness - 0.1).abs() < 0.001); // 0.5 * 0.2
     }
 
     #[test]
     fn test_lightning_bolt_variable_segment_lengths() {
-        let bolt = LightningBolt::new(0.0, 42, Vec3::ZERO);
+        let bolt = LightningBolt::new(0.0, 42, Vec3::ZERO, 32.0, 1.0);
 
         // First segment should be longer than last segment
         let first_length = bolt.segment_length(0);
@@ -308,7 +361,7 @@ mod tests {
 
     #[test]
     fn test_lightning_bolt_segment_lengths_sum_to_max() {
-        let bolt = LightningBolt::new(0.0, 42, Vec3::ZERO);
+        let bolt = LightningBolt::new(0.0, 42, Vec3::ZERO, 32.0, 1.0);
 
         let total: f32 = (0..bolt.segment_count as usize)
             .map(|i| bolt.segment_length(i))
@@ -324,40 +377,40 @@ mod tests {
 
     #[test]
     fn test_lightning_bolt_joint_distances_deterministic() {
-        let bolt1 = LightningBolt::new(0.0, 12345, Vec3::ZERO);
-        let bolt2 = LightningBolt::new(0.0, 12345, Vec3::ZERO);
+        let bolt1 = LightningBolt::new(0.0, 12345, Vec3::ZERO, 32.0, 1.0);
+        let bolt2 = LightningBolt::new(0.0, 12345, Vec3::ZERO, 32.0, 1.0);
 
         // Same seed should produce same distances
         assert_eq!(bolt1.joint_distances, bolt2.joint_distances);
 
         // Different seed should produce different distances
-        let bolt3 = LightningBolt::new(0.0, 54321, Vec3::ZERO);
+        let bolt3 = LightningBolt::new(0.0, 54321, Vec3::ZERO, 32.0, 1.0);
         assert_ne!(bolt1.joint_distances, bolt3.joint_distances);
     }
 
     #[test]
     fn test_lightning_bolt_current_opacity_at_start() {
-        let bolt = LightningBolt::new(0.0, 0, Vec3::ZERO);
+        let bolt = LightningBolt::new(0.0, 0, Vec3::ZERO, 32.0, 1.0);
         assert_eq!(bolt.current_opacity(), 1.0);
     }
 
     #[test]
     fn test_lightning_bolt_current_opacity_at_halfway() {
-        let mut bolt = LightningBolt::new(0.0, 0, Vec3::ZERO);
+        let mut bolt = LightningBolt::new(0.0, 0, Vec3::ZERO, 32.0, 1.0);
         bolt.distance = bolt.max_distance / 2.0;
         assert!((bolt.current_opacity() - 0.5).abs() < 0.001);
     }
 
     #[test]
     fn test_lightning_bolt_current_opacity_at_end() {
-        let mut bolt = LightningBolt::new(0.0, 0, Vec3::ZERO);
+        let mut bolt = LightningBolt::new(0.0, 0, Vec3::ZERO, 32.0, 1.0);
         bolt.distance = bolt.max_distance;
         assert_eq!(bolt.current_opacity(), 0.0);
     }
 
     #[test]
     fn test_lightning_bolt_is_expired() {
-        let mut bolt = LightningBolt::new(0.0, 0, Vec3::ZERO);
+        let mut bolt = LightningBolt::new(0.0, 0, Vec3::ZERO, 32.0, 1.0);
         assert!(!bolt.is_expired());
 
         bolt.distance = bolt.max_distance - 0.1;
@@ -372,11 +425,11 @@ mod tests {
 
     #[test]
     fn test_lightning_bolt_thickness_tapers() {
-        let bolt = LightningBolt::new(0.0, 0, Vec3::ZERO);
+        let bolt = LightningBolt::new(0.0, 0, Vec3::ZERO, 32.0, 1.0);
 
         // First segment should be thicker than last
         let first_thickness = bolt.thickness_at_segment(0);
-        // Last segment (index = segment_count - 1) should be exactly 1px
+        // Last segment (index = segment_count - 1) should be exactly tip_thickness
         let last_thickness = bolt.thickness_at_segment(bolt.segment_count - 1);
 
         assert!(
@@ -385,28 +438,28 @@ mod tests {
             first_thickness,
             last_thickness
         );
-        // Last segment should be exactly tip_thickness (1px)
+        // Last segment should be exactly tip_thickness (0.5px at size 1.0)
         assert_eq!(last_thickness, bolt.tip_thickness);
-        assert_eq!(last_thickness, 1.0);
+        assert_eq!(last_thickness, 0.5);
     }
 
     #[test]
     fn test_lightning_bolt_jag_offsets_deterministic() {
-        let bolt1 = LightningBolt::new(0.0, 12345, Vec3::ZERO);
-        let bolt2 = LightningBolt::new(0.0, 12345, Vec3::ZERO);
+        let bolt1 = LightningBolt::new(0.0, 12345, Vec3::ZERO, 32.0, 1.0);
+        let bolt2 = LightningBolt::new(0.0, 12345, Vec3::ZERO, 32.0, 1.0);
 
         // Same seed should produce same offsets
         assert_eq!(bolt1.jag_offsets, bolt2.jag_offsets);
 
         // Different seed should produce different offsets
-        let bolt3 = LightningBolt::new(0.0, 54321, Vec3::ZERO);
+        let bolt3 = LightningBolt::new(0.0, 54321, Vec3::ZERO, 32.0, 1.0);
         assert_ne!(bolt1.jag_offsets, bolt3.jag_offsets);
     }
 
     #[test]
     fn test_lightning_bolt_joint_position_first_at_center() {
         let center = Vec3::new(50.0, 75.0, 0.5);
-        let bolt = LightningBolt::new(0.0, 0, center);
+        let bolt = LightningBolt::new(0.0, 0, center, 32.0, 1.0);
 
         let first_joint = bolt.joint_position(0);
         assert!((first_joint.x - center.x).abs() < 0.001);
@@ -415,7 +468,7 @@ mod tests {
 
     #[test]
     fn test_lightning_bolt_joint_positions_progress_outward() {
-        let bolt = LightningBolt::new(0.0, 0, Vec3::ZERO); // angle 0 = positive X direction
+        let bolt = LightningBolt::new(0.0, 0, Vec3::ZERO, 32.0, 1.0); // angle 0 = positive X direction
 
         let joint0 = bolt.joint_position(0);
         let joint1 = bolt.joint_position(1);
@@ -429,7 +482,28 @@ mod tests {
     #[test]
     fn test_lightning_spawn_timer_default() {
         let timer = LightningSpawnTimer::default();
-        assert!(!timer.0.is_finished());
-        assert_eq!(timer.0.duration().as_secs_f32(), 0.05);
+        assert!(!timer.timer.is_finished());
+        assert_eq!(timer.timer.duration().as_secs_f32(), 0.08);
+        assert_eq!(timer.min_interval, 0.04);
+        assert_eq!(timer.max_interval, 0.15);
+    }
+
+    #[test]
+    fn test_lightning_spawn_timer_reset_with_random_duration() {
+        use rand::SeedableRng;
+
+        let mut timer = LightningSpawnTimer::default();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+
+        timer.reset_with_random_duration(&mut rng);
+
+        let duration = timer.timer.duration().as_secs_f32();
+        assert!(
+            duration >= timer.min_interval && duration <= timer.max_interval,
+            "Duration {} should be between {} and {}",
+            duration,
+            timer.min_interval,
+            timer.max_interval
+        );
     }
 }

@@ -17,18 +17,23 @@ use crate::whisper::resources::*;
 /// Color constants for Whisper visual effects (red mode)
 const WHISPER_LIGHT_COLOR: Color = Color::srgb(1.0, 0.3, 0.2); // Red-orange
 const WHISPER_LIGHT_INTENSITY: f32 = 5.0;
-const WHISPER_LIGHT_OUTER_RADIUS: f32 = 280.0;
+const WHISPER_LIGHT_OUTER_RADIUS: f32 = 140.0; // 50% of original 280
 const WHISPER_LIGHT_FALLOFF: f32 = 2.0;
 
-/// Particle effect constants
-const SPARK_SPAWN_RATE: f32 = 120.0; // particles per second
-const SPARK_LIFETIME: f32 = 0.35; // seconds
-const SPARK_SPEED: f32 = 180.0; // pixels per second
-const SPARK_SIZE_START: f32 = 4.0; // pixels
+/// Particle effect constants (50% of original values)
+const SPARK_SPAWN_RATE: f32 = 120.0; // particles per second (unchanged)
+const SPARK_LIFETIME: f32 = 0.35; // seconds (unchanged)
+const SPARK_SPEED: f32 = 90.0; // 50% of original 180
+const SPARK_SIZE_START: f32 = 2.0; // 50% of original 4.0
 const SPARK_SIZE_END: f32 = 0.0; // pixels
+
+/// Whisper base texture size (50% of original 128)
+const WHISPER_TEXTURE_SIZE: f32 = 64.0;
 
 /// Lightning bolt visual constants
 const LIGHTNING_BOLTS_PER_SPAWN: u32 = 3;
+/// Minimum bolt size as fraction of max (0.2 = 20%)
+const BOLT_MIN_SIZE_FRACTION: f32 = 0.2;
 
 /// Creates and inserts the Whisper spark particle effect asset.
 /// Should be called once on startup. Silently skips if HanabiPlugin is not loaded.
@@ -56,7 +61,7 @@ pub fn setup_whisper_particle_effect(
     let init_pos = SetPositionCircleModifier {
         center: writer.lit(Vec3::ZERO).expr(),
         axis: writer.lit(Vec3::Z).expr(), // Circle in XY plane
-        radius: writer.lit(8.0).expr(),   // Small initial radius
+        radius: writer.lit(4.0).expr(),   // 50% of original 8.0
         dimension: ShapeDimension::Surface,
     };
 
@@ -118,8 +123,8 @@ pub fn spawn_whisper_drop(
         .map(|s| s.load("whisper/red-mode.png"))
         .unwrap_or_default();
 
-    // Create mesh and material for additive blending
-    let mesh = meshes.add(Rectangle::new(128.0, 128.0));
+    // Create mesh and material for additive blending (50% size)
+    let mesh = meshes.add(Rectangle::new(WHISPER_TEXTURE_SIZE, WHISPER_TEXTURE_SIZE));
     let material = additive_materials.add(AdditiveTextureMaterial {
         texture: texture.clone(),
         color: LinearRgba::new(1.0, 1.0, 1.0, 0.7),
@@ -224,8 +229,8 @@ pub fn handle_whisper_collection(
             .map(|s| s.load("whisper/red-mode.png"))
             .unwrap_or_default();
 
-        // Create mesh and material for additive blending
-        let mesh = meshes.add(Rectangle::new(128.0, 128.0));
+        // Create mesh and material for additive blending (50% size)
+        let mesh = meshes.add(Rectangle::new(WHISPER_TEXTURE_SIZE, WHISPER_TEXTURE_SIZE));
         let material = additive_materials.add(AdditiveTextureMaterial {
             texture: texture.clone(),
             color: LinearRgba::new(1.0, 1.0, 1.0, 0.9),
@@ -380,15 +385,15 @@ pub fn spawn_whisper_arcs(
         let mut rng = rand::thread_rng();
         let arc_count = rng.gen_range(1..=2);
 
-        // Create mesh and material for additive blending (reused for all arcs this frame)
-        let mesh = meshes.add(Rectangle::new(12.0, 4.0));
+        // Create mesh and material for additive blending (50% size)
+        let mesh = meshes.add(Rectangle::new(6.0, 2.0)); // 50% of original 12x4
         let material = color_materials.add(AdditiveColorMaterial {
             color: LinearRgba::new(3.0, 1.5, 1.0, 0.9), // HDR red-orange for bloom
         });
 
         for _ in 0..arc_count {
             let angle = rng.gen_range(0.0..std::f32::consts::TAU);
-            let distance = rng.gen_range(20.0..40.0);
+            let distance = rng.gen_range(10.0..20.0); // 50% of original 20..40
             let dir = Vec2::new(angle.cos(), angle.sin());
             let pos = Vec3::new(
                 center.x + dir.x * distance,
@@ -409,17 +414,19 @@ pub fn spawn_whisper_arcs(
 
 /// Spawns lightning bolts from center of Whisper that animate outward.
 /// Works on both WhisperDrop and WhisperCompanion entities.
+/// Bolts are spawned as children of the whisper so they move with it.
+/// Timer resets to a random duration after each spawn for varied timing.
 /// Runs in GameSet::Effects
 #[allow(clippy::type_complexity)]
 pub fn spawn_lightning_bolts(
     mut commands: Commands,
     time: Res<Time>,
     mut drop_query: Query<
-        (Entity, &Transform, &mut LightningSpawnTimer),
+        (Entity, &mut LightningSpawnTimer),
         (With<WhisperDrop>, Without<WhisperCompanion>),
     >,
     mut companion_query: Query<
-        (Entity, &Transform, &mut LightningSpawnTimer),
+        (Entity, &mut LightningSpawnTimer),
         (With<WhisperCompanion>, Without<WhisperDrop>),
     >,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -428,44 +435,51 @@ pub fn spawn_lightning_bolts(
     let mut rng = rand::thread_rng();
 
     // Process WhisperDrop entities
-    for (_entity, transform, mut timer) in drop_query.iter_mut() {
-        timer.0.tick(time.delta());
+    for (whisper_entity, mut timer) in drop_query.iter_mut() {
+        timer.timer.tick(time.delta());
 
-        if !timer.0.just_finished() {
+        if !timer.timer.just_finished() {
             continue;
         }
 
-        spawn_bolts_at_position(
+        spawn_bolts_as_children(
             &mut commands,
-            transform.translation,
+            whisper_entity,
             &mut rng,
             &mut meshes,
             &mut color_materials,
         );
+
+        // Reset timer with a new random duration
+        timer.reset_with_random_duration(&mut rng);
     }
 
     // Process WhisperCompanion entities
-    for (_entity, transform, mut timer) in companion_query.iter_mut() {
-        timer.0.tick(time.delta());
+    for (whisper_entity, mut timer) in companion_query.iter_mut() {
+        timer.timer.tick(time.delta());
 
-        if !timer.0.just_finished() {
+        if !timer.timer.just_finished() {
             continue;
         }
 
-        spawn_bolts_at_position(
+        spawn_bolts_as_children(
             &mut commands,
-            transform.translation,
+            whisper_entity,
             &mut rng,
             &mut meshes,
             &mut color_materials,
         );
+
+        // Reset timer with a new random duration
+        timer.reset_with_random_duration(&mut rng);
     }
 }
 
-/// Helper function to spawn lightning bolts at a given position
-fn spawn_bolts_at_position(
+/// Helper function to spawn lightning bolts as children of the whisper entity.
+/// Uses local coordinates so bolts move with the whisper.
+fn spawn_bolts_as_children(
     commands: &mut Commands,
-    center: Vec3,
+    whisper_entity: Entity,
     rng: &mut impl Rng,
     meshes: &mut Assets<Mesh>,
     color_materials: &mut Assets<AdditiveColorMaterial>,
@@ -473,44 +487,66 @@ fn spawn_bolts_at_position(
     // Create a unit mesh for segments (will be scaled via transform)
     let unit_mesh = meshes.add(Rectangle::new(1.0, 1.0));
 
+    // Max bolt length is based on texture radius
+    let max_bolt_distance = WHISPER_TEXTURE_SIZE / 2.0;
+
+    // Local center (relative to whisper parent)
+    let local_center = Vec3::new(0.0, 0.0, 0.1);
+
     // Spawn multiple bolts at different angles
     for _ in 0..LIGHTNING_BOLTS_PER_SPAWN {
         let angle = rng.gen_range(0.0..std::f32::consts::TAU);
         let seed = rng.gen::<u32>();
 
-        let bolt = LightningBolt::new(angle, seed, center);
+        // Random size from 20% to 100%, weighted so longer bolts are rarer
+        // Using inverse transform: smaller values are more likely
+        // raw^2 biases toward 0, then we invert so larger sizes are rarer
+        let raw = rng.gen::<f32>();
+        // Square it to bias toward smaller values, then map to range
+        let size_multiplier =
+            BOLT_MIN_SIZE_FRACTION + (1.0 - raw * raw) * (1.0 - BOLT_MIN_SIZE_FRACTION);
+
+        // Use local center (Vec3::ZERO relative to parent)
+        let bolt = LightningBolt::new(angle, seed, local_center, max_bolt_distance, size_multiplier);
         let segment_count = bolt.segment_count;
 
-        // Create the lightning bolt parent entity (invisible, just holds data)
-        let bolt_entity = commands
-            .spawn((
-                bolt,
-                Transform::from_translation(center),
-                Visibility::default(),
-            ))
-            .id();
+        // Create materials for all segments first
+        let segment_materials: Vec<_> = (0..segment_count)
+            .map(|_| {
+                color_materials.add(AdditiveColorMaterial {
+                    color: LinearRgba::new(3.0, 1.5, 1.0, 0.0), // Start invisible
+                })
+            })
+            .collect();
 
-        // Spawn segment meshes as separate entities (not children, so they stay in world space)
-        // Each segment gets its own material so opacity can be controlled independently
-        for i in 0..segment_count {
-            let segment_material = color_materials.add(AdditiveColorMaterial {
-                color: LinearRgba::new(3.0, 1.5, 1.0, 0.0), // Start invisible
-            });
-            commands.spawn((
-                LightningSegment {
-                    index: i,
-                    bolt_entity,
-                },
-                Mesh2d(unit_mesh.clone()),
-                MeshMaterial2d(segment_material),
-                Transform::from_translation(Vec3::new(center.x, center.y, center.z + 0.15)),
-            ));
-        }
+        // Spawn bolt as child of whisper, with segments as children of bolt
+        commands.entity(whisper_entity).with_children(|parent| {
+            parent
+                .spawn((
+                    bolt,
+                    Transform::from_translation(local_center),
+                    Visibility::default(),
+                ))
+                .with_children(|bolt_parent| {
+                    // Spawn segment meshes as children of the bolt
+                    for i in 0..segment_count {
+                        bolt_parent.spawn((
+                            LightningSegment {
+                                index: i,
+                                bolt_entity: Entity::PLACEHOLDER, // Will be updated after spawn
+                            },
+                            Mesh2d(unit_mesh.clone()),
+                            MeshMaterial2d(segment_materials[i as usize].clone()),
+                            Transform::from_translation(Vec3::new(0.0, 0.0, 0.05 + i as f32 * 0.001)),
+                        ));
+                    }
+                });
+        });
     }
 }
 
 /// Animates lightning bolts moving outward from center and fading.
-/// Independent of player movement - always animates from center out.
+/// Uses local coordinates since bolts are children of whisper entities.
 /// Runs in GameSet::Effects
 pub fn animate_lightning_bolts(
     mut commands: Commands,
@@ -519,6 +555,7 @@ pub fn animate_lightning_bolts(
     mut segment_query: Query<(
         Entity,
         &LightningSegment,
+        &ChildOf,
         &mut Transform,
         &MeshMaterial2d<AdditiveColorMaterial>,
     )>,
@@ -528,25 +565,23 @@ pub fn animate_lightning_bolts(
     for (entity, mut bolt) in bolt_query.iter_mut() {
         bolt.distance += bolt.speed * time.delta_secs();
 
-        // Check if bolt should be despawned
+        // Check if bolt should be despawned (despawn cleans up children automatically)
         if bolt.is_expired() {
             commands.entity(entity).despawn();
         }
     }
 
     // Then update all segments based on their parent bolt
-    for (segment_entity, segment, mut transform, material_handle) in segment_query.iter_mut() {
-        // Get the parent bolt data
-        let Ok((_, bolt)) = bolt_query.get(segment.bolt_entity) else {
-            // Parent bolt was despawned, hide and despawn this segment
-            if let Some(material) = color_materials.get_mut(&material_handle.0) {
-                material.color = LinearRgba::new(0.0, 0.0, 0.0, 0.0);
-            }
-            commands.entity(segment_entity).despawn();
+    for (_segment_entity, segment, child_of, mut transform, material_handle) in
+        segment_query.iter_mut()
+    {
+        // Get the parent bolt data using the ChildOf component
+        let Ok((_, bolt)) = bolt_query.get(child_of.parent()) else {
+            // Parent bolt was despawned, segment will be cleaned up automatically
             continue;
         };
 
-        // If bolt is expired, hide segment (bolt will be despawned, segment next frame)
+        // If bolt is expired, hide segment (bolt will be despawned with children)
         if bolt.is_expired() {
             if let Some(material) = color_materials.get_mut(&material_handle.0) {
                 material.color = LinearRgba::new(0.0, 0.0, 0.0, 0.0);
@@ -592,23 +627,23 @@ pub fn animate_lightning_bolts(
             continue;
         }
 
-        // Get joint positions for this segment
+        // Get joint positions for this segment (in local coordinates relative to bolt center)
         let start_pos = bolt.joint_position(segment_idx);
         let end_pos = bolt.joint_position(segment_idx + 1);
 
         // Interpolate end position based on progress
         let current_end = start_pos + (end_pos - start_pos) * segment_progress;
 
-        // Calculate segment midpoint and length
+        // Calculate segment midpoint and length (local to bolt parent)
         let midpoint = (start_pos + current_end) / 2.0;
         let segment_vec = current_end - start_pos;
         let length = segment_vec.length().max(0.1);
         let rotation = segment_vec.y.atan2(segment_vec.x);
 
-        // Update transform position and rotation
+        // Update local transform position and rotation (relative to bolt parent)
         transform.translation.x = midpoint.x;
         transform.translation.y = midpoint.y;
-        transform.translation.z = bolt.center.z + 0.15 + segment_idx as f32 * 0.001;
+        transform.translation.z = 0.05 + segment_idx as f32 * 0.001;
         transform.rotation = Quat::from_rotation_z(rotation);
 
         // Calculate thickness (tapers from center to tip)
@@ -979,7 +1014,7 @@ mod tests {
 
         // Create a lightning bolt at origin facing right (angle = 0)
         let center = Vec3::new(0.0, 0.0, 0.5);
-        let bolt = LightningBolt::new(0.0, 42, center);
+        let bolt = LightningBolt::new(0.0, 42, center, 32.0, 1.0);
         let bolt_entity = app
             .world_mut()
             .spawn((bolt, Transform::from_translation(center), Visibility::default()))
@@ -1036,7 +1071,7 @@ mod tests {
 
         // Create a lightning bolt that's already expired (distance >= max_distance)
         let center = Vec3::ZERO;
-        let mut bolt = LightningBolt::new(0.0, 42, center);
+        let mut bolt = LightningBolt::new(0.0, 42, center, 32.0, 1.0);
         bolt.distance = bolt.max_distance; // At max, should be despawned
 
         let bolt_entity = app
@@ -1061,7 +1096,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lightning_segment_despawns_when_parent_gone() {
+    fn test_lightning_segments_despawn_with_parent_bolt() {
         let mut app = App::new();
         app.add_plugins(bevy::time::TimePlugin);
         app.init_resource::<Assets<Mesh>>();
@@ -1080,27 +1115,46 @@ mod tests {
             })
         };
 
-        // Create an orphan segment (parent doesn't exist)
-        let fake_parent = Entity::from_bits(99999);
+        // Create an expired lightning bolt with a child segment
+        let center = Vec3::ZERO;
+        let mut bolt = LightningBolt::new(0.0, 42, center, 32.0, 1.0);
+        bolt.distance = bolt.max_distance; // Mark as expired
+
+        let bolt_entity = app
+            .world_mut()
+            .spawn((bolt, Transform::from_translation(center), Visibility::default()))
+            .with_children(|parent| {
+                parent.spawn((
+                    LightningSegment {
+                        index: 0,
+                        bolt_entity: Entity::PLACEHOLDER,
+                    },
+                    Mesh2d(mesh_handle.clone()),
+                    MeshMaterial2d(material_handle.clone()),
+                    Transform::default(),
+                ));
+            })
+            .id();
+
+        // Get the segment entity
         let segment_entity = app
             .world_mut()
-            .spawn((
-                LightningSegment {
-                    index: 0,
-                    bolt_entity: fake_parent,
-                },
-                Mesh2d(mesh_handle),
-                MeshMaterial2d(material_handle),
-                Transform::default(),
-            ))
-            .id();
+            .query::<(Entity, &LightningSegment)>()
+            .iter(app.world())
+            .next()
+            .map(|(e, _)| e)
+            .expect("Segment should exist before update");
 
         app.update();
 
-        // Verify segment was despawned
+        // Verify both bolt and segment were despawned
+        assert!(
+            app.world().get_entity(bolt_entity).is_err(),
+            "Expired bolt should be despawned"
+        );
         assert!(
             app.world().get_entity(segment_entity).is_err(),
-            "Orphan segment should be despawned"
+            "Child segment should be despawned with parent bolt"
         );
     }
 
@@ -1123,28 +1177,36 @@ mod tests {
     }
 
     #[test]
-    fn test_spawn_bolts_at_position_creates_bolts_and_segments() {
+    fn test_spawn_bolts_as_children_creates_bolts_and_segments() {
         let mut app = App::new();
         app.init_resource::<Assets<Mesh>>();
         app.init_resource::<Assets<AdditiveColorMaterial>>();
 
-        // Use Commands to spawn bolts via the helper function
-        let center = Vec3::new(100.0, 100.0, 0.5);
+        // Create a whisper entity to be the parent
+        let whisper_entity = app
+            .world_mut()
+            .spawn((
+                WhisperCompanion::default(),
+                Transform::from_translation(Vec3::new(100.0, 100.0, 0.5)),
+            ))
+            .id();
 
-        // Spawn bolts using world access pattern that satisfies borrow checker
+        // Spawn bolts as children of the whisper entity
         {
             let world = app.world_mut();
             world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
-                world.resource_scope(|world, mut color_materials: Mut<Assets<AdditiveColorMaterial>>| {
-                    let mut commands = world.commands();
-                    spawn_bolts_at_position(
-                        &mut commands,
-                        center,
-                        &mut rand::thread_rng(),
-                        &mut meshes,
-                        &mut color_materials,
-                    );
-                });
+                world.resource_scope(
+                    |world, mut color_materials: Mut<Assets<AdditiveColorMaterial>>| {
+                        let mut commands = world.commands();
+                        spawn_bolts_as_children(
+                            &mut commands,
+                            whisper_entity,
+                            &mut rand::thread_rng(),
+                            &mut meshes,
+                            &mut color_materials,
+                        );
+                    },
+                );
             });
         }
         app.update();
@@ -1176,41 +1238,52 @@ mod tests {
     }
 
     #[test]
-    fn test_lightning_bolts_spawned_at_correct_position() {
+    fn test_lightning_bolts_use_local_coordinates() {
         let mut app = App::new();
         app.init_resource::<Assets<Mesh>>();
         app.init_resource::<Assets<AdditiveColorMaterial>>();
 
-        let center = Vec3::new(50.0, 75.0, 0.5);
+        // Create a whisper entity at some world position
+        let whisper_entity = app
+            .world_mut()
+            .spawn((
+                WhisperCompanion::default(),
+                Transform::from_translation(Vec3::new(50.0, 75.0, 0.5)),
+            ))
+            .id();
 
-        // Spawn bolts using world access pattern that satisfies borrow checker
+        // Spawn bolts as children
         {
             let world = app.world_mut();
             world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
-                world.resource_scope(|world, mut color_materials: Mut<Assets<AdditiveColorMaterial>>| {
-                    let mut commands = world.commands();
-                    spawn_bolts_at_position(
-                        &mut commands,
-                        center,
-                        &mut rand::thread_rng(),
-                        &mut meshes,
-                        &mut color_materials,
-                    );
-                });
+                world.resource_scope(
+                    |world, mut color_materials: Mut<Assets<AdditiveColorMaterial>>| {
+                        let mut commands = world.commands();
+                        spawn_bolts_as_children(
+                            &mut commands,
+                            whisper_entity,
+                            &mut rand::thread_rng(),
+                            &mut meshes,
+                            &mut color_materials,
+                        );
+                    },
+                );
             });
         }
         app.update();
 
-        // Verify bolts store the center position
+        // Verify bolts store local center (0, 0, 0.1) not world position
         let mut query = app.world_mut().query::<&LightningBolt>();
         for bolt in query.iter(app.world()) {
             assert!(
-                (bolt.center.x - center.x).abs() < 0.001,
-                "Bolt center X should match spawn center"
+                bolt.center.x.abs() < 0.001,
+                "Bolt center X should be 0 (local coords), got {}",
+                bolt.center.x
             );
             assert!(
-                (bolt.center.y - center.y).abs() < 0.001,
-                "Bolt center Y should match spawn center"
+                bolt.center.y.abs() < 0.001,
+                "Bolt center Y should be 0 (local coords), got {}",
+                bolt.center.y
             );
         }
     }
