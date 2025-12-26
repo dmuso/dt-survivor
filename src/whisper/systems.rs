@@ -9,7 +9,11 @@ use bevy_lit::prelude::*;
 use rand::Rng;
 
 use crate::player::components::Player;
-use crate::whisper::components::*;
+use crate::whisper::components::{
+    ArcBurstTimer, LightningBolt, LightningSegment, LightningSpawnTimer, OrbitalParticle,
+    OrbitalParticleSpawnTimer, ParticleTrail, TrailSegment, WhisperArc, WhisperCompanion,
+    WhisperDrop, WhisperOuterGlow,
+};
 use crate::whisper::events::*;
 use crate::whisper::materials::{AdditiveColorMaterial, AdditiveTextureMaterial};
 use crate::whisper::resources::*;
@@ -109,10 +113,10 @@ pub fn spawn_whisper_drop(
 ) {
     let mut rng = rand::thread_rng();
 
-    // Generate random position within 200-1000px of player spawn (origin)
+    // Generate random position within 200px of player spawn (origin)
     // Using polar coordinates for uniform distribution
     let angle = rng.gen_range(0.0..std::f32::consts::TAU);
-    let distance = rng.gen_range(200.0..1000.0);
+    let distance = rng.gen_range(50.0..200.0);
     let x = angle.cos() * distance;
     let y = angle.sin() * distance;
     let position = Vec3::new(x, y, 0.5);
@@ -135,6 +139,7 @@ pub fn spawn_whisper_drop(
         .spawn((
             WhisperDrop::default(),
             LightningSpawnTimer::default(),
+            OrbitalParticleSpawnTimer::default(),
             Transform::from_translation(position),
             Visibility::default(),
             // Add PointLight2d for 2D lighting effect
@@ -240,6 +245,7 @@ pub fn handle_whisper_collection(
             companion,
             ArcBurstTimer::default(),
             LightningSpawnTimer::default(),
+            OrbitalParticleSpawnTimer::default(),
             Transform::from_translation(companion_pos),
             Visibility::default(),
             // Full brightness PointLight2d when collected
@@ -675,6 +681,259 @@ pub fn update_whisper_arcs(
     }
 }
 
+/// Number of trail segments per orbital particle (3x the original for smoother trails)
+const TRAIL_SEGMENT_COUNT: usize = 36;
+
+/// Spawns orbital particles around Whisper at random intervals.
+/// Particles orbit in tilted 3D planes projected to 2D.
+/// Runs in GameSet::Effects
+#[allow(clippy::type_complexity)]
+pub fn spawn_orbital_particles(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut drop_query: Query<
+        (Entity, &mut OrbitalParticleSpawnTimer),
+        (With<WhisperDrop>, Without<WhisperCompanion>),
+    >,
+    mut companion_query: Query<
+        (Entity, &mut OrbitalParticleSpawnTimer),
+        (With<WhisperCompanion>, Without<WhisperDrop>),
+    >,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut color_materials: ResMut<Assets<AdditiveColorMaterial>>,
+) {
+    let mut rng = rand::thread_rng();
+
+    // Process WhisperDrop entities
+    for (whisper_entity, mut timer) in drop_query.iter_mut() {
+        timer.timer.tick(time.delta());
+
+        if !timer.timer.just_finished() {
+            continue;
+        }
+
+        spawn_orbital_particle_as_child(
+            &mut commands,
+            whisper_entity,
+            &mut meshes,
+            &mut color_materials,
+            &mut rng,
+        );
+
+        timer.reset_with_random_duration(&mut rng);
+    }
+
+    // Process WhisperCompanion entities
+    for (whisper_entity, mut timer) in companion_query.iter_mut() {
+        timer.timer.tick(time.delta());
+
+        if !timer.timer.just_finished() {
+            continue;
+        }
+
+        spawn_orbital_particle_as_child(
+            &mut commands,
+            whisper_entity,
+            &mut meshes,
+            &mut color_materials,
+            &mut rng,
+        );
+
+        timer.reset_with_random_duration(&mut rng);
+    }
+}
+
+/// Helper function to spawn an orbital particle as a child of the whisper entity.
+fn spawn_orbital_particle_as_child(
+    commands: &mut Commands,
+    whisper_entity: Entity,
+    meshes: &mut Assets<Mesh>,
+    color_materials: &mut Assets<AdditiveColorMaterial>,
+    rng: &mut impl Rng,
+) {
+    // Random orbital parameters - orbit within texture area (32px radius)
+    let radius = rng.gen_range(12.0..28.0);
+    let period = rng.gen_range(0.19..0.38); // Very fast orbit (8x original speed)
+    let inclination = rng.gen_range(0.3..1.2); // ~17 to ~69 degrees
+    let ascending_node = rng.gen_range(0.0..std::f32::consts::TAU);
+    let size = rng.gen_range(3.0..5.0);
+    let phase = rng.gen_range(0.0..std::f32::consts::TAU);
+
+    let particle = OrbitalParticle::new(
+        radius,
+        period,
+        phase,
+        inclination,
+        ascending_node,
+        size,
+    );
+
+    // Trail with more samples for smoother appearance
+    let trail = ParticleTrail::new(TRAIL_SEGMENT_COUNT, 0.015);
+
+    // Calculate initial position
+    let (pos_2d, _z_depth) = particle.calculate_position();
+    let render_z = particle.calculate_render_z();
+
+    // Create mesh and materials for trail segments
+    let unit_mesh = meshes.add(Rectangle::new(1.0, 1.0));
+
+    // Spawn particle as child of whisper
+    commands.entity(whisper_entity).with_children(|parent| {
+        parent
+            .spawn((
+                particle,
+                trail,
+                Transform::from_translation(Vec3::new(pos_2d.x, pos_2d.y, render_z)),
+                Visibility::default(),
+            ))
+            .with_children(|particle_parent| {
+                // Pre-spawn trail segment meshes
+                for i in 0..TRAIL_SEGMENT_COUNT {
+                    let material = color_materials.add(AdditiveColorMaterial {
+                        color: LinearRgba::new(3.0, 1.0, 0.6, 0.0), // Start invisible
+                    });
+                    particle_parent.spawn((
+                        TrailSegment { index: i },
+                        Mesh2d(unit_mesh.clone()),
+                        MeshMaterial2d(material),
+                        Transform::from_translation(Vec3::new(0.0, 0.0, -0.01 - i as f32 * 0.001)),
+                    ));
+                }
+            });
+    });
+}
+
+/// Updates orbital particle positions and trails.
+/// Runs in GameSet::Effects
+pub fn update_orbital_particles(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut particle_query: Query<(
+        Entity,
+        &mut OrbitalParticle,
+        &mut ParticleTrail,
+        &mut Transform,
+    )>,
+) {
+    let delta_secs = time.delta_secs();
+
+    for (entity, mut particle, mut trail, mut transform) in particle_query.iter_mut() {
+        // Advance age and check if fully transparent (ready for despawn)
+        particle.advance_age(delta_secs);
+        if particle.is_fully_transparent() {
+            commands.entity(entity).despawn();
+            continue;
+        }
+
+        // Update phase (orbital position)
+        particle.advance_phase(delta_secs);
+
+        // Calculate new position
+        let (position_2d, z_depth) = particle.calculate_position();
+
+        // Update trail sampling
+        trail.tick(delta_secs);
+        if trail.should_sample() {
+            trail.record_position(position_2d, z_depth);
+            trail.reset_sample_timer();
+        }
+
+        // Update particle transform (local to whisper parent)
+        transform.translation.x = position_2d.x;
+        transform.translation.y = position_2d.y;
+        transform.translation.z = particle.calculate_render_z();
+
+        // Scale based on z (pseudo-perspective: slightly larger when closer)
+        let normalized_z = (z_depth / particle.radius).clamp(-1.0, 1.0);
+        let perspective_scale = 1.0 - normalized_z * 0.1; // Closer = larger
+        transform.scale = Vec3::splat(perspective_scale);
+    }
+}
+
+/// Renders particle trails by positioning trail segments between recorded positions.
+/// Each segment following the head is progressively more transparent.
+/// Runs in GameSet::Effects (after update_orbital_particles)
+pub fn render_particle_trails(
+    particle_query: Query<(&ParticleTrail, &OrbitalParticle), Without<TrailSegment>>,
+    mut segment_query: Query<(
+        &TrailSegment,
+        &ChildOf,
+        &mut Transform,
+        &MeshMaterial2d<AdditiveColorMaterial>,
+    )>,
+    mut color_materials: ResMut<Assets<AdditiveColorMaterial>>,
+) {
+    for (segment, child_of, mut transform, material_handle) in segment_query.iter_mut() {
+        // Get parent particle data
+        let Ok((trail, particle)) = particle_query.get(child_of.parent()) else {
+            continue;
+        };
+
+        let idx = segment.index;
+
+        // Not enough trail points yet - hide segment
+        if idx + 1 >= trail.positions.len() {
+            if let Some(material) = color_materials.get_mut(&material_handle.0) {
+                material.color.alpha = 0.0;
+            }
+            continue;
+        }
+
+        // Trail positions are in Whisper's local space, but segments are children of the particle.
+        // Transform trail positions to particle's local space by subtracting particle's current position.
+        let (particle_pos, _) = particle.calculate_position();
+        let start = trail.positions[idx] - particle_pos;
+        let end = trail.positions[idx + 1] - particle_pos;
+        let start_z = trail.z_depths[idx];
+        let end_z = trail.z_depths[idx + 1];
+
+        // Segment geometry
+        let midpoint = (start + end) / 2.0;
+        let direction = end - start;
+        let length = direction.length().max(0.1);
+        let angle = direction.y.atan2(direction.x);
+
+        // Z position (average of segment endpoints)
+        let avg_z = (start_z + end_z) / 2.0;
+
+        // Update transform (local to particle parent)
+        transform.translation.x = midpoint.x;
+        transform.translation.y = midpoint.y;
+        // Slightly behind particle head
+        transform.translation.z = -0.01 - idx as f32 * 0.001;
+        transform.rotation = Quat::from_rotation_z(angle);
+
+        // Thickness tapers along trail
+        let progress = idx as f32 / (TRAIL_SEGMENT_COUNT - 1) as f32;
+        let thickness = particle.size * 0.8 * (1.0 - progress);
+        transform.scale = Vec3::new(length, thickness.max(0.1), 1.0);
+
+        // Calculate depth-based brightness (further away = dimmer)
+        // Normalize z_depth: positive = behind (dimmer), negative = in front (brighter)
+        let normalized_z = (avg_z / particle.radius).clamp(-1.0, 1.0);
+        // Behind the core (positive z) = 0.3-0.6 brightness, in front = 0.8-1.0 brightness
+        let depth_brightness = 0.65 - normalized_z * 0.35;
+
+        // Get segment brightness (includes head fade-in/out and progressive trail fade)
+        // This controls HDR intensity rather than alpha for additive blending
+        let segment_brightness = particle.segment_opacity(idx, TRAIL_SEGMENT_COUNT);
+
+        // Combined brightness: segment fade * depth
+        let brightness = (segment_brightness * depth_brightness).clamp(0.0, 1.0);
+
+        // Use brightness to scale HDR color values (not alpha) for additive blending
+        if let Some(material) = color_materials.get_mut(&material_handle.0) {
+            material.color = LinearRgba::new(
+                3.0 * brightness,
+                1.0 * brightness,
+                0.6 * brightness,
+                1.0, // Full alpha, brightness controls visibility
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -699,8 +958,8 @@ mod tests {
     }
 
     #[test]
-    fn test_spawn_whisper_drop_position_within_1000px_of_player() {
-        // Run multiple times to verify random positions are within 1000px of player origin
+    fn test_spawn_whisper_drop_position_within_200px_of_player() {
+        // Run multiple times to verify random positions are within 200px of player origin
         for _ in 0..20 {
             let mut app = App::new();
             app.init_resource::<Assets<Mesh>>();
@@ -714,16 +973,16 @@ mod tests {
                 let pos = transform.translation;
                 let distance = (pos.x * pos.x + pos.y * pos.y).sqrt();
 
-                // Whisper should spawn within 1000px of origin (where player spawns)
+                // Whisper should spawn within 200px of origin (where player spawns)
                 assert!(
-                    distance <= 1000.0,
-                    "Whisper spawned at distance {} which exceeds 1000px",
+                    distance <= 200.0,
+                    "Whisper spawned at distance {} which exceeds 200px",
                     distance
                 );
 
                 // Whisper should spawn at least some minimum distance away (not on top of player)
                 assert!(
-                    distance >= 200.0,
+                    distance >= 50.0,
                     "Whisper spawned too close to player at distance {}",
                     distance
                 );
@@ -1286,5 +1545,260 @@ mod tests {
                 bolt.center.y
             );
         }
+    }
+
+    // ==================== Orbital Particle System Tests ====================
+
+    #[test]
+    fn test_spawn_orbital_particles_spawns_particle_as_child() {
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin);
+        app.init_resource::<Assets<Mesh>>();
+        app.init_resource::<Assets<AdditiveColorMaterial>>();
+        app.add_systems(Update, spawn_orbital_particles);
+
+        // Create a WhisperCompanion with spawn timer set to trigger immediately
+        app.world_mut().spawn((
+            WhisperCompanion::default(),
+            OrbitalParticleSpawnTimer {
+                timer: Timer::from_seconds(0.0, TimerMode::Once),
+                min_interval: 0.5,
+                max_interval: 1.0,
+            },
+            Transform::from_translation(Vec3::new(100.0, 100.0, 0.5)),
+            Visibility::default(),
+        ));
+
+        // Tick timer so it triggers
+        app.world_mut()
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_secs_f32(0.1));
+        app.update();
+
+        // Verify orbital particle was spawned
+        let particle_count = app
+            .world_mut()
+            .query::<&OrbitalParticle>()
+            .iter(app.world())
+            .count();
+        assert_eq!(particle_count, 1, "Should spawn 1 orbital particle");
+    }
+
+    #[test]
+    fn test_spawn_orbital_particles_creates_trail_segments() {
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin);
+        app.init_resource::<Assets<Mesh>>();
+        app.init_resource::<Assets<AdditiveColorMaterial>>();
+        app.add_systems(Update, spawn_orbital_particles);
+
+        // Create a WhisperCompanion with spawn timer set to trigger immediately
+        app.world_mut().spawn((
+            WhisperCompanion::default(),
+            OrbitalParticleSpawnTimer {
+                timer: Timer::from_seconds(0.0, TimerMode::Once),
+                min_interval: 0.5,
+                max_interval: 1.0,
+            },
+            Transform::from_translation(Vec3::new(100.0, 100.0, 0.5)),
+            Visibility::default(),
+        ));
+
+        // Tick timer so it triggers
+        app.world_mut()
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_secs_f32(0.1));
+        app.update();
+
+        // Verify trail segments were spawned (12 per particle)
+        let segment_count = app
+            .world_mut()
+            .query::<&TrailSegment>()
+            .iter(app.world())
+            .count();
+        assert_eq!(
+            segment_count, TRAIL_SEGMENT_COUNT,
+            "Should spawn {} trail segments",
+            TRAIL_SEGMENT_COUNT
+        );
+    }
+
+    #[test]
+    fn test_update_orbital_particles_advances_phase() {
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin);
+        app.add_systems(Update, update_orbital_particles);
+
+        // Create an orbital particle
+        let particle = OrbitalParticle::new(30.0, 2.0, 0.0, 0.5, 0.0, 4.0);
+        let trail = ParticleTrail::default();
+        let particle_entity = app
+            .world_mut()
+            .spawn((
+                particle,
+                trail,
+                Transform::from_translation(Vec3::new(30.0, 0.0, 0.5)),
+            ))
+            .id();
+
+        // First update
+        app.update();
+
+        // Advance time (short enough to not trigger despawn)
+        app.world_mut()
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_secs_f32(0.05));
+        app.update();
+
+        // Verify phase advanced
+        let particle = app.world().get::<OrbitalParticle>(particle_entity).unwrap();
+        assert!(
+            particle.phase > 0.0,
+            "Phase should have advanced, got {}",
+            particle.phase
+        );
+    }
+
+    #[test]
+    fn test_update_orbital_particles_updates_transform() {
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin);
+        app.add_systems(Update, update_orbital_particles);
+
+        // Create an orbital particle
+        let particle = OrbitalParticle::new(30.0, 2.0, 0.0, 0.5, 0.0, 4.0);
+        let trail = ParticleTrail::default();
+        let initial_transform = Transform::from_translation(Vec3::new(30.0, 0.0, 0.5));
+        let particle_entity = app
+            .world_mut()
+            .spawn((particle, trail, initial_transform))
+            .id();
+
+        // First update initializes time
+        app.update();
+
+        // Advance time (short enough to stay in fade-in/visible phase)
+        app.world_mut()
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_secs_f32(0.1));
+        app.update();
+
+        // Verify transform was updated (particle moved along orbit)
+        let transform = app.world().get::<Transform>(particle_entity).unwrap();
+        let particle = app.world().get::<OrbitalParticle>(particle_entity).unwrap();
+
+        // The particle should have moved, so its position should reflect the new phase
+        let (expected_pos, _) = particle.calculate_position();
+        assert!(
+            (transform.translation.x - expected_pos.x).abs() < 0.01,
+            "Transform X should match particle position"
+        );
+    }
+
+    #[test]
+    fn test_update_orbital_particles_despawns_when_fully_transparent() {
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin);
+        app.add_systems(Update, update_orbital_particles);
+
+        // Create an orbital particle that's already past fade-in + fade-out duration
+        let mut particle = OrbitalParticle::new(30.0, 2.0, 0.0, 0.5, 0.0, 4.0);
+        // Set age beyond fade_in + fade_out to make it fully transparent
+        particle.age = particle.fade_in_duration + particle.fade_out_duration + 0.1;
+        let trail = ParticleTrail::default();
+        let particle_entity = app
+            .world_mut()
+            .spawn((
+                particle,
+                trail,
+                Transform::from_translation(Vec3::new(30.0, 0.0, 0.5)),
+            ))
+            .id();
+
+        // Update to trigger despawn
+        app.world_mut()
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_secs_f32(0.01));
+        app.update();
+
+        // Verify particle was despawned
+        assert!(
+            app.world().get_entity(particle_entity).is_err(),
+            "Fully transparent particle should be despawned"
+        );
+    }
+
+    #[test]
+    fn test_update_orbital_particles_advances_age() {
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin);
+        app.add_systems(Update, update_orbital_particles);
+
+        // Create an orbital particle
+        let particle = OrbitalParticle::new(30.0, 2.0, 0.0, 0.5, 0.0, 4.0);
+        let trail = ParticleTrail::default();
+        let particle_entity = app
+            .world_mut()
+            .spawn((
+                particle,
+                trail,
+                Transform::from_translation(Vec3::new(30.0, 0.0, 0.5)),
+            ))
+            .id();
+
+        // First update
+        app.update();
+
+        // Advance time
+        app.world_mut()
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_secs_f32(0.05));
+        app.update();
+
+        // Verify age advanced
+        let particle = app.world().get::<OrbitalParticle>(particle_entity).unwrap();
+        assert!(
+            particle.age > 0.0,
+            "Age should have advanced, got {}",
+            particle.age
+        );
+    }
+
+    #[test]
+    fn test_orbital_particles_work_with_whisper_drop() {
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin);
+        app.init_resource::<Assets<Mesh>>();
+        app.init_resource::<Assets<AdditiveColorMaterial>>();
+        app.add_systems(Update, spawn_orbital_particles);
+
+        // Create a WhisperDrop (not companion) with spawn timer
+        app.world_mut().spawn((
+            WhisperDrop::default(),
+            OrbitalParticleSpawnTimer {
+                timer: Timer::from_seconds(0.0, TimerMode::Once),
+                min_interval: 0.5,
+                max_interval: 1.0,
+            },
+            Transform::from_translation(Vec3::new(100.0, 100.0, 0.5)),
+            Visibility::default(),
+        ));
+
+        // Tick timer so it triggers
+        app.world_mut()
+            .resource_mut::<Time<()>>()
+            .advance_by(Duration::from_secs_f32(0.1));
+        app.update();
+
+        // Verify orbital particle was spawned for WhisperDrop too
+        let particle_count = app
+            .world_mut()
+            .query::<&OrbitalParticle>()
+            .iter(app.world())
+            .count();
+        assert_eq!(
+            particle_count, 1,
+            "WhisperDrop should also spawn orbital particles"
+        );
     }
 }

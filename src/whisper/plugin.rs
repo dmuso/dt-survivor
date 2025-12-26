@@ -50,6 +50,9 @@ pub fn plugin(app: &mut App) {
                 spawn_whisper_arcs,
                 spawn_lightning_bolts,
                 animate_lightning_bolts,
+                spawn_orbital_particles,
+                update_orbital_particles,
+                render_particle_trails,
             )
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
