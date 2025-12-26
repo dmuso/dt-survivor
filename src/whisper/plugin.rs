@@ -1,13 +1,20 @@
 use bevy::prelude::*;
+use bevy::sprite_render::Material2dPlugin;
 
 use crate::game::sets::GameSet;
 use crate::states::GameState;
 use crate::whisper::events::*;
+use crate::whisper::materials::*;
 use crate::whisper::resources::*;
 use crate::whisper::systems::*;
 
 pub fn plugin(app: &mut App) {
     app
+        // Material plugins for additive blending
+        .add_plugins((
+            Material2dPlugin::<AdditiveTextureMaterial>::default(),
+            Material2dPlugin::<AdditiveColorMaterial>::default(),
+        ))
         // Resources
         .init_resource::<WeaponOrigin>()
         .init_resource::<WhisperState>()
@@ -38,7 +45,12 @@ pub fn plugin(app: &mut App) {
         // Effect systems
         .add_systems(
             Update,
-            (handle_whisper_collection, spawn_whisper_arcs)
+            (
+                handle_whisper_collection,
+                spawn_whisper_arcs,
+                spawn_lightning_bolts,
+                animate_lightning_bolts,
+            )
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         )
