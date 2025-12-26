@@ -13,6 +13,9 @@ use donny_tango_survivor::{
 };
 
 fn main() {
+    // Check for --auto-start flag
+    let auto_start = std::env::args().any(|arg| arg == "--auto-start");
+
     // Get the current directory and construct the assets path
     let current_dir = std::env::current_dir().expect("Failed to get current directory");
     let assets_path = current_dir.join("assets");
@@ -20,8 +23,9 @@ fn main() {
     println!("Current directory: {:?}", current_dir);
     println!("Assets path: {:?}", assets_path);
 
-    App::new()
-        .add_plugins(DefaultPlugins.build()
+    let mut app = App::new();
+
+    app.add_plugins(DefaultPlugins.build()
             .disable::<bevy::audio::AudioPlugin>()
             .set(AssetPlugin {
                 file_path: assets_path.to_string_lossy().to_string(),
@@ -31,8 +35,16 @@ fn main() {
         .add_plugins(HanabiPlugin)
         .add_plugins(Lighting2dPlugin)
         .init_state::<GameState>()
-        .add_plugins((audio_plugin, combat_plugin, experience_plugin, game_plugin, inventory_plugin, ui_plugin))
-        .run();
+        .add_plugins((audio_plugin, combat_plugin, experience_plugin, game_plugin, inventory_plugin, ui_plugin));
+
+    // If auto-start flag is set, add a system to skip to InGame state
+    if auto_start {
+        app.add_systems(Startup, |mut next_state: ResMut<NextState<GameState>>| {
+            next_state.set(GameState::InGame);
+        });
+    }
+
+    app.run();
 }
 
 #[cfg(test)]
@@ -143,9 +155,13 @@ mod tests {
 
         // Add minimal plugins needed for state transitions
         app.add_plugins((
+            bevy::app::TaskPoolPlugin::default(),
             bevy::state::app::StatesPlugin,
             bevy::time::TimePlugin::default(),
             bevy::input::InputPlugin::default(),
+            bevy::asset::AssetPlugin::default(),
+            bevy::mesh::MeshPlugin,
+            bevy::image::ImagePlugin::default(),
         ));
 
         // Initialize game state (starts in Intro by default)
@@ -223,9 +239,13 @@ mod tests {
 
         // Add minimal plugins
         app.add_plugins((
+            bevy::app::TaskPoolPlugin::default(),
             bevy::state::app::StatesPlugin,
             bevy::time::TimePlugin::default(),
             bevy::input::InputPlugin::default(),
+            bevy::asset::AssetPlugin::default(),
+            bevy::mesh::MeshPlugin,
+            bevy::image::ImagePlugin::default(),
         ));
 
         // Initialize game state
@@ -294,9 +314,13 @@ mod tests {
 
         // Add minimal plugins
         app.add_plugins((
+            bevy::app::TaskPoolPlugin::default(),
             bevy::state::app::StatesPlugin,
             bevy::time::TimePlugin::default(),
             bevy::input::InputPlugin::default(),
+            bevy::asset::AssetPlugin::default(),
+            bevy::mesh::MeshPlugin,
+            bevy::image::ImagePlugin::default(),
         ));
 
         // Initialize game state
@@ -330,9 +354,13 @@ mod tests {
 
         // Add minimal plugins
         app.add_plugins((
+            bevy::app::TaskPoolPlugin::default(),
             bevy::state::app::StatesPlugin,
             bevy::time::TimePlugin::default(),
             bevy::input::InputPlugin::default(),
+            bevy::asset::AssetPlugin::default(),
+            bevy::mesh::MeshPlugin,
+            bevy::image::ImagePlugin::default(),
         ));
 
         // Initialize game state
@@ -413,9 +441,13 @@ mod tests {
 
         // Add minimal plugins
         app.add_plugins((
+            bevy::app::TaskPoolPlugin::default(),
             bevy::state::app::StatesPlugin,
             bevy::time::TimePlugin::default(),
             bevy::input::InputPlugin::default(),
+            bevy::asset::AssetPlugin::default(),
+            bevy::mesh::MeshPlugin,
+            bevy::image::ImagePlugin::default(),
         ));
 
         // Initialize game state
@@ -450,9 +482,13 @@ mod tests {
 
         // Add minimal plugins for core functionality
         app.add_plugins((
+            bevy::app::TaskPoolPlugin::default(),
             bevy::state::app::StatesPlugin,
             bevy::time::TimePlugin::default(),
             bevy::input::InputPlugin::default(),
+            bevy::asset::AssetPlugin::default(),
+            bevy::mesh::MeshPlugin,
+            bevy::image::ImagePlugin::default(),
         ));
 
         // Initialize game state
@@ -518,9 +554,13 @@ mod tests {
 
         // Add minimal plugins for core functionality
         app.add_plugins((
+            bevy::app::TaskPoolPlugin::default(),
             bevy::state::app::StatesPlugin,
             bevy::time::TimePlugin::default(),
             bevy::input::InputPlugin::default(),
+            bevy::asset::AssetPlugin::default(),
+            bevy::mesh::MeshPlugin,
+            bevy::image::ImagePlugin::default(),
         ));
 
         // Initialize game state
@@ -590,9 +630,13 @@ mod tests {
 
         // Add minimal plugins for core functionality
         app.add_plugins((
+            bevy::app::TaskPoolPlugin::default(),
             bevy::state::app::StatesPlugin,
             bevy::time::TimePlugin::default(),
             bevy::input::InputPlugin::default(),
+            bevy::asset::AssetPlugin::default(),
+            bevy::mesh::MeshPlugin,
+            bevy::image::ImagePlugin::default(),
         ));
 
         // Initialize game state
