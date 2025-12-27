@@ -38,6 +38,104 @@ pub struct ScreenTintEffect {
 #[derive(Resource, Default)]
 pub struct SurvivalTime(pub f32);
 
+/// Shared mesh handles for all game entities to avoid recreating meshes
+#[derive(Resource)]
+pub struct GameMeshes {
+    /// Player mesh (1.0 x 1.0 x 1.0 cube)
+    pub player: Handle<Mesh>,
+    /// Enemy mesh (0.75 x 0.75 x 0.75 cube)
+    pub enemy: Handle<Mesh>,
+    /// Bullet mesh (0.3 x 0.3 x 0.3 cube)
+    pub bullet: Handle<Mesh>,
+    /// Small loot mesh for XP orbs (0.4 x 0.4 x 0.4 cube)
+    pub loot_small: Handle<Mesh>,
+    /// Large loot mesh for weapons (0.6 x 0.6 x 0.6 cube)
+    pub loot_large: Handle<Mesh>,
+    /// Rock mesh (1.0 x 0.5 x 1.0 flat cube)
+    pub rock: Handle<Mesh>,
+}
+
+impl GameMeshes {
+    pub fn new(meshes: &mut Assets<Mesh>) -> Self {
+        Self {
+            player: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
+            enemy: meshes.add(Cuboid::new(0.75, 0.75, 0.75)),
+            bullet: meshes.add(Cuboid::new(0.3, 0.3, 0.3)),
+            loot_small: meshes.add(Cuboid::new(0.4, 0.4, 0.4)),
+            loot_large: meshes.add(Cuboid::new(0.6, 0.6, 0.6)),
+            rock: meshes.add(Cuboid::new(1.0, 0.5, 1.0)),
+        }
+    }
+}
+
+/// Shared material handles for all game entities
+#[derive(Resource)]
+pub struct GameMaterials {
+    /// Player material (green with slight emissive)
+    pub player: Handle<StandardMaterial>,
+    /// Enemy material (red)
+    pub enemy: Handle<StandardMaterial>,
+    /// Bullet material (yellow with emissive)
+    pub bullet: Handle<StandardMaterial>,
+    /// XP orb material (light grey)
+    pub xp_orb: Handle<StandardMaterial>,
+    /// Health pack material (green)
+    pub health_pack: Handle<StandardMaterial>,
+    /// Pistol weapon loot material (yellow)
+    pub weapon_pistol: Handle<StandardMaterial>,
+    /// Laser weapon loot material (blue)
+    pub weapon_laser: Handle<StandardMaterial>,
+    /// Rocket launcher weapon loot material (orange)
+    pub weapon_rocket: Handle<StandardMaterial>,
+    /// Rock obstacle material (grey)
+    pub rock: Handle<StandardMaterial>,
+}
+
+impl GameMaterials {
+    pub fn new(materials: &mut Assets<StandardMaterial>) -> Self {
+        Self {
+            player: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.0, 1.0, 0.0),
+                emissive: bevy::color::LinearRgba::rgb(0.0, 0.2, 0.0),
+                ..default()
+            }),
+            enemy: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 0.0, 0.0),
+                ..default()
+            }),
+            bullet: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 1.0, 0.0),
+                emissive: bevy::color::LinearRgba::rgb(0.5, 0.5, 0.0),
+                ..default()
+            }),
+            xp_orb: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.75, 0.75, 0.75),
+                ..default()
+            }),
+            health_pack: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.0, 1.0, 0.0),
+                ..default()
+            }),
+            weapon_pistol: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 1.0, 0.0),
+                ..default()
+            }),
+            weapon_laser: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.0, 0.0, 1.0),
+                ..default()
+            }),
+            weapon_rocket: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 0.5, 0.0),
+                ..default()
+            }),
+            rock: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.5, 0.5, 0.5),
+                ..default()
+            }),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -53,5 +151,126 @@ mod tests {
         let mut time = SurvivalTime::default();
         time.0 += 1.5;
         assert_eq!(time.0, 1.5);
+    }
+
+    mod game_meshes_tests {
+        use super::*;
+        use bevy::asset::Assets;
+        use bevy::pbr::StandardMaterial;
+
+        fn setup_test_app() -> App {
+            let mut app = App::new();
+            app.add_plugins(bevy::asset::AssetPlugin::default());
+            app.init_asset::<Mesh>();
+            app.init_asset::<StandardMaterial>();
+            app
+        }
+
+        #[test]
+        fn test_game_meshes_has_all_required_handles() {
+            let mut app = setup_test_app();
+            let mut meshes = app.world_mut().resource_mut::<Assets<Mesh>>();
+
+            let game_meshes = GameMeshes::new(&mut meshes);
+
+            // Verify all handles can retrieve their assets (are strong handles)
+            assert!(meshes.get(&game_meshes.player).is_some());
+            assert!(meshes.get(&game_meshes.enemy).is_some());
+            assert!(meshes.get(&game_meshes.bullet).is_some());
+            assert!(meshes.get(&game_meshes.loot_small).is_some());
+            assert!(meshes.get(&game_meshes.loot_large).is_some());
+            assert!(meshes.get(&game_meshes.rock).is_some());
+        }
+
+        #[test]
+        fn test_game_materials_has_all_required_handles() {
+            let mut app = setup_test_app();
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+
+            let game_materials = GameMaterials::new(&mut materials);
+
+            // Verify all handles can retrieve their assets (are strong handles)
+            assert!(materials.get(&game_materials.player).is_some());
+            assert!(materials.get(&game_materials.enemy).is_some());
+            assert!(materials.get(&game_materials.bullet).is_some());
+            assert!(materials.get(&game_materials.xp_orb).is_some());
+            assert!(materials.get(&game_materials.health_pack).is_some());
+            assert!(materials.get(&game_materials.weapon_pistol).is_some());
+            assert!(materials.get(&game_materials.weapon_laser).is_some());
+            assert!(materials.get(&game_materials.weapon_rocket).is_some());
+            assert!(materials.get(&game_materials.rock).is_some());
+        }
+
+        #[test]
+        fn test_game_materials_colors_match_expected_values() {
+            let mut app = setup_test_app();
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+
+            let game_materials = GameMaterials::new(&mut materials);
+
+            // Verify player is green
+            let player_mat = materials.get(&game_materials.player).unwrap();
+            assert_eq!(player_mat.base_color, Color::srgb(0.0, 1.0, 0.0));
+
+            // Verify enemy is red
+            let enemy_mat = materials.get(&game_materials.enemy).unwrap();
+            assert_eq!(enemy_mat.base_color, Color::srgb(1.0, 0.0, 0.0));
+
+            // Verify bullet is yellow with emissive
+            let bullet_mat = materials.get(&game_materials.bullet).unwrap();
+            assert_eq!(bullet_mat.base_color, Color::srgb(1.0, 1.0, 0.0));
+
+            // Verify xp_orb is light grey
+            let xp_mat = materials.get(&game_materials.xp_orb).unwrap();
+            assert_eq!(xp_mat.base_color, Color::srgb(0.75, 0.75, 0.75));
+
+            // Verify health_pack is green
+            let health_mat = materials.get(&game_materials.health_pack).unwrap();
+            assert_eq!(health_mat.base_color, Color::srgb(0.0, 1.0, 0.0));
+
+            // Verify weapon_pistol is yellow
+            let pistol_mat = materials.get(&game_materials.weapon_pistol).unwrap();
+            assert_eq!(pistol_mat.base_color, Color::srgb(1.0, 1.0, 0.0));
+
+            // Verify weapon_laser is blue
+            let laser_mat = materials.get(&game_materials.weapon_laser).unwrap();
+            assert_eq!(laser_mat.base_color, Color::srgb(0.0, 0.0, 1.0));
+
+            // Verify weapon_rocket is orange
+            let rocket_mat = materials.get(&game_materials.weapon_rocket).unwrap();
+            assert_eq!(rocket_mat.base_color, Color::srgb(1.0, 0.5, 0.0));
+
+            // Verify rock is grey
+            let rock_mat = materials.get(&game_materials.rock).unwrap();
+            assert_eq!(rock_mat.base_color, Color::srgb(0.5, 0.5, 0.5));
+        }
+
+        #[test]
+        fn test_setup_game_assets_inserts_resources() {
+            use crate::states::GameState;
+            use crate::game::systems::setup_game_assets;
+
+            let mut app = App::new();
+            app.add_plugins((
+                bevy::asset::AssetPlugin::default(),
+                bevy::state::app::StatesPlugin,
+            ));
+            app.init_asset::<Mesh>();
+            app.init_asset::<StandardMaterial>();
+            app.init_state::<GameState>();
+            app.add_systems(OnEnter(GameState::InGame), setup_game_assets);
+
+            // Transition to InGame
+            app.world_mut()
+                .get_resource_mut::<bevy::state::state::NextState<GameState>>()
+                .unwrap()
+                .set(GameState::InGame);
+            app.update();
+            app.update();
+
+            // Verify resources were inserted
+            assert!(app.world().get_resource::<GameMeshes>().is_some());
+            assert!(app.world().get_resource::<GameMaterials>().is_some());
+        }
     }
 }

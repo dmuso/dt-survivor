@@ -5,7 +5,7 @@ use crate::enemies::systems::*;
 use crate::game::systems::{
     cleanup_game, game_input, player_death_system, player_enemy_collision_detection,
     player_enemy_damage_system, player_enemy_effect_system, reset_survival_time, setup_game,
-    update_screen_tint_timer, update_survival_time,
+    setup_game_assets, update_screen_tint_timer, update_survival_time,
 };
 use crate::game::sets::GameSet;
 use crate::inventory::systems::inventory_initialization_system;
@@ -48,10 +48,11 @@ pub fn plugin(app: &mut App) {
                 .run_if(in_state(GameState::InGame)),
         )
         .add_systems(OnEnter(GameState::InGame), (
+            setup_game_assets,
             setup_game,
             inventory_initialization_system,
             reset_survival_time,
-        ))
+        ).chain())
         // Input systems
         .add_systems(
             Update,

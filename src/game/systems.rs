@@ -1,15 +1,15 @@
 use bevy::prelude::*;
+use bevy::camera::ScalingMode;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::ecs::world::World;
 use bevy::post_process::bloom::Bloom;
 use bevy::render::view::Hdr;
-use bevy_lit::prelude::*;
 use rand::Rng;
 
 use crate::combat::components::Health;
 use crate::enemies::components::*;
 use crate::game::components::*;
-use crate::game::resources::{PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
+use crate::game::resources::{GameMaterials, GameMeshes, PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
 use crate::game::events::*;
 use crate::player::components::*;
 use crate::states::*;
@@ -18,31 +18,69 @@ use crate::whisper::components::{WhisperDrop, WhisperCompanion, WhisperArc};
 
 pub fn setup_game(
     mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     camera_query: Query<Entity, With<Camera>>,
 ) {
     // Reuse existing camera if available, otherwise spawn new one
     if camera_query.is_empty() {
         commands.spawn((
-            Camera2d,
+            Camera3d::default(),
+            Projection::Orthographic(OrthographicProjection {
+                scaling_mode: ScalingMode::FixedVertical { viewport_height: 20.0 },
+                ..OrthographicProjection::default_3d()
+            }),
             Hdr,
             Tonemapping::TonyMcMapface,
             Bloom {
                 intensity: 0.3,
                 ..default()
             },
-            Lighting2dSettings::default(),
-            AmbientLight2d {
-                color: Color::WHITE,
-                intensity: 0.2,
+            // Position camera for isometric view: looking down at ~45° angle
+            Transform::from_xyz(0.0, 20.0, 15.0).looking_at(Vec3::ZERO, Vec3::Y),
+        ));
+
+        // Add directional light (sun)
+        commands.spawn((
+            DirectionalLight {
+                illuminance: 10000.0,
+                shadows_enabled: true,
+                ..default()
             },
+            Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.8, 0.4, 0.0)),
+        ));
+
+        // Add ambient light resource
+        commands.insert_resource(AmbientLight {
+            color: Color::WHITE,
+            brightness: 200.0,
+            affects_lightmapped_meshes: false,
+        });
+
+        // Add ground plane
+        commands.spawn((
+            Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::new(100.0, 100.0)))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb(0.2, 0.2, 0.3),
+                ..default()
+            })),
+            Transform::from_translation(Vec3::ZERO),
+            GroundPlane,
         ));
     }
     // If camera exists, we reuse it (no action needed)
 
-    // Spawn player in the center of the screen
+    // Spawn player in the center of the screen (on XZ plane, Y=0.5 to sit on ground)
+    let player_mesh = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
+    let player_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.0, 1.0, 0.0),
+        emissive: bevy::color::LinearRgba::rgb(0.0, 0.2, 0.0),
+        ..default()
+    });
     commands.spawn((
-        Sprite::from_color(Color::srgb(0.0, 1.0, 0.0), Vec2::new(20.0, 20.0)), // Green player
-        Transform::from_translation(Vec3::new(0.0, 0.0, 1.0)),
+        Mesh3d(player_mesh),
+        MeshMaterial3d(player_material),
+        Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
         Player {
             speed: 200.0,
             regen_rate: 1.0, // 1 health per second (was 1% of 100)
@@ -55,17 +93,35 @@ pub fn setup_game(
         },
     ));
 
-    // Spawn random rocks scattered throughout the scene
+    // Spawn random rocks scattered throughout the scene (on XZ plane)
+    let rock_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.5, 0.5, 0.5),
+        ..default()
+    });
     let mut rng = rand::thread_rng();
     for _ in 0..15 {
-        let x = rng.gen_range(-400.0..400.0);
-        let y = rng.gen_range(-300.0..300.0);
+        let x = rng.gen_range(-40.0..40.0);
+        let z = rng.gen_range(-30.0..30.0);
+        let size_x = rng.gen_range(0.5..1.5);
+        let size_z = rng.gen_range(0.5..1.5);
+        let rock_mesh = meshes.add(Cuboid::new(size_x, 0.3, size_z));
         commands.spawn((
-            Sprite::from_color(Color::srgb(0.5, 0.5, 0.5), Vec2::new(rng.gen_range(10.0..30.0), rng.gen_range(10.0..30.0))), // Gray rocks
-            Transform::from_translation(Vec3::new(x, y, 0.0)),
+            Mesh3d(rock_mesh),
+            MeshMaterial3d(rock_material.clone()),
+            Transform::from_translation(Vec3::new(x, 0.15, z)),
             Rock,
         ));
     }
+}
+
+/// Sets up shared game asset resources (meshes and materials) for efficient entity spawning
+pub fn setup_game_assets(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    commands.insert_resource(GameMeshes::new(&mut meshes));
+    commands.insert_resource(GameMaterials::new(&mut materials));
 }
 
 pub fn game_input(
