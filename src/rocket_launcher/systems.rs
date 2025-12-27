@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use crate::rocket_launcher::components::*;
 use crate::prelude::*;
 use crate::game::events::EnemyDeathEvent;
+use crate::game::resources::{GameMeshes, GameMaterials};
 use crate::movement::components::{from_xz, to_xz};
 
 pub fn rocket_spawning_system(
@@ -22,6 +23,8 @@ pub fn target_marking_system(
     mut commands: Commands,
     rocket_query: Query<&RocketProjectile>,
     target_marker_query: Query<Entity, With<TargetMarker>>,
+    game_meshes: Res<GameMeshes>,
+    game_materials: Res<GameMaterials>,
 ) {
     // Remove expired target markers
     for marker_entity in target_marker_query.iter() {
@@ -32,11 +35,12 @@ pub fn target_marking_system(
     for rocket in rocket_query.iter() {
         if matches!(rocket.state, RocketState::Targeting) {
             if let Some(target_pos) = rocket.target_position {
-                // Create red dot marker at target position on XZ plane
+                // Create red marker at target position on XZ plane
                 // target_pos is Vec2 where x=X, y=Z (XZ coordinates)
                 let marker_pos = to_xz(target_pos) + Vec3::new(0.0, 0.1, 0.0); // Slightly above ground
                 commands.spawn((
-                    Sprite::from_color(Color::srgb(1.0, 0.0, 0.0), Vec2::new(0.6, 0.6)), // Red dot (scaled for 3D)
+                    Mesh3d(game_meshes.target_marker.clone()),
+                    MeshMaterial3d(game_materials.target_marker.clone()),
                     Transform::from_translation(marker_pos),
                     TargetMarker::position_only(),
                 ));
@@ -51,9 +55,8 @@ pub fn rocket_movement_system(
     mut commands: Commands,
     time: Res<Time>,
     mut rocket_query: Query<(Entity, &mut RocketProjectile, &mut Transform)>,
-    // asset_server: Option<Res<AssetServer>>,
-    // mut weapon_channel: Option<ResMut<bevy_kira_audio::AudioChannel<WeaponSoundChannel>>>,
-    // mut sound_limiter: Option<ResMut<SoundLimiter>>,
+    game_meshes: Res<GameMeshes>,
+    game_materials: Res<GameMaterials>,
 ) {
     let mut rockets_to_explode = Vec::new();
 
@@ -110,32 +113,20 @@ pub fn rocket_movement_system(
         // Create explosion at XZ position (Y at ground level)
         let explosion_translation = to_xz(explosion_pos) + Vec3::new(0.0, 0.2, 0.0);
         commands.spawn((
-            Sprite::from_color(Color::srgba(1.0, 0.0, 0.0, 0.8), Vec2::new(0.0, 0.0)), // Initial size
-            Transform::from_translation(explosion_translation),
+            Mesh3d(game_meshes.explosion.clone()),
+            MeshMaterial3d(game_materials.explosion.clone()),
+            Transform::from_translation(explosion_translation).with_scale(Vec3::ZERO), // Start at zero size
             Explosion::new(explosion_pos, damage),
         ));
-
-        // Play explosion sound
-        // TODO: Re-enable rocket explosion sounds once audio import issues are resolved
-        // if let (Some(asset_server), Some(weapon_channel), Some(sound_limiter)) =
-        //     (asset_server.as_ref(), weapon_channel.as_mut(), sound_limiter.as_mut()) {
-        //     // Use weapon sound for now - could add dedicated explosion sound later
-        //     crate::audio::plugin::play_limited_sound(
-        //         weapon_channel.as_mut(),
-        //         asset_server,
-        //         "sounds/143610__dwoboyle__weapons-synth-blast-02.wav",
-        //         sound_limiter.as_mut(),
-        //     );
-        // }
     }
 }
 
 pub fn explosion_system(
     mut commands: Commands,
     time: Res<Time>,
-    mut explosion_query: Query<(Entity, &mut Explosion, &mut Sprite)>,
+    mut explosion_query: Query<(Entity, &mut Explosion, &mut Transform)>,
 ) {
-    for (entity, mut explosion, mut sprite) in explosion_query.iter_mut() {
+    for (entity, mut explosion, mut transform) in explosion_query.iter_mut() {
         explosion.lifetime.tick(time.delta());
 
         // Expand radius
@@ -144,9 +135,9 @@ pub fn explosion_system(
             explosion.current_radius = explosion.current_radius.min(explosion.max_radius);
         }
 
-        // Update visual
-        sprite.custom_size = Some(Vec2::new(explosion.current_radius * 2.0, explosion.current_radius * 2.0));
-        sprite.color = Color::srgba(1.0, 0.0, 0.0, explosion.get_opacity());
+        // Update visual - scale the sphere mesh based on current radius
+        // The base explosion mesh is a unit sphere (radius 1.0), scale to current radius
+        transform.scale = Vec3::splat(explosion.current_radius);
 
         // Despawn when fully expanded and faded
         if explosion.lifetime.is_finished() {
@@ -200,16 +191,17 @@ pub fn area_damage_system(
 pub fn update_rocket_visuals(
     mut commands: Commands,
     rocket_query: Query<(Entity, &RocketProjectile), Changed<RocketProjectile>>,
+    game_materials: Res<GameMaterials>,
 ) {
     for (entity, rocket) in rocket_query.iter() {
-        let color = match rocket.state {
-            RocketState::Pausing => Color::srgb(0.5, 0.5, 0.5), // Gray when pausing
-            RocketState::Targeting => Color::srgb(1.0, 1.0, 0.0), // Yellow when targeting
-            RocketState::Homing => Color::srgb(1.0, 0.5, 0.0), // Orange when homing
-            RocketState::Exploding => Color::srgb(1.0, 0.0, 0.0), // Red when exploding
+        let material = match rocket.state {
+            RocketState::Pausing => game_materials.rocket_pausing.clone(),
+            RocketState::Targeting => game_materials.rocket_targeting.clone(),
+            RocketState::Homing => game_materials.rocket_homing.clone(),
+            RocketState::Exploding => game_materials.rocket_exploding.clone(),
         };
 
-        commands.entity(entity).insert(Sprite::from_color(color, Vec2::new(12.0, 6.0)));
+        commands.entity(entity).insert(MeshMaterial3d(material));
     }
 }
 

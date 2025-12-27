@@ -1,10 +1,16 @@
 use bevy::prelude::*;
+use crate::movement::components::to_xz;
+
+/// Height at which rockets fly above the ground plane.
+pub const ROCKET_Y_HEIGHT: f32 = 0.5;
 
 #[derive(Component)]
 pub struct RocketProjectile {
+    /// Velocity on the XZ ground plane (Vec2 where x=X, y=Z).
     pub velocity: Vec2,
     pub speed: f32,
     pub damage: f32,
+    /// Target position on the XZ ground plane (Vec2 where x=X, y=Z).
     pub target_position: Option<Vec2>,
     pub homing_strength: f32,
     pub state: RocketState,
@@ -20,7 +26,14 @@ pub enum RocketState {
 }
 
 impl RocketProjectile {
+    /// Create a new rocket projectile.
+    /// `position` is the XZ ground position (Vec2 where x=X, y=Z).
+    /// `initial_direction` is the direction on the XZ plane.
     pub fn new(position: Vec2, initial_direction: Vec2, damage: f32) -> (Self, Transform) {
+        // Calculate rotation to face the initial direction
+        let angle = initial_direction.y.atan2(initial_direction.x);
+        let rotation = Quat::from_rotation_y(-angle + std::f32::consts::FRAC_PI_2);
+
         (
             Self {
                 velocity: initial_direction.normalize() * 100.0, // Initial speed
@@ -31,7 +44,11 @@ impl RocketProjectile {
                 state: RocketState::Pausing,
                 pause_timer: Timer::from_seconds(0.5, TimerMode::Once),
             },
-            Transform::from_translation(position.extend(0.3)), // Above other projectiles
+            Transform {
+                translation: to_xz(position) + Vec3::new(0.0, ROCKET_Y_HEIGHT, 0.0),
+                rotation,
+                ..default()
+            },
         )
     }
 }
@@ -76,6 +93,7 @@ mod tests {
 
     #[test]
     fn test_rocket_projectile_creation() {
+        // Position on XZ plane: x=100, z=50 (Vec2 where x=X, y=Z)
         let (rocket, transform) = RocketProjectile::new(Vec2::new(100.0, 50.0), Vec2::new(1.0, 0.0), 30.0);
 
         assert_eq!(rocket.damage, 30.0);
@@ -84,7 +102,10 @@ mod tests {
         assert!(matches!(rocket.state, RocketState::Pausing));
         assert_eq!(rocket.pause_timer.duration(), std::time::Duration::from_secs_f32(0.5));
 
-        assert_eq!(transform.translation, Vec3::new(100.0, 50.0, 0.3));
+        // Transform should be at (100, ROCKET_Y_HEIGHT, 50) - XZ ground plane with Y height
+        assert_eq!(transform.translation.x, 100.0);
+        assert_eq!(transform.translation.y, ROCKET_Y_HEIGHT);
+        assert_eq!(transform.translation.z, 50.0);
     }
 
     #[test]
@@ -117,14 +138,14 @@ mod tests {
 
         assert_eq!(explosion.center, center);
         assert_eq!(explosion.current_radius, 0.0);
-        assert_eq!(explosion.max_radius, 150.0);
+        assert_eq!(explosion.max_radius, 3.0);  // 3 world units
         assert_eq!(explosion.damage, 30.0);
-        assert_eq!(explosion.expansion_rate, 500.0);
-        assert_eq!(explosion.max_lifetime, 0.3);
+        assert_eq!(explosion.expansion_rate, 10.0);  // world units per second
+        assert_eq!(explosion.max_lifetime, 0.5);
 
         // Test expansion
         explosion.current_radius += explosion.expansion_rate * 0.1; // 0.1 seconds
-        assert_eq!(explosion.current_radius, 50.0);
+        assert_eq!(explosion.current_radius, 1.0);  // 10.0 * 0.1 = 1.0 world units
 
         // Test opacity fade
         let initial_opacity = explosion.get_opacity();
@@ -137,12 +158,12 @@ mod tests {
     fn test_explosion_is_expanding() {
         let mut explosion = Explosion::new(Vec2::ZERO, 30.0);
 
-        assert!(explosion.is_expanding()); // Starts at 0, max is 150
+        assert!(explosion.is_expanding()); // Starts at 0, max is 3.0
 
-        explosion.current_radius = 150.0;
+        explosion.current_radius = 3.0;
         assert!(!explosion.is_expanding()); // At max radius
 
-        explosion.current_radius = 200.0;
+        explosion.current_radius = 4.0;
         assert!(!explosion.is_expanding()); // Beyond max
     }
 
@@ -165,15 +186,16 @@ mod tests {
 }
 
 impl Explosion {
+    /// Create a new explosion at the given XZ position (Vec2 where x=X, y=Z).
     pub fn new(center: Vec2, damage: f32) -> Self {
         Self {
             center,
             current_radius: 0.0,
-            max_radius: 150.0,
+            max_radius: 3.0,       // 3 world units radius
             damage,
-            expansion_rate: 500.0, // pixels per second
-            lifetime: Timer::from_seconds(0.3, TimerMode::Once), // 0.3 second expansion
-            max_lifetime: 0.3,
+            expansion_rate: 10.0,  // world units per second
+            lifetime: Timer::from_seconds(0.5, TimerMode::Once),
+            max_lifetime: 0.5,
         }
     }
 

@@ -49,6 +49,12 @@ pub struct GameMeshes {
     pub bullet: Handle<Mesh>,
     /// Laser beam mesh (thin elongated cube: 0.1 x 0.1 x 1.0, scaled by length)
     pub laser: Handle<Mesh>,
+    /// Rocket mesh (elongated cube: 0.15 x 0.15 x 0.4)
+    pub rocket: Handle<Mesh>,
+    /// Explosion mesh (sphere with radius 1.0, scaled by explosion radius)
+    pub explosion: Handle<Mesh>,
+    /// Target marker mesh (small flat cube: 0.3 x 0.05 x 0.3)
+    pub target_marker: Handle<Mesh>,
     /// Small loot mesh for XP orbs (0.4 x 0.4 x 0.4 cube)
     pub loot_small: Handle<Mesh>,
     /// Medium loot mesh for health packs and powerups (0.5 x 0.5 x 0.5 cube)
@@ -66,6 +72,9 @@ impl GameMeshes {
             enemy: meshes.add(Cuboid::new(0.75, 0.75, 0.75)),
             bullet: meshes.add(Cuboid::new(0.3, 0.3, 0.3)),
             laser: meshes.add(Cuboid::new(0.1, 0.1, 1.0)),
+            rocket: meshes.add(Cuboid::new(0.15, 0.15, 0.4)),
+            explosion: meshes.add(Sphere::new(1.0)),
+            target_marker: meshes.add(Cuboid::new(0.3, 0.05, 0.3)),
             loot_small: meshes.add(Cuboid::new(0.4, 0.4, 0.4)),
             loot_medium: meshes.add(Cuboid::new(0.5, 0.5, 0.5)),
             loot_large: meshes.add(Cuboid::new(0.6, 0.6, 0.6)),
@@ -85,6 +94,18 @@ pub struct GameMaterials {
     pub bullet: Handle<StandardMaterial>,
     /// Laser beam material (cyan with strong emissive glow)
     pub laser: Handle<StandardMaterial>,
+    /// Rocket pausing material (grey)
+    pub rocket_pausing: Handle<StandardMaterial>,
+    /// Rocket targeting material (yellow with emissive)
+    pub rocket_targeting: Handle<StandardMaterial>,
+    /// Rocket homing material (orange with emissive)
+    pub rocket_homing: Handle<StandardMaterial>,
+    /// Rocket exploding material (red with strong emissive)
+    pub rocket_exploding: Handle<StandardMaterial>,
+    /// Explosion material (red/orange with transparency and emissive)
+    pub explosion: Handle<StandardMaterial>,
+    /// Target marker material (red)
+    pub target_marker: Handle<StandardMaterial>,
     /// XP orb material (light grey)
     pub xp_orb: Handle<StandardMaterial>,
     /// Health pack material (green)
@@ -122,6 +143,36 @@ impl GameMaterials {
                 base_color: Color::srgb(0.0, 1.0, 1.0),
                 emissive: bevy::color::LinearRgba::rgb(0.0, 2.0, 2.0),
                 unlit: true,
+                ..default()
+            }),
+            rocket_pausing: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.5, 0.5, 0.5),
+                ..default()
+            }),
+            rocket_targeting: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 1.0, 0.0),
+                emissive: bevy::color::LinearRgba::rgb(0.3, 0.3, 0.0),
+                ..default()
+            }),
+            rocket_homing: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 0.5, 0.0),
+                emissive: bevy::color::LinearRgba::rgb(0.3, 0.15, 0.0),
+                ..default()
+            }),
+            rocket_exploding: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 0.0, 0.0),
+                emissive: bevy::color::LinearRgba::rgb(1.0, 0.0, 0.0),
+                ..default()
+            }),
+            explosion: materials.add(StandardMaterial {
+                base_color: Color::srgba(1.0, 0.3, 0.0, 0.8),
+                emissive: bevy::color::LinearRgba::rgb(1.0, 0.2, 0.0),
+                alpha_mode: AlphaMode::Blend,
+                ..default()
+            }),
+            target_marker: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 0.0, 0.0),
+                emissive: bevy::color::LinearRgba::rgb(0.5, 0.0, 0.0),
                 ..default()
             }),
             xp_orb: materials.add(StandardMaterial {
@@ -198,6 +249,9 @@ mod tests {
             assert!(meshes.get(&game_meshes.enemy).is_some());
             assert!(meshes.get(&game_meshes.bullet).is_some());
             assert!(meshes.get(&game_meshes.laser).is_some());
+            assert!(meshes.get(&game_meshes.rocket).is_some());
+            assert!(meshes.get(&game_meshes.explosion).is_some());
+            assert!(meshes.get(&game_meshes.target_marker).is_some());
             assert!(meshes.get(&game_meshes.loot_small).is_some());
             assert!(meshes.get(&game_meshes.loot_medium).is_some());
             assert!(meshes.get(&game_meshes.loot_large).is_some());
@@ -216,6 +270,12 @@ mod tests {
             assert!(materials.get(&game_materials.enemy).is_some());
             assert!(materials.get(&game_materials.bullet).is_some());
             assert!(materials.get(&game_materials.laser).is_some());
+            assert!(materials.get(&game_materials.rocket_pausing).is_some());
+            assert!(materials.get(&game_materials.rocket_targeting).is_some());
+            assert!(materials.get(&game_materials.rocket_homing).is_some());
+            assert!(materials.get(&game_materials.rocket_exploding).is_some());
+            assert!(materials.get(&game_materials.explosion).is_some());
+            assert!(materials.get(&game_materials.target_marker).is_some());
             assert!(materials.get(&game_materials.xp_orb).is_some());
             assert!(materials.get(&game_materials.health_pack).is_some());
             assert!(materials.get(&game_materials.weapon_pistol).is_some());
@@ -248,6 +308,31 @@ mod tests {
             let laser_mat = materials.get(&game_materials.laser).unwrap();
             assert_eq!(laser_mat.base_color, Color::srgb(0.0, 1.0, 1.0));
             assert!(laser_mat.unlit);
+
+            // Verify rocket_pausing is grey
+            let rocket_pausing_mat = materials.get(&game_materials.rocket_pausing).unwrap();
+            assert_eq!(rocket_pausing_mat.base_color, Color::srgb(0.5, 0.5, 0.5));
+
+            // Verify rocket_targeting is yellow
+            let rocket_targeting_mat = materials.get(&game_materials.rocket_targeting).unwrap();
+            assert_eq!(rocket_targeting_mat.base_color, Color::srgb(1.0, 1.0, 0.0));
+
+            // Verify rocket_homing is orange
+            let rocket_homing_mat = materials.get(&game_materials.rocket_homing).unwrap();
+            assert_eq!(rocket_homing_mat.base_color, Color::srgb(1.0, 0.5, 0.0));
+
+            // Verify rocket_exploding is red
+            let rocket_exploding_mat = materials.get(&game_materials.rocket_exploding).unwrap();
+            assert_eq!(rocket_exploding_mat.base_color, Color::srgb(1.0, 0.0, 0.0));
+
+            // Verify explosion is orange with transparency
+            let explosion_mat = materials.get(&game_materials.explosion).unwrap();
+            assert_eq!(explosion_mat.base_color, Color::srgba(1.0, 0.3, 0.0, 0.8));
+            assert_eq!(explosion_mat.alpha_mode, AlphaMode::Blend);
+
+            // Verify target_marker is red
+            let target_marker_mat = materials.get(&game_materials.target_marker).unwrap();
+            assert_eq!(target_marker_mat.base_color, Color::srgb(1.0, 0.0, 0.0));
 
             // Verify xp_orb is light grey
             let xp_mat = materials.get(&game_materials.xp_orb).unwrap();

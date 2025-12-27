@@ -6,6 +6,7 @@ use crate::weapon::components::*;
 use crate::enemies::components::*;
 use crate::audio::plugin::*;
 use crate::audio::plugin::SoundLimiter;
+use crate::game::resources::{GameMeshes, GameMaterials};
 use crate::movement::components::from_xz;
 use crate::whisper::resources::WeaponOrigin;
 
@@ -207,6 +208,8 @@ pub fn weapon_firing_system(
     mut weapon_channel: Option<ResMut<AudioChannel<WeaponSoundChannel>>>,
     mut sound_limiter: Option<ResMut<SoundLimiter>>,
     weapon_origin: Res<WeaponOrigin>,
+    game_meshes: Option<Res<GameMeshes>>,
+    game_materials: Option<Res<GameMaterials>>,
     enemy_query: Query<(Entity, &Transform, &Enemy)>,
     mut weapon_query: Query<&mut Weapon>,
 ) {
@@ -293,12 +296,21 @@ pub fn weapon_firing_system(
 
                      // Create a rocket projectile
                      use crate::rocket_launcher::components::RocketProjectile;
-                      let (mut rocket, transform) = RocketProjectile::new(origin_pos, base_direction, weapon.damage());
+                     let (mut rocket, transform) = RocketProjectile::new(origin_pos, base_direction, weapon.damage());
                      rocket.target_position = rocket_target_pos;
-                     commands.spawn((
-                         rocket,
-                         transform,
-                     ));
+
+                     // Spawn rocket with 3D mesh using GameMeshes/GameMaterials
+                     if let (Some(ref meshes), Some(ref materials)) = (&game_meshes, &game_materials) {
+                         commands.spawn((
+                             rocket,
+                             transform,
+                             Mesh3d(meshes.rocket.clone()),
+                             MeshMaterial3d(materials.rocket_pausing.clone()), // Initial state is pausing
+                         ));
+                     } else {
+                         // Fallback: spawn without mesh (for tests)
+                         commands.spawn((rocket, transform));
+                     }
 
                      // Play rocket launch sound
                      if let (Some(asset_server), Some(weapon_channel), Some(sound_limiter)) =
