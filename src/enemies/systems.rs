@@ -6,7 +6,11 @@ use crate::enemies::components::*;
 use crate::game::resources::*;
 use crate::player::components::*;
 
-pub const ENEMY_SPAWN_DISTANCE: f32 = 600.0; // Distance from player to spawn enemies
+/// Distance from player to spawn enemies (scaled for 3D world units)
+pub const ENEMY_SPAWN_DISTANCE: f32 = 60.0;
+
+/// Height of enemy cube center above ground (half of 0.75 cube height)
+pub const ENEMY_Y_HEIGHT: f32 = 0.375;
 
 pub fn enemy_spawning_system(
     mut commands: Commands,
@@ -14,6 +18,8 @@ pub fn enemy_spawning_system(
     camera_query: Query<(&Camera, &GlobalTransform)>,
     mut spawn_state: ResMut<EnemySpawnState>,
     time: Res<Time>,
+    game_meshes: Res<GameMeshes>,
+    game_materials: Res<GameMaterials>,
 ) {
     let Ok(player_transform) = player_query.single() else {
         return;
@@ -46,34 +52,48 @@ pub fn enemy_spawning_system(
         let half_width = viewport_size.x / 2.0;
         let half_height = viewport_size.y / 2.0;
 
-        // Camera position in world space
-        let camera_pos = camera_transform.translation().truncate();
+        // Camera position in world space (XZ plane)
+        let camera_pos = Vec2::new(
+            camera_transform.translation().x,
+            camera_transform.translation().z,
+        );
+
+        // Player position on XZ plane
+        let player_xz = Vec2::new(
+            player_transform.translation.x,
+            player_transform.translation.z,
+        );
 
         for _ in 0..enemies_to_spawn {
             // Generate random angle and distance for spawning outside view
             let angle = rng.gen_range(0.0..std::f32::consts::TAU);
-            let distance = ENEMY_SPAWN_DISTANCE + rng.gen_range(0.0..200.0);
+            let distance = ENEMY_SPAWN_DISTANCE + rng.gen_range(0.0..20.0);
 
-            // Calculate spawn position relative to player
+            // Calculate spawn position on XZ plane relative to player
             let spawn_offset = Vec2::new(angle.cos(), angle.sin()) * distance;
-            let mut spawn_pos = player_transform.translation.truncate() + spawn_offset;
+            let mut spawn_xz = player_xz + spawn_offset;
 
             // Ensure the spawn position is outside the camera viewport
-            let to_spawn = spawn_pos - camera_pos;
-            if to_spawn.x.abs() < half_width + 100.0 && to_spawn.y.abs() < half_height + 100.0 {
+            let to_spawn = spawn_xz - camera_pos;
+            if to_spawn.x.abs() < half_width + 10.0 && to_spawn.y.abs() < half_height + 10.0 {
                 // If too close to viewport, adjust position
-                let adjusted_distance = (half_width.max(half_height) + 150.0) / to_spawn.length().max(1.0);
+                let adjusted_distance =
+                    (half_width.max(half_height) + 15.0) / to_spawn.length().max(1.0);
                 let adjusted_pos = camera_pos + to_spawn * adjusted_distance;
-                spawn_pos = adjusted_pos;
+                spawn_xz = adjusted_pos;
             }
 
-            // Spawn enemy with Health component for damage system
+            // Spawn enemy as 3D mesh on XZ plane with Y height for cube center
             commands.spawn((
-                Sprite::from_color(Color::srgb(1.0, 0.0, 0.0), Vec2::new(15.0, 15.0)), // Red enemy
-                Transform::from_translation(Vec3::new(spawn_pos.x, spawn_pos.y, 0.5)),
-                Enemy { speed: 50.0, strength: 10.0 }, // Slower than player (player is 200.0), moderate strength
-                Health::new(10.0), // Enemies have 10 HP
-                CheckDeath, // Enable death checking via combat system
+                Mesh3d(game_meshes.enemy.clone()),
+                MeshMaterial3d(game_materials.enemy.clone()),
+                Transform::from_translation(Vec3::new(spawn_xz.x, ENEMY_Y_HEIGHT, spawn_xz.y)),
+                Enemy {
+                    speed: 50.0,
+                    strength: 10.0,
+                },
+                Health::new(10.0),
+                CheckDeath,
             ));
         }
 

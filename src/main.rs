@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use bevy_hanabi::prelude::*;
 use bevy_kira_audio::prelude::*;
-use bevy_lit::prelude::*;
 use donny_tango_survivor::{
     audio_plugin,
     combat_plugin,
@@ -33,7 +32,6 @@ fn main() {
             }))
         .add_plugins(AudioPlugin)
         .add_plugins(HanabiPlugin)
-        .add_plugins(Lighting2dPlugin)
         .init_state::<GameState>()
         .add_plugins((audio_plugin, combat_plugin, experience_plugin, game_plugin, inventory_plugin, ui_plugin));
 
@@ -164,6 +162,9 @@ mod tests {
             bevy::image::ImagePlugin::default(),
         ));
 
+        // Initialize asset types needed for 3D rendering
+        app.init_asset::<StandardMaterial>();
+
         // Initialize game state (starts in Intro by default)
         app.init_state::<GameState>();
 
@@ -248,6 +249,9 @@ mod tests {
             bevy::image::ImagePlugin::default(),
         ));
 
+        // Initialize asset types needed for 3D rendering
+        app.init_asset::<StandardMaterial>();
+
         // Initialize game state
         app.init_state::<GameState>();
 
@@ -323,6 +327,9 @@ mod tests {
             bevy::image::ImagePlugin::default(),
         ));
 
+        // Initialize asset types needed for 3D rendering
+        app.init_asset::<StandardMaterial>();
+
         // Initialize game state
         app.init_state::<GameState>();
 
@@ -362,6 +369,9 @@ mod tests {
             bevy::mesh::MeshPlugin,
             bevy::image::ImagePlugin::default(),
         ));
+
+        // Initialize asset types needed for 3D rendering
+        app.init_asset::<StandardMaterial>();
 
         // Initialize game state
         app.init_state::<GameState>();
@@ -450,6 +460,9 @@ mod tests {
             bevy::image::ImagePlugin::default(),
         ));
 
+        // Initialize asset types needed for 3D rendering
+        app.init_asset::<StandardMaterial>();
+
         // Initialize game state
         app.init_state::<GameState>();
 
@@ -490,6 +503,9 @@ mod tests {
             bevy::mesh::MeshPlugin,
             bevy::image::ImagePlugin::default(),
         ));
+
+        // Initialize asset types needed for 3D rendering
+        app.init_asset::<StandardMaterial>();
 
         // Initialize game state
         app.init_state::<GameState>();
@@ -562,6 +578,9 @@ mod tests {
             bevy::mesh::MeshPlugin,
             bevy::image::ImagePlugin::default(),
         ));
+
+        // Initialize asset types needed for 3D rendering
+        app.init_asset::<StandardMaterial>();
 
         // Initialize game state
         app.init_state::<GameState>();
@@ -638,6 +657,9 @@ mod tests {
             bevy::mesh::MeshPlugin,
             bevy::image::ImagePlugin::default(),
         ));
+
+        // Initialize asset types needed for 3D rendering
+        app.init_asset::<StandardMaterial>();
 
         // Initialize game state
         app.init_state::<GameState>();

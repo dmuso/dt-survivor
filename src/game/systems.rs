@@ -21,6 +21,8 @@ pub fn setup_game(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     camera_query: Query<Entity, With<Camera>>,
+    game_meshes: Res<GameMeshes>,
+    game_materials: Res<GameMaterials>,
 ) {
     // Reuse existing camera if available, otherwise spawn new one
     if camera_query.is_empty() {
@@ -57,7 +59,7 @@ pub fn setup_game(
             affects_lightmapped_meshes: false,
         });
 
-        // Add ground plane
+        // Add ground plane (unique mesh, not from GameMeshes)
         commands.spawn((
             Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::new(100.0, 100.0)))),
             MeshMaterial3d(materials.add(StandardMaterial {
@@ -71,15 +73,9 @@ pub fn setup_game(
     // If camera exists, we reuse it (no action needed)
 
     // Spawn player in the center of the screen (on XZ plane, Y=0.5 to sit on ground)
-    let player_mesh = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
-    let player_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.0, 1.0, 0.0),
-        emissive: bevy::color::LinearRgba::rgb(0.0, 0.2, 0.0),
-        ..default()
-    });
     commands.spawn((
-        Mesh3d(player_mesh),
-        MeshMaterial3d(player_material),
+        Mesh3d(game_meshes.player.clone()),
+        MeshMaterial3d(game_materials.player.clone()),
         Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
         Player {
             speed: 200.0,
@@ -94,21 +90,14 @@ pub fn setup_game(
     ));
 
     // Spawn random rocks scattered throughout the scene (on XZ plane)
-    let rock_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.5, 0.5, 0.5),
-        ..default()
-    });
     let mut rng = rand::thread_rng();
     for _ in 0..15 {
         let x = rng.gen_range(-40.0..40.0);
         let z = rng.gen_range(-30.0..30.0);
-        let size_x = rng.gen_range(0.5..1.5);
-        let size_z = rng.gen_range(0.5..1.5);
-        let rock_mesh = meshes.add(Cuboid::new(size_x, 0.3, size_z));
         commands.spawn((
-            Mesh3d(rock_mesh),
-            MeshMaterial3d(rock_material.clone()),
-            Transform::from_translation(Vec3::new(x, 0.15, z)),
+            Mesh3d(game_meshes.rock.clone()),
+            MeshMaterial3d(game_materials.rock.clone()),
+            Transform::from_translation(Vec3::new(x, 0.25, z)),
             Rock,
         ));
     }
