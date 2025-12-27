@@ -47,6 +47,8 @@ pub struct GameMeshes {
     pub enemy: Handle<Mesh>,
     /// Bullet mesh (0.3 x 0.3 x 0.3 cube)
     pub bullet: Handle<Mesh>,
+    /// Laser beam mesh (thin elongated cube: 0.1 x 0.1 x 1.0, scaled by length)
+    pub laser: Handle<Mesh>,
     /// Small loot mesh for XP orbs (0.4 x 0.4 x 0.4 cube)
     pub loot_small: Handle<Mesh>,
     /// Medium loot mesh for health packs and powerups (0.5 x 0.5 x 0.5 cube)
@@ -63,6 +65,7 @@ impl GameMeshes {
             player: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
             enemy: meshes.add(Cuboid::new(0.75, 0.75, 0.75)),
             bullet: meshes.add(Cuboid::new(0.3, 0.3, 0.3)),
+            laser: meshes.add(Cuboid::new(0.1, 0.1, 1.0)),
             loot_small: meshes.add(Cuboid::new(0.4, 0.4, 0.4)),
             loot_medium: meshes.add(Cuboid::new(0.5, 0.5, 0.5)),
             loot_large: meshes.add(Cuboid::new(0.6, 0.6, 0.6)),
@@ -80,6 +83,8 @@ pub struct GameMaterials {
     pub enemy: Handle<StandardMaterial>,
     /// Bullet material (yellow with emissive)
     pub bullet: Handle<StandardMaterial>,
+    /// Laser beam material (cyan with strong emissive glow)
+    pub laser: Handle<StandardMaterial>,
     /// XP orb material (light grey)
     pub xp_orb: Handle<StandardMaterial>,
     /// Health pack material (green)
@@ -111,6 +116,12 @@ impl GameMaterials {
             bullet: materials.add(StandardMaterial {
                 base_color: Color::srgb(1.0, 1.0, 0.0),
                 emissive: bevy::color::LinearRgba::rgb(0.5, 0.5, 0.0),
+                ..default()
+            }),
+            laser: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.0, 1.0, 1.0),
+                emissive: bevy::color::LinearRgba::rgb(0.0, 2.0, 2.0),
+                unlit: true,
                 ..default()
             }),
             xp_orb: materials.add(StandardMaterial {
@@ -186,6 +197,7 @@ mod tests {
             assert!(meshes.get(&game_meshes.player).is_some());
             assert!(meshes.get(&game_meshes.enemy).is_some());
             assert!(meshes.get(&game_meshes.bullet).is_some());
+            assert!(meshes.get(&game_meshes.laser).is_some());
             assert!(meshes.get(&game_meshes.loot_small).is_some());
             assert!(meshes.get(&game_meshes.loot_medium).is_some());
             assert!(meshes.get(&game_meshes.loot_large).is_some());
@@ -203,6 +215,7 @@ mod tests {
             assert!(materials.get(&game_materials.player).is_some());
             assert!(materials.get(&game_materials.enemy).is_some());
             assert!(materials.get(&game_materials.bullet).is_some());
+            assert!(materials.get(&game_materials.laser).is_some());
             assert!(materials.get(&game_materials.xp_orb).is_some());
             assert!(materials.get(&game_materials.health_pack).is_some());
             assert!(materials.get(&game_materials.weapon_pistol).is_some());
@@ -230,6 +243,11 @@ mod tests {
             // Verify bullet is yellow with emissive
             let bullet_mat = materials.get(&game_materials.bullet).unwrap();
             assert_eq!(bullet_mat.base_color, Color::srgb(1.0, 1.0, 0.0));
+
+            // Verify laser is cyan with emissive
+            let laser_mat = materials.get(&game_materials.laser).unwrap();
+            assert_eq!(laser_mat.base_color, Color::srgb(0.0, 1.0, 1.0));
+            assert!(laser_mat.unlit);
 
             // Verify xp_orb is light grey
             let xp_mat = materials.get(&game_materials.xp_orb).unwrap();

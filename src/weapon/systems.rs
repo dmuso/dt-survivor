@@ -6,6 +6,7 @@ use crate::weapon::components::*;
 use crate::enemies::components::*;
 use crate::audio::plugin::*;
 use crate::audio::plugin::SoundLimiter;
+use crate::movement::components::from_xz;
 use crate::whisper::resources::WeaponOrigin;
 
 #[cfg(test)]
@@ -18,17 +19,18 @@ mod tests {
         let mut app = App::new();
         app.add_systems(Update, weapon_firing_system);
 
-        // Set up WeaponOrigin at (0, 0) - simulates Whisper collected
+        // Set up WeaponOrigin at (0, 0) on XZ plane - simulates Whisper collected
         app.insert_resource(WeaponOrigin {
             position: Some(Vec2::new(0.0, 0.0)),
         });
 
-        // Create 10 enemies at different distances
+        // Create 10 enemies at different distances on XZ plane
+        // Vec2(x, z) in WeaponOrigin maps to Vec3(x, height, z) for enemies
         for i in 1..=10 {
-            let distance = i as f32 * 20.0; // 20, 40, 60, ..., 200 units away
+            let distance = i as f32 * 20.0; // 20, 40, 60, ..., 200 units away on X axis
             app.world_mut().spawn((
                 Enemy { speed: 50.0, strength: 10.0 },
-                Transform::from_translation(Vec3::new(distance, 0.0, 0.0)),
+                Transform::from_translation(Vec3::new(distance, 0.375, 0.0)), // Y is height
             ));
         }
 
@@ -42,7 +44,7 @@ mod tests {
                 last_fired: 10.0, // Ready to fire
             },
             EquippedWeapon { weapon_type: WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 } },
-            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
         ));
 
         // Add required resources
@@ -59,24 +61,25 @@ mod tests {
         let mut app = App::new();
         app.add_systems(Update, weapon_firing_system);
 
-        // Set up WeaponOrigin at (0, 0) - simulates Whisper collected
+        // Set up WeaponOrigin at (0, 0) on XZ plane - simulates Whisper collected
         app.insert_resource(WeaponOrigin {
             position: Some(Vec2::new(0.0, 0.0)),
         });
 
-        // Create enemies in a line (along the x-axis from weapon origin)
-        let enemy_positions = vec![
-            Vec2::new(100.0, 0.0),  // On laser line
-            Vec2::new(200.0, 0.0),  // On laser line
-            Vec2::new(100.0, 50.0), // Off laser line
-            Vec2::new(300.0, 0.0),  // On laser line but beyond 800px
+        // Create enemies in a line on XZ plane (along X-axis from weapon origin)
+        // Enemy positions are Vec2(x, z) mapped to Vec3(x, height, z)
+        let enemy_xz_positions = vec![
+            Vec2::new(100.0, 0.0),  // On laser line in XZ
+            Vec2::new(200.0, 0.0),  // On laser line in XZ
+            Vec2::new(100.0, 50.0), // Off laser line in XZ (Z offset)
+            Vec2::new(300.0, 0.0),  // On laser line but farther
         ];
 
         let mut enemy_entities = Vec::new();
-        for pos in enemy_positions {
+        for pos in enemy_xz_positions {
             let entity = app.world_mut().spawn((
                 Enemy { speed: 50.0, strength: 10.0 },
-                Transform::from_translation(Vec3::new(pos.x, pos.y, 0.0)),
+                Transform::from_translation(Vec3::new(pos.x, 0.375, pos.y)), // pos.y is Z
             )).id();
             enemy_entities.push(entity);
         }
@@ -91,7 +94,7 @@ mod tests {
                 last_fired: 10.0, // Ready to fire
             },
             EquippedWeapon { weapon_type: WeaponType::Laser },
-            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
         ));
 
         // Add required resources
@@ -108,19 +111,19 @@ mod tests {
         let mut app = App::new();
         app.add_systems(Update, weapon_firing_system);
 
-        // Set up WeaponOrigin at (0, 0) - simulates Whisper collected
+        // Set up WeaponOrigin at (0, 0) on XZ plane - simulates Whisper collected
         app.insert_resource(WeaponOrigin {
             position: Some(Vec2::new(0.0, 0.0)),
         });
 
-        // Create enemies
+        // Create enemies in a circle on XZ plane
         for i in 1..=6 {
             let angle = (i as f32 / 6.0) * std::f32::consts::PI * 2.0;
             let x = angle.cos() * 100.0;
-            let y = angle.sin() * 100.0;
+            let z = angle.sin() * 100.0;
             app.world_mut().spawn((
                 Enemy { speed: 50.0, strength: 10.0 },
-                Transform::from_translation(Vec3::new(x, y, 0.0)),
+                Transform::from_translation(Vec3::new(x, 0.375, z)), // Y is height
             ));
         }
 
@@ -134,7 +137,7 @@ mod tests {
                 last_fired: 10.0,
             },
             EquippedWeapon { weapon_type: WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 } },
-            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
         ));
 
         app.world_mut().spawn((
@@ -146,7 +149,7 @@ mod tests {
                 last_fired: 10.0,
             },
             EquippedWeapon { weapon_type: WeaponType::Laser },
-            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
         ));
 
         // Add required resources
@@ -166,10 +169,10 @@ mod tests {
         // Set up WeaponOrigin with None - simulates Whisper not collected
         app.insert_resource(WeaponOrigin { position: None });
 
-        // Create enemies
+        // Create enemies on XZ plane
         app.world_mut().spawn((
             Enemy { speed: 50.0, strength: 10.0 },
-            Transform::from_translation(Vec3::new(100.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)), // Y is height
         ));
 
         // Create a weapon entity
@@ -182,7 +185,7 @@ mod tests {
                 last_fired: 10.0, // Ready to fire
             },
             EquippedWeapon { weapon_type: WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 } },
-            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
         ));
 
         app.init_resource::<Time>();
@@ -220,10 +223,11 @@ pub fn weapon_firing_system(
     };
 
     // Find 5 closest enemies to the weapon origin (Whisper)
+    // Use XZ plane for distance calculation in 3D world
     let mut enemy_distances: Vec<(Entity, Vec2, f32)> = enemy_query
         .iter()
         .map(|(entity, transform, _)| {
-            let pos = transform.translation.truncate();
+            let pos = from_xz(transform.translation);
             let distance = origin_pos.distance(pos);
             (entity, pos, distance)
         })
