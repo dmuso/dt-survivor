@@ -1,6 +1,20 @@
 use bevy::prelude::*;
 use std::time::Duration;
 
+/// Convert a 2D vector to a 3D vector on the XZ plane (Y=0).
+/// Used for movement on the ground plane in 3D space.
+#[inline]
+pub fn to_xz(v: Vec2) -> Vec3 {
+    Vec3::new(v.x, 0.0, v.y)
+}
+
+/// Extract XZ coordinates from a 3D position as a Vec2.
+/// Used to get ground-plane position for distance calculations.
+#[inline]
+pub fn from_xz(v: Vec3) -> Vec2 {
+    Vec2::new(v.x, v.z)
+}
+
 /// Component for entities that have a movement speed.
 /// This is a reusable component that can be used by any entity that needs to move.
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
@@ -282,5 +296,62 @@ mod tests {
         let knockback = app.world().get::<Knockback>(entity).unwrap();
         assert_eq!(knockback.force(), 300.0);
         assert!(!knockback.is_finished());
+    }
+
+    // XZ coordinate helper tests
+    #[test]
+    fn test_to_xz_converts_vec2_to_vec3() {
+        let v2 = Vec2::new(10.0, 20.0);
+        let v3 = to_xz(v2);
+        assert_eq!(v3.x, 10.0);
+        assert_eq!(v3.y, 0.0);
+        assert_eq!(v3.z, 20.0);
+    }
+
+    #[test]
+    fn test_to_xz_with_zero_vector() {
+        let v2 = Vec2::ZERO;
+        let v3 = to_xz(v2);
+        assert_eq!(v3, Vec3::ZERO);
+    }
+
+    #[test]
+    fn test_to_xz_with_negative_values() {
+        let v2 = Vec2::new(-5.0, -15.0);
+        let v3 = to_xz(v2);
+        assert_eq!(v3.x, -5.0);
+        assert_eq!(v3.y, 0.0);
+        assert_eq!(v3.z, -15.0);
+    }
+
+    #[test]
+    fn test_from_xz_extracts_x_and_z() {
+        let v3 = Vec3::new(10.0, 5.0, 20.0);
+        let v2 = from_xz(v3);
+        assert_eq!(v2.x, 10.0);
+        assert_eq!(v2.y, 20.0);
+    }
+
+    #[test]
+    fn test_from_xz_ignores_y_component() {
+        let v3_with_y = Vec3::new(1.0, 100.0, 2.0);
+        let v2 = from_xz(v3_with_y);
+        assert_eq!(v2.x, 1.0);
+        assert_eq!(v2.y, 2.0);
+    }
+
+    #[test]
+    fn test_from_xz_with_zero_vector() {
+        let v3 = Vec3::ZERO;
+        let v2 = from_xz(v3);
+        assert_eq!(v2, Vec2::ZERO);
+    }
+
+    #[test]
+    fn test_to_xz_and_from_xz_roundtrip() {
+        let original = Vec2::new(42.0, 99.0);
+        let converted = to_xz(original);
+        let back = from_xz(converted);
+        assert_eq!(original, back);
     }
 }

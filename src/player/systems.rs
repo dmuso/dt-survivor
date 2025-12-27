@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
 use crate::combat::components::Health;
+use crate::movement::components::from_xz;
 use crate::player::components::*;
 use crate::game::resources::*;
 
@@ -11,13 +12,13 @@ mod tests {
     use bevy::ecs::system::RunSystemOnce;
 
     #[test]
-    fn test_camera_follow_player_basic() {
+    fn test_camera_follow_player_maintains_isometric_offset() {
         let mut app = App::new();
 
         // Initialize the PlayerPosition resource
         app.init_resource::<crate::game::resources::PlayerPosition>();
 
-        // Create player at position (50.0, 25.0, 0.0)
+        // Create player at position (50.0, 0.5, 25.0) on XZ plane
         app.world_mut().spawn((
             Player {
                 speed: 200.0,
@@ -25,23 +26,28 @@ mod tests {
                 pickup_radius: 50.0,
             },
             Health::new(100.0),
-            Transform::from_translation(Vec3::new(50.0, 25.0, 0.0)),
+            Transform::from_translation(Vec3::new(50.0, 0.5, 25.0)),
         ));
 
         // Create camera at different position
         let camera_entity = app.world_mut().spawn((
-            Camera2d,
-            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            Camera3d::default(),
+            Transform::from_translation(Vec3::new(0.0, 20.0, 15.0)),
         )).id();
 
         // Run camera follow system
         let _ = app.world_mut().run_system_once(camera_follow_player);
 
-        // Camera should now follow player position
+        // Camera should follow player with isometric offset (0, 20, 15)
         let camera_transform = app.world().get::<Transform>(camera_entity).unwrap();
-        assert_eq!(camera_transform.translation.x, 50.0);
-        assert_eq!(camera_transform.translation.y, 25.0);
-        assert_eq!(camera_transform.translation.z, 0.0);
+        assert_eq!(camera_transform.translation.x, 50.0);        // Player X
+        assert_eq!(camera_transform.translation.y, 20.5);        // Player Y + 20.0
+        assert_eq!(camera_transform.translation.z, 40.0);        // Player Z + 15.0
+
+        // Also check PlayerPosition was updated with XZ coordinates
+        let player_pos = app.world().get_resource::<crate::game::resources::PlayerPosition>().unwrap();
+        assert_eq!(player_pos.0.x, 50.0);  // X
+        assert_eq!(player_pos.0.y, 25.0);  // Z (from_xz: Vec3.z -> Vec2.y)
     }
 
     #[test]
@@ -50,16 +56,16 @@ mod tests {
 
         // Create camera but no player
         let camera_entity = app.world_mut().spawn((
-            Camera2d,
-            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            Camera3d::default(),
+            Transform::from_translation(Vec3::new(0.0, 20.0, 15.0)),
         )).id();
 
         // Run camera follow system
         let _ = app.world_mut().run_system_once(camera_follow_player);
 
-        // Camera should not have moved
+        // Camera should not have moved (no player to follow)
         let camera_transform = app.world().get::<Transform>(camera_entity).unwrap();
-        assert_eq!(camera_transform.translation, Vec3::new(0.0, 0.0, 0.0));
+        assert_eq!(camera_transform.translation, Vec3::new(0.0, 20.0, 15.0));
     }
 
     #[test]
@@ -191,19 +197,25 @@ mod tests {
     }
 }
 
+/// Updates PlayerPosition resource and camera to follow the player.
+/// PlayerPosition stores XZ coordinates (ground plane) for enemy targeting.
+/// Camera maintains isometric offset while following player on XZ plane.
 pub fn camera_follow_player(
     player_query: Query<&Transform, With<Player>>,
     mut camera_query: Query<&mut Transform, (With<Camera>, Without<Player>)>,
     mut player_position: ResMut<PlayerPosition>,
 ) {
     if let Ok(player_transform) = player_query.single() {
-        let player_pos = player_transform.translation.truncate();
+        // Update PlayerPosition with XZ coordinates (ground plane position)
+        let player_pos = from_xz(player_transform.translation);
         player_position.0 = player_pos;
 
+        // Isometric camera offset (matching setup_game camera position)
+        let camera_offset = Vec3::new(0.0, 20.0, 15.0);
+
         for mut camera_transform in camera_query.iter_mut() {
-            // Keep camera centered on player
-            camera_transform.translation.x = player_transform.translation.x;
-            camera_transform.translation.y = player_transform.translation.y;
+            // Maintain isometric offset while following player on XZ plane
+            camera_transform.translation = player_transform.translation + camera_offset;
         }
     }
 }
