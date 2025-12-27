@@ -72,7 +72,7 @@ pub fn handle_enemy_death_system(
             // Send EnemyDeathEvent for loot/experience handling
             enemy_death_events.write(EnemyDeathEvent {
                 enemy_entity: event.entity,
-                position: event.position.truncate(),
+                position: event.position,
             });
 
             // Despawn the enemy

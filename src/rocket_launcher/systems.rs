@@ -171,7 +171,7 @@ pub fn area_damage_system(
             // Kill enemies in explosion radius
             for enemy_entity in enemies_to_kill {
                 // Get enemy position for event
-                let enemy_pos = enemy_query.get(enemy_entity).map(|(_, transform)| transform.translation.truncate()).unwrap_or(Vec2::ZERO);
+                let enemy_pos = enemy_query.get(enemy_entity).map(|(_, transform)| transform.translation).unwrap_or(Vec3::ZERO);
 
                 // Send enemy death event for centralized loot/experience handling
                 enemy_death_events.write(EnemyDeathEvent {

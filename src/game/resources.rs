@@ -49,6 +49,8 @@ pub struct GameMeshes {
     pub bullet: Handle<Mesh>,
     /// Small loot mesh for XP orbs (0.4 x 0.4 x 0.4 cube)
     pub loot_small: Handle<Mesh>,
+    /// Medium loot mesh for health packs and powerups (0.5 x 0.5 x 0.5 cube)
+    pub loot_medium: Handle<Mesh>,
     /// Large loot mesh for weapons (0.6 x 0.6 x 0.6 cube)
     pub loot_large: Handle<Mesh>,
     /// Rock mesh (1.0 x 0.5 x 1.0 flat cube)
@@ -62,6 +64,7 @@ impl GameMeshes {
             enemy: meshes.add(Cuboid::new(0.75, 0.75, 0.75)),
             bullet: meshes.add(Cuboid::new(0.3, 0.3, 0.3)),
             loot_small: meshes.add(Cuboid::new(0.4, 0.4, 0.4)),
+            loot_medium: meshes.add(Cuboid::new(0.5, 0.5, 0.5)),
             loot_large: meshes.add(Cuboid::new(0.6, 0.6, 0.6)),
             rock: meshes.add(Cuboid::new(1.0, 0.5, 1.0)),
         }
@@ -87,6 +90,8 @@ pub struct GameMaterials {
     pub weapon_laser: Handle<StandardMaterial>,
     /// Rocket launcher weapon loot material (orange)
     pub weapon_rocket: Handle<StandardMaterial>,
+    /// Powerup material (magenta)
+    pub powerup: Handle<StandardMaterial>,
     /// Rock obstacle material (grey)
     pub rock: Handle<StandardMaterial>,
 }
@@ -126,6 +131,10 @@ impl GameMaterials {
             }),
             weapon_rocket: materials.add(StandardMaterial {
                 base_color: Color::srgb(1.0, 0.5, 0.0),
+                ..default()
+            }),
+            powerup: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 0.0, 1.0),
                 ..default()
             }),
             rock: materials.add(StandardMaterial {
@@ -178,6 +187,7 @@ mod tests {
             assert!(meshes.get(&game_meshes.enemy).is_some());
             assert!(meshes.get(&game_meshes.bullet).is_some());
             assert!(meshes.get(&game_meshes.loot_small).is_some());
+            assert!(meshes.get(&game_meshes.loot_medium).is_some());
             assert!(meshes.get(&game_meshes.loot_large).is_some());
             assert!(meshes.get(&game_meshes.rock).is_some());
         }
@@ -198,6 +208,7 @@ mod tests {
             assert!(materials.get(&game_materials.weapon_pistol).is_some());
             assert!(materials.get(&game_materials.weapon_laser).is_some());
             assert!(materials.get(&game_materials.weapon_rocket).is_some());
+            assert!(materials.get(&game_materials.powerup).is_some());
             assert!(materials.get(&game_materials.rock).is_some());
         }
 
@@ -239,6 +250,10 @@ mod tests {
             // Verify weapon_rocket is orange
             let rocket_mat = materials.get(&game_materials.weapon_rocket).unwrap();
             assert_eq!(rocket_mat.base_color, Color::srgb(1.0, 0.5, 0.0));
+
+            // Verify powerup is magenta
+            let powerup_mat = materials.get(&game_materials.powerup).unwrap();
+            assert_eq!(powerup_mat.base_color, Color::srgb(1.0, 0.0, 1.0));
 
             // Verify rock is grey
             let rock_mat = materials.get(&game_materials.rock).unwrap();

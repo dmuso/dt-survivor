@@ -9,12 +9,19 @@ use crate::inventory::resources::*;
 use crate::inventory::components::*;
 use bevy_kira_audio::prelude::*;
 use crate::audio::plugin::*;
-use crate::game::resources::ScreenTintEffect;
+use crate::game::resources::{GameMaterials, GameMeshes, ScreenTintEffect};
 use crate::game::events::LootDropEvent;
+
+/// Height of small loot cube center above ground (XP orbs)
+pub const LOOT_SMALL_Y_HEIGHT: f32 = 0.2;
+/// Height of large loot cube center above ground (weapons, health packs)
+pub const LOOT_LARGE_Y_HEIGHT: f32 = 0.3;
 
 pub fn loot_drop_system(
     mut commands: Commands,
     mut loot_drop_events: MessageReader<LootDropEvent>,
+    game_meshes: Res<GameMeshes>,
+    game_materials: Res<GameMaterials>,
 ) {
     for event in loot_drop_events.read() {
         let enemy_pos = event.position;
@@ -25,17 +32,18 @@ pub fn loot_drop_system(
 
         for _ in 0..orb_count {
             let value = rng.gen_range(5..=15); // 5-15 experience per orb
-            let offset_x = rng.gen_range(-10.0..=10.0);
-            let offset_y = rng.gen_range(-10.0..=10.0);
+            // Offsets scaled for 3D world units (smaller than 2D pixel values)
+            let offset_x = rng.gen_range(-1.0..=1.0);
+            let offset_z = rng.gen_range(-1.0..=1.0);
 
             commands.spawn((
-                Sprite::from_color(
-                    Color::srgb(0.75, 0.75, 0.75), // Light grey color
-                    Vec2::new(8.0, 8.0) // Same size as bullets
-                ),
-                Transform::from_translation(
-                    Vec3::new(enemy_pos.x + offset_x, enemy_pos.y + offset_y, 0.2)
-                ),
+                Mesh3d(game_meshes.loot_small.clone()),
+                MeshMaterial3d(game_materials.xp_orb.clone()),
+                Transform::from_translation(Vec3::new(
+                    enemy_pos.x + offset_x,
+                    LOOT_SMALL_Y_HEIGHT,
+                    enemy_pos.z + offset_z,
+                )),
                 DroppedItem {
                     pickup_state: PickupState::Idle,
                     item_data: ItemData::Experience { amount: value },
@@ -88,34 +96,48 @@ pub fn loot_drop_system(
             loot_drops.push(ItemData::HealthPack { heal_amount: 25.0 });
         }
 
-        // Spawn loot items spaced out around the enemy position
-        let spacing = 20.0; // Distance between drops
+        // Spawn loot items spaced out around the enemy position (on XZ plane)
+        let spacing = 2.0; // Distance between drops in 3D world units
         for (i, item_data) in loot_drops.into_iter().enumerate() {
             let angle = (i as f32) * std::f32::consts::TAU / 4.0; // Space items in a circle
             let offset_x = angle.cos() * spacing;
-            let offset_y = angle.sin() * spacing;
+            let offset_z = angle.sin() * spacing;
 
-            let (color, size) = match &item_data {
+            // Select mesh and material based on item type
+            let (mesh, material, y_height) = match &item_data {
                 ItemData::Weapon(weapon) => {
-                    let color = match weapon.weapon_type {
-                        WeaponType::Pistol { .. } => Color::srgb(1.0, 1.0, 0.0), // Yellow for pistol
-                        WeaponType::Laser => Color::srgb(0.0, 0.0, 1.0), // Blue for laser
-                        WeaponType::RocketLauncher => Color::srgb(1.0, 0.5, 0.0), // Orange for rocket launcher
-                        _ => Color::srgb(0.5, 0.5, 0.5),
+                    let material = match weapon.weapon_type {
+                        WeaponType::Pistol { .. } => game_materials.weapon_pistol.clone(),
+                        WeaponType::Laser => game_materials.weapon_laser.clone(),
+                        WeaponType::RocketLauncher => game_materials.weapon_rocket.clone(),
+                        _ => game_materials.xp_orb.clone(), // Default fallback
                     };
-                    (color, Vec2::new(16.0, 16.0))
+                    (game_meshes.loot_large.clone(), material, LOOT_LARGE_Y_HEIGHT)
                 }
-                ItemData::HealthPack { .. } => (Color::srgb(0.0, 1.0, 0.0), Vec2::new(12.0, 12.0)), // Green for health pack
-                ItemData::Experience { .. } => (Color::srgb(0.75, 0.75, 0.75), Vec2::new(8.0, 8.0)), // Grey for experience
-                ItemData::Powerup(_) => (Color::srgb(1.0, 0.0, 1.0), Vec2::new(14.0, 14.0)), // Magenta for powerups
+                ItemData::HealthPack { .. } => (
+                    game_meshes.loot_medium.clone(),
+                    game_materials.health_pack.clone(),
+                    LOOT_LARGE_Y_HEIGHT,
+                ),
+                ItemData::Experience { .. } => (
+                    game_meshes.loot_small.clone(),
+                    game_materials.xp_orb.clone(),
+                    LOOT_SMALL_Y_HEIGHT,
+                ),
+                ItemData::Powerup(_) => (
+                    game_meshes.loot_medium.clone(),
+                    game_materials.powerup.clone(),
+                    LOOT_LARGE_Y_HEIGHT,
+                ),
             };
 
             commands.spawn((
-                Sprite::from_color(color, size),
+                Mesh3d(mesh),
+                MeshMaterial3d(material),
                 Transform::from_translation(Vec3::new(
                     enemy_pos.x + offset_x,
-                    enemy_pos.y + offset_y,
-                    0.5
+                    y_height,
+                    enemy_pos.z + offset_z,
                 )),
                 DroppedItem {
                     pickup_state: PickupState::Idle,
@@ -136,12 +158,19 @@ pub fn detect_pickup_collisions(
     item_query: Query<(Entity, &Transform, &DroppedItem), With<DroppedItem>>,
 ) {
     if let Ok((player_entity, player_transform, player)) = player_query.single() {
-        let player_pos = player_transform.translation.truncate();
+        // Use XZ plane for 3D collision detection
+        let player_xz = Vec2::new(
+            player_transform.translation.x,
+            player_transform.translation.z,
+        );
 
         for (item_entity, item_transform, item) in item_query.iter() {
             if item.pickup_state == PickupState::Idle {
-                let item_pos = item_transform.translation.truncate();
-                let distance = player_pos.distance(item_pos);
+                let item_xz = Vec2::new(
+                    item_transform.translation.x,
+                    item_transform.translation.z,
+                );
+                let distance = player_xz.distance(item_xz);
 
                 if distance <= player.pickup_radius {
                     pickup_events.write(PickupEvent {
@@ -161,30 +190,37 @@ pub fn update_item_attraction(
     time: Res<Time>,
 ) {
     if let Ok((player_transform, player)) = player_query.single() {
-        let player_pos = player_transform.translation.truncate();
+        // Use XZ plane for 3D attraction physics
+        let player_xz = Vec2::new(
+            player_transform.translation.x,
+            player_transform.translation.z,
+        );
 
         for (item_transform, mut item) in item_query.iter_mut() {
             if item.pickup_state == PickupState::BeingAttracted {
-                let item_pos = item_transform.translation.truncate();
-                let distance = player_pos.distance(item_pos);
+                let item_xz = Vec2::new(
+                    item_transform.translation.x,
+                    item_transform.translation.z,
+                );
+                let distance = player_xz.distance(item_xz);
 
-                if distance > 5.0 { // Avoid orbiting when very close
+                if distance > 0.5 { // Avoid orbiting when very close (scaled for 3D units)
                     let max_distance = player.pickup_radius;
                     let distance_ratio = (distance / max_distance).clamp(0.1, 1.0);
                     let acceleration_multiplier = 1.0 / distance_ratio;
 
-                    // Use different acceleration based on item type
+                    // Use different acceleration based on item type (scaled for 3D units)
                     let base_acceleration = match &item.item_data {
-                        ItemData::Experience { .. } => 800.0,  // Fastest for XP
-                        ItemData::Weapon(_) | ItemData::HealthPack { .. } => 600.0, // Medium for loot
-                        ItemData::Powerup(_) => 400.0, // Slower for powerups
+                        ItemData::Experience { .. } => 80.0,  // Fastest for XP
+                        ItemData::Weapon(_) | ItemData::HealthPack { .. } => 60.0, // Medium for loot
+                        ItemData::Powerup(_) => 40.0, // Slower for powerups
                     };
 
                     let acceleration = base_acceleration * acceleration_multiplier;
                     let base_steering = base_acceleration * 1.25; // Steering is stronger than acceleration
                     let steering_strength = base_steering * acceleration_multiplier;
 
-                    let direction_to_player = (player_pos - item_pos).normalize();
+                    let direction_to_player = (player_xz - item_xz).normalize();
                     item.velocity += direction_to_player * acceleration * time.delta_secs();
 
                     // Apply steering to correct direction
@@ -217,7 +253,8 @@ pub fn update_item_movement(
     for (mut transform, item) in item_query.iter_mut() {
         if item.pickup_state == PickupState::BeingAttracted {
             let movement = item.velocity * time.delta_secs();
-            transform.translation += movement.extend(0.0);
+            // Apply velocity on XZ plane: velocity.x -> X axis, velocity.y -> Z axis
+            transform.translation += Vec3::new(movement.x, 0.0, movement.y);
         }
     }
 }
@@ -391,7 +428,7 @@ mod tests {
         app.insert_resource(counter.clone());
         app.add_systems(Update, (detect_pickup_collisions, count_pickup_events).chain());
 
-        // Create player at (0, 0)
+        // Create player at origin on XZ plane
         let player_entity = app.world_mut().spawn((
             Player {
                 speed: 200.0,
@@ -401,14 +438,14 @@ mod tests {
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 
-        // Create dropped item at (10, 10) - within pickup radius
+        // Create dropped item at (10, y, 10) - within pickup radius on XZ plane
         let item_entity = app.world_mut().spawn((
             DroppedItem {
                 pickup_state: PickupState::Idle,
                 item_data: ItemData::HealthPack { heal_amount: 25.0 },
                 velocity: Vec2::ZERO,
             },
-            Transform::from_translation(Vec3::new(10.0, 10.0, 0.0)),
+            Transform::from_translation(Vec3::new(10.0, LOOT_LARGE_Y_HEIGHT, 10.0)),
         )).id();
 
         // Run detect_pickup_collisions system
@@ -428,7 +465,7 @@ mod tests {
         app.insert_resource(counter.clone());
         app.add_systems(Update, (detect_pickup_collisions, count_pickup_events).chain());
 
-        // Create player at (0, 0)
+        // Create player at origin on XZ plane
         app.world_mut().spawn((
             Player {
                 speed: 200.0,
@@ -438,14 +475,14 @@ mod tests {
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         ));
 
-        // Create dropped item far away (outside pickup radius)
+        // Create dropped item far away on XZ plane (outside pickup radius)
         app.world_mut().spawn((
             DroppedItem {
                 pickup_state: PickupState::Idle,
                 item_data: ItemData::HealthPack { heal_amount: 25.0 },
                 velocity: Vec2::ZERO,
             },
-            Transform::from_translation(Vec3::new(100.0, 100.0, 0.0)),
+            Transform::from_translation(Vec3::new(100.0, LOOT_LARGE_Y_HEIGHT, 100.0)),
         ));
 
         // Run detect_pickup_collisions system
@@ -463,7 +500,7 @@ mod tests {
         app.insert_resource(counter.clone());
         app.add_systems(Update, (detect_pickup_collisions, count_pickup_events).chain());
 
-        // Create player at (0, 0)
+        // Create player at origin on XZ plane
         app.world_mut().spawn((
             Player {
                 speed: 200.0,
@@ -473,14 +510,14 @@ mod tests {
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         ));
 
-        // Create item that's already being attracted (not idle)
+        // Create item that's already being attracted (not idle) on XZ plane
         app.world_mut().spawn((
             DroppedItem {
                 pickup_state: PickupState::BeingAttracted,
                 item_data: ItemData::HealthPack { heal_amount: 25.0 },
                 velocity: Vec2::ZERO,
             },
-            Transform::from_translation(Vec3::new(10.0, 10.0, 0.0)),
+            Transform::from_translation(Vec3::new(10.0, LOOT_LARGE_Y_HEIGHT, 10.0)),
         ));
 
         // Run detect_pickup_collisions system
@@ -499,7 +536,7 @@ mod tests {
         app.add_plugins(TimePlugin);
         app.add_systems(Update, update_item_attraction);
 
-        // Create player at (0, 0)
+        // Create player at origin on XZ plane
         app.world_mut().spawn((
             Player {
                 speed: 200.0,
@@ -509,14 +546,14 @@ mod tests {
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         ));
 
-        // Create item being attracted at (50, 0)
+        // Create item being attracted at (50, y, 0) on XZ plane
         let item_entity = app.world_mut().spawn((
             DroppedItem {
                 pickup_state: PickupState::BeingAttracted,
                 item_data: ItemData::Experience { amount: 10 },
                 velocity: Vec2::ZERO,
             },
-            Transform::from_translation(Vec3::new(50.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(50.0, LOOT_SMALL_Y_HEIGHT, 0.0)),
         )).id();
 
         // Run a few updates to allow time to advance
@@ -539,14 +576,15 @@ mod tests {
         app.add_plugins(TimePlugin);
         app.add_systems(Update, update_item_movement);
 
-        // Create item being attracted with initial velocity
+        // Create item being attracted with initial velocity on XZ plane
+        // velocity.x maps to X axis, velocity.y maps to Z axis
         let item_entity = app.world_mut().spawn((
             DroppedItem {
                 pickup_state: PickupState::BeingAttracted,
                 item_data: ItemData::Experience { amount: 10 },
                 velocity: Vec2::new(-100.0, 0.0),
             },
-            Transform::from_translation(Vec3::new(50.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(50.0, LOOT_SMALL_Y_HEIGHT, 0.0)),
         )).id();
 
         // Run initial update
@@ -555,9 +593,9 @@ mod tests {
         app.world_mut().resource_mut::<Time<()>>().advance_by(Duration::from_secs_f32(0.016));
         app.update();
 
-        // Verify position was updated
+        // Verify position was updated on X axis (velocity.x applied to translation.x)
         let transform = app.world().get::<Transform>(item_entity).unwrap();
-        assert!(transform.translation.x < 50.0, "Item should have moved toward player");
+        assert!(transform.translation.x < 50.0, "Item should have moved toward player on X axis");
     }
 
     #[test]
@@ -647,5 +685,22 @@ mod tests {
         assert_ne!(PickupState::Idle, PickupState::BeingAttracted);
         assert_ne!(PickupState::BeingAttracted, PickupState::PickedUp);
         assert_ne!(PickupState::PickedUp, PickupState::Consumed);
+    }
+
+    #[test]
+    fn test_loot_spawns_on_xz_plane() {
+        // Verify loot positions use XZ plane (Y for height)
+        let pos = Vec3::new(10.0, LOOT_SMALL_Y_HEIGHT, 20.0);
+        assert_eq!(pos.y, LOOT_SMALL_Y_HEIGHT, "Y should be the height above ground");
+        assert_eq!(pos.x, 10.0, "X should be the X coordinate on ground plane");
+        assert_eq!(pos.z, 20.0, "Z should be the Z coordinate on ground plane");
+    }
+
+    #[test]
+    fn test_loot_y_heights_are_reasonable() {
+        // Verify height constants make sense
+        assert!(LOOT_SMALL_Y_HEIGHT > 0.0, "Small loot should be above ground");
+        assert!(LOOT_LARGE_Y_HEIGHT > 0.0, "Large loot should be above ground");
+        assert!(LOOT_LARGE_Y_HEIGHT >= LOOT_SMALL_Y_HEIGHT, "Large loot should be at or above small loot height");
     }
 }
