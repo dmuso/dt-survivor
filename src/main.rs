@@ -530,8 +530,9 @@ mod tests {
 
         // Create a bullet and enemy for collision testing
         // Enemy needs Health and CheckDeath for the combat system
+        // Collision detection uses XZ plane, so place bullet and enemy within BULLET_COLLISION_RADIUS on XZ
         let bullet_entity = app.world_mut().spawn((
-            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(0.0, 0.15, 0.0)), // X=0, Z=0
             Bullet {
                 direction: Vec2::new(1.0, 0.0),
                 speed: 100.0,
@@ -540,7 +541,7 @@ mod tests {
         )).id();
 
         let enemy_entity = app.world_mut().spawn((
-            Transform::from_translation(Vec3::new(10.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(0.5, 0.375, 0.0)), // X=0.5, Z=0 - within BULLET_COLLISION_RADIUS=1.0
             Enemy { speed: 50.0, strength: 10.0 },
             Health::new(10.0), // BULLET_DAMAGE is 10
             CheckDeath,
@@ -601,11 +602,12 @@ mod tests {
         assert_eq!(initial_score.0, 0, "Score should start at 0");
 
         // Create multiple bullets and enemies at once
+        // Collision detection uses XZ plane, so space them out in Z (Y is height)
         let mut bullet_entities = Vec::new();
         let mut enemy_entities = Vec::new();
         for i in 0..3 {
             let bullet_entity = app.world_mut().spawn((
-                Transform::from_translation(Vec3::new(0.0, i as f32 * 20.0, 0.0)),
+                Transform::from_translation(Vec3::new(0.0, 0.15, i as f32 * 20.0)), // Spread in Z
                 Bullet {
                     direction: Vec2::new(1.0, 0.0),
                     speed: 100.0,
@@ -615,7 +617,7 @@ mod tests {
             bullet_entities.push(bullet_entity);
 
             let enemy_entity = app.world_mut().spawn((
-                Transform::from_translation(Vec3::new(10.0, i as f32 * 20.0, 0.0)),
+                Transform::from_translation(Vec3::new(0.5, 0.375, i as f32 * 20.0)), // Same Z, within BULLET_COLLISION_RADIUS on X
                 Enemy { speed: 50.0, strength: 10.0 },
                 Health::new(10.0), // BULLET_DAMAGE is 10
                 CheckDeath,
