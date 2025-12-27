@@ -11,6 +11,7 @@ use crate::enemies::components::*;
 use crate::game::components::*;
 use crate::game::resources::{GameMaterials, GameMeshes, PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
 use crate::game::events::*;
+use crate::movement::components::from_xz;
 use crate::player::components::*;
 use crate::states::*;
 use crate::whisper::components::{WhisperDrop, WhisperCompanion, WhisperArc};
@@ -142,7 +143,8 @@ pub fn cleanup_game(
     }
 }
 
-/// System that detects player-enemy collisions and fires events
+/// System that detects player-enemy collisions and fires events.
+/// Uses XZ plane for collision detection in 3D space (Y axis is height).
 pub fn player_enemy_collision_detection(
     player_query: Query<(Entity, &Transform), With<Player>>,
     enemy_query: Query<(Entity, &Transform), With<Enemy>>,
@@ -152,15 +154,17 @@ pub fn player_enemy_collision_detection(
         return;
     };
 
-    let player_pos = player_transform.translation.truncate();
+    // Use XZ plane for 3D collision detection
+    let player_pos = from_xz(player_transform.translation);
 
     // Check for collisions with all enemies
     for (enemy_entity, enemy_transform) in enemy_query.iter() {
-        let enemy_pos = enemy_transform.translation.truncate();
+        let enemy_pos = from_xz(enemy_transform.translation);
         let distance = player_pos.distance(enemy_pos);
 
         // Simple collision detection - if player is close enough to enemy
-        if distance < 15.0 {
+        // (collision radius scaled for 3D world units)
+        if distance < 1.5 {
             collision_events.write(PlayerEnemyCollisionEvent {
                 player_entity,
                 enemy_entity,
@@ -311,7 +315,7 @@ mod tests {
             timer.has_taken_damage = false;
         }
 
-        // Create player at (0, 0) with 100 health
+        // Create player at origin on XZ plane (Y=0.5 is entity height)
         let player_entity = app.world_mut().spawn((
             Player {
                 speed: 200.0,
@@ -319,13 +323,13 @@ mod tests {
                 pickup_radius: 50.0,
             },
             Health::new(100.0),
-            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
         )).id();
 
-        // Create enemy at (10, 0) - within collision distance
+        // Create enemy at (1.0, y, 0) - within collision distance (< 1.5) on XZ plane
         app.world_mut().spawn((
             Enemy { speed: 50.0, strength: 10.0 },
-            Transform::from_translation(Vec3::new(10.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(1.0, 0.375, 0.0)),
         ));
 
         // Run the app update to process systems and events
@@ -342,7 +346,7 @@ mod tests {
         app.init_resource::<PlayerDamageTimer>();
         app.init_resource::<ScreenTintEffect>();
 
-        // Create player at (0, 0) with 100 health
+        // Create player at origin on XZ plane
         let player_entity = app.world_mut().spawn((
             Player {
                 speed: 200.0,
@@ -350,13 +354,13 @@ mod tests {
                 pickup_radius: 50.0,
             },
             Health::new(100.0),
-            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
         )).id();
 
-        // Create enemy far away - outside collision distance
+        // Create enemy far away on XZ plane - outside collision distance (> 1.5)
         app.world_mut().spawn((
             Enemy { speed: 50.0, strength: 10.0 },
-            Transform::from_translation(Vec3::new(100.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(10.0, 0.375, 0.0)),
         ));
 
         // Run the app update to process systems and events
@@ -383,7 +387,7 @@ mod tests {
             timer.has_taken_damage = false;
         }
 
-        // Create player at (0, 0) with 100 health
+        // Create player at origin on XZ plane
         let player_entity = app.world_mut().spawn((
             Player {
                 speed: 200.0,
@@ -391,13 +395,13 @@ mod tests {
                 pickup_radius: 50.0,
             },
             Health::new(100.0),
-            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
         )).id();
 
-        // Create enemy at (10, 0) - within collision distance
+        // Create enemy at (1.0, y, 0) - within collision distance (< 1.5) on XZ plane
         app.world_mut().spawn((
             Enemy { speed: 50.0, strength: 10.0 },
-            Transform::from_translation(Vec3::new(10.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(1.0, 0.375, 0.0)),
         ));
 
         // First damage tick - immediate
@@ -446,7 +450,7 @@ mod tests {
             timer.has_taken_damage = false;
         }
 
-        // Create player at (0, 0) with 100 health
+        // Create player at origin on XZ plane
         let player_entity = app.world_mut().spawn((
             Player {
                 speed: 200.0,
@@ -454,13 +458,13 @@ mod tests {
                 pickup_radius: 50.0,
             },
             Health::new(100.0),
-            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
         )).id();
 
-        // Create enemy at (10, 0) - within collision distance
+        // Create enemy at (1.0, y, 0) - within collision distance (< 1.5) on XZ plane
         app.world_mut().spawn((
             Enemy { speed: 50.0, strength: 150.0 }, // Lethal enemy (more than player health)
-            Transform::from_translation(Vec3::new(10.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(1.0, 0.375, 0.0)),
         ));
 
         // Run collision system - should kill player
@@ -490,7 +494,7 @@ mod tests {
             timer.has_taken_damage = true;
         }
 
-        // Create player at (0, 0) with 100 health
+        // Create player at origin on XZ plane
         app.world_mut().spawn((
             Player {
                 speed: 200.0,
@@ -498,13 +502,13 @@ mod tests {
                 pickup_radius: 50.0,
             },
             Health::new(100.0),
-            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
         ));
 
-        // Create enemy far away - outside collision distance
+        // Create enemy far away on XZ plane - outside collision distance (> 1.5)
         app.world_mut().spawn((
             Enemy { speed: 50.0, strength: 10.0 },
-            Transform::from_translation(Vec3::new(100.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(10.0, 0.375, 0.0)),
         ));
 
         // Run collision system - should reset timer since not touching
@@ -676,5 +680,85 @@ mod tests {
 
         // Check that no GameOverEvent was fired
         assert!(!event_received.load(Ordering::SeqCst), "Should have no GameOverEvent when player is alive");
+    }
+
+    #[test]
+    fn test_player_enemy_collision_uses_xz_plane() {
+        let mut app = App::new();
+        app.init_resource::<PlayerDamageTimer>();
+        app.init_resource::<ScreenTintEffect>();
+        app.add_plugins(bevy::time::TimePlugin::default());
+        app.add_message::<PlayerEnemyCollisionEvent>();
+        app.add_systems(Update, (player_enemy_collision_detection, player_enemy_damage_system).chain());
+
+        // Ensure damage timer is in correct initial state
+        {
+            let mut timer = app.world_mut().get_resource_mut::<PlayerDamageTimer>().unwrap();
+            timer.time_since_last_damage = 0.0;
+            timer.has_taken_damage = false;
+        }
+
+        // Create player at origin on XZ plane
+        let player_entity = app.world_mut().spawn((
+            Player {
+                speed: 200.0,
+                regen_rate: 1.0,
+                pickup_radius: 50.0,
+            },
+            Health::new(100.0),
+            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+        )).id();
+
+        // Create enemy close on XZ plane but at different Y - should still collide
+        // XZ distance = sqrt(0.5^2 + 0.5^2) ≈ 0.71 < 1.5
+        app.world_mut().spawn((
+            Enemy { speed: 50.0, strength: 10.0 },
+            Transform::from_translation(Vec3::new(0.5, 100.0, 0.5)), // Far in Y but close in XZ
+        ));
+
+        app.update();
+
+        // Collision should happen (XZ distance is small)
+        let health = app.world().get::<Health>(player_entity).unwrap();
+        assert_eq!(health.current, 90.0, "Should take damage - Y axis is ignored for collision");
+    }
+
+    #[test]
+    fn test_player_enemy_collision_on_z_axis() {
+        let mut app = App::new();
+        app.init_resource::<PlayerDamageTimer>();
+        app.init_resource::<ScreenTintEffect>();
+        app.add_plugins(bevy::time::TimePlugin::default());
+        app.add_message::<PlayerEnemyCollisionEvent>();
+        app.add_systems(Update, (player_enemy_collision_detection, player_enemy_damage_system).chain());
+
+        {
+            let mut timer = app.world_mut().get_resource_mut::<PlayerDamageTimer>().unwrap();
+            timer.time_since_last_damage = 0.0;
+            timer.has_taken_damage = false;
+        }
+
+        // Create player at origin
+        let player_entity = app.world_mut().spawn((
+            Player {
+                speed: 200.0,
+                regen_rate: 1.0,
+                pickup_radius: 50.0,
+            },
+            Health::new(100.0),
+            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+        )).id();
+
+        // Create enemy at (0, y, 1.0) - within collision distance on Z axis
+        app.world_mut().spawn((
+            Enemy { speed: 50.0, strength: 10.0 },
+            Transform::from_translation(Vec3::new(0.0, 0.375, 1.0)),
+        ));
+
+        app.update();
+
+        // Collision should happen on Z axis
+        let health = app.world().get::<Health>(player_entity).unwrap();
+        assert_eq!(health.current, 90.0, "Should take damage from enemy on Z axis");
     }
 }
