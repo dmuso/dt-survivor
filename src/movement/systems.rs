@@ -1,9 +1,35 @@
 use bevy::prelude::*;
+use bevy::math::Ray3d;
 
 use crate::enemies::components::Enemy;
 use crate::game::resources::PlayerPosition;
 use crate::movement::components::{from_xz, to_xz, Knockback, Velocity};
 use crate::player::components::{Player, SlowModifier};
+
+/// Intersects a ray with the Y=0 ground plane and returns the XZ coordinates.
+/// Returns None if the ray is parallel to the ground or the intersection is behind the camera.
+///
+/// # Arguments
+/// * `ray` - A 3D ray with origin and direction
+///
+/// # Returns
+/// * `Some(Vec2)` - The XZ coordinates of the intersection point
+/// * `None` - If the ray is parallel to ground or intersection is behind the ray origin
+pub fn ray_ground_intersection(ray: Ray3d) -> Option<Vec2> {
+    // Ray-plane intersection: find t where ray.origin.y + ray.direction.y * t = 0
+    // Therefore: t = -ray.origin.y / ray.direction.y
+    if ray.direction.y.abs() < 0.0001 {
+        return None; // Ray parallel to ground, no intersection
+    }
+
+    let t = -ray.origin.y / ray.direction.y;
+    if t < 0.0 {
+        return None; // Intersection behind camera
+    }
+
+    let world_pos_3d = ray.origin + *ray.direction * t;
+    Some(from_xz(world_pos_3d))
+}
 
 /// System that applies velocity to transform on the XZ plane.
 /// Any entity with both a Transform and Velocity component will be moved.
@@ -45,7 +71,7 @@ pub fn player_movement(
     mouse_button_input: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     mut player_query: Query<(&mut Transform, &Player, Option<&SlowModifier>)>,
-    camera_query: Query<(&Camera, &GlobalTransform)>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     time: Res<Time>,
 ) {
     if !mouse_button_input.pressed(MouseButton::Left) {
@@ -65,19 +91,10 @@ pub fn player_movement(
             return;
         };
 
-        // Ray-plane intersection: find t where ray.origin.y + ray.direction.y * t = 0
-        // Therefore: t = -ray.origin.y / ray.direction.y
-        if ray.direction.y.abs() < 0.0001 {
-            return; // Ray parallel to ground, no intersection
-        }
-
-        let t = -ray.origin.y / ray.direction.y;
-        if t < 0.0 {
-            return; // Intersection behind camera
-        }
-
-        let world_pos_3d = ray.origin + ray.direction * t;
-        let world_position = from_xz(world_pos_3d);
+        // Use the ray_ground_intersection helper to get XZ coordinates
+        let Some(world_position) = ray_ground_intersection(ray) else {
+            return;
+        };
 
         for (mut transform, player, slow_modifier) in player_query.iter_mut() {
             let player_pos = from_xz(transform.translation);
@@ -611,5 +628,181 @@ mod tests {
         assert_eq!(transform2.translation.x, 0.0);
         assert_eq!(transform2.translation.y, 0.5);  // Y preserved
         assert_eq!(transform2.translation.z, 50.0); // Moved 50 units towards origin
+    }
+
+    // ray_ground_intersection tests
+    #[test]
+    fn test_ray_ground_intersection_basic() {
+        use bevy::math::{Dir3, Ray3d};
+
+        // Ray pointing straight down from (5, 10, 3)
+        let ray = Ray3d::new(
+            Vec3::new(5.0, 10.0, 3.0),
+            Dir3::new(Vec3::new(0.0, -1.0, 0.0)).unwrap(),
+        );
+
+        let result = ray_ground_intersection(ray);
+        assert!(result.is_some());
+        let pos = result.unwrap();
+        assert!((pos.x - 5.0).abs() < 0.001);
+        assert!((pos.y - 3.0).abs() < 0.001); // Vec2.y is Vec3.z
+    }
+
+    #[test]
+    fn test_ray_ground_intersection_angled() {
+        use bevy::math::{Dir3, Ray3d};
+
+        // Ray from (0, 10, 0) pointing at 45 degrees down and forward (+Z)
+        // Direction: (0, -1, 1) normalized
+        let direction = Vec3::new(0.0, -1.0, 1.0).normalize();
+        let ray = Ray3d::new(
+            Vec3::new(0.0, 10.0, 0.0),
+            Dir3::new(direction).unwrap(),
+        );
+
+        let result = ray_ground_intersection(ray);
+        assert!(result.is_some());
+        let pos = result.unwrap();
+        // At t where y=0: t = 10 / 0.707... ≈ 14.14
+        // z = 0 + 0.707 * 14.14 ≈ 10
+        assert!((pos.x).abs() < 0.001);
+        assert!((pos.y - 10.0).abs() < 0.1); // Vec2.y is Vec3.z ≈ 10
+    }
+
+    #[test]
+    fn test_ray_ground_intersection_parallel_ray_returns_none() {
+        use bevy::math::{Dir3, Ray3d};
+
+        // Ray parallel to ground (no Y component in direction)
+        let ray = Ray3d::new(
+            Vec3::new(0.0, 5.0, 0.0),
+            Dir3::new(Vec3::new(1.0, 0.0, 0.0)).unwrap(),
+        );
+
+        let result = ray_ground_intersection(ray);
+        assert!(result.is_none(), "Parallel ray should return None");
+    }
+
+    #[test]
+    fn test_ray_ground_intersection_upward_ray_returns_none() {
+        use bevy::math::{Dir3, Ray3d};
+
+        // Ray pointing upward from above ground
+        let ray = Ray3d::new(
+            Vec3::new(0.0, 5.0, 0.0),
+            Dir3::new(Vec3::new(0.0, 1.0, 0.0)).unwrap(),
+        );
+
+        let result = ray_ground_intersection(ray);
+        assert!(result.is_none(), "Upward ray from above ground should return None");
+    }
+
+    #[test]
+    fn test_ray_ground_intersection_from_below_ground() {
+        use bevy::math::{Dir3, Ray3d};
+
+        // Ray from below ground pointing up - should intersect at Y=0
+        let ray = Ray3d::new(
+            Vec3::new(3.0, -5.0, 7.0),
+            Dir3::new(Vec3::new(0.0, 1.0, 0.0)).unwrap(),
+        );
+
+        let result = ray_ground_intersection(ray);
+        assert!(result.is_some());
+        let pos = result.unwrap();
+        assert!((pos.x - 3.0).abs() < 0.001);
+        assert!((pos.y - 7.0).abs() < 0.001); // Vec2.y is Vec3.z
+    }
+
+    #[test]
+    fn test_ray_ground_intersection_diagonal_xz() {
+        use bevy::math::{Dir3, Ray3d};
+
+        // Ray from (10, 20, 10) pointing down and toward origin
+        // Direction toward (0, 0, 0): (-10, -20, -10) normalized
+        let direction = Vec3::new(-10.0, -20.0, -10.0).normalize();
+        let ray = Ray3d::new(
+            Vec3::new(10.0, 20.0, 10.0),
+            Dir3::new(direction).unwrap(),
+        );
+
+        let result = ray_ground_intersection(ray);
+        assert!(result.is_some());
+        let pos = result.unwrap();
+        // The ray should hit origin (0, 0, 0)
+        assert!(pos.x.abs() < 0.1, "Expected x ≈ 0, got {}", pos.x);
+        assert!(pos.y.abs() < 0.1, "Expected z ≈ 0, got {}", pos.y);
+    }
+
+    #[test]
+    fn test_ray_ground_intersection_near_parallel_returns_none() {
+        use bevy::math::{Dir3, Ray3d};
+
+        // Ray with very small Y component (nearly parallel)
+        let direction = Vec3::new(1.0, 0.00001, 0.0).normalize();
+        let ray = Ray3d::new(
+            Vec3::new(0.0, 5.0, 0.0),
+            Dir3::new(direction).unwrap(),
+        );
+
+        let result = ray_ground_intersection(ray);
+        assert!(result.is_none(), "Nearly parallel ray should return None");
+    }
+
+    #[test]
+    fn test_ray_ground_intersection_at_origin() {
+        use bevy::math::{Dir3, Ray3d};
+
+        // Ray from directly above origin pointing down
+        let ray = Ray3d::new(
+            Vec3::new(0.0, 15.0, 0.0),
+            Dir3::new(Vec3::new(0.0, -1.0, 0.0)).unwrap(),
+        );
+
+        let result = ray_ground_intersection(ray);
+        assert!(result.is_some());
+        let pos = result.unwrap();
+        assert!((pos.x).abs() < 0.001);
+        assert!((pos.y).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_ray_ground_intersection_negative_xz_coordinates() {
+        use bevy::math::{Dir3, Ray3d};
+
+        // Ray from (-10, 5, -20) pointing straight down
+        let ray = Ray3d::new(
+            Vec3::new(-10.0, 5.0, -20.0),
+            Dir3::new(Vec3::new(0.0, -1.0, 0.0)).unwrap(),
+        );
+
+        let result = ray_ground_intersection(ray);
+        assert!(result.is_some());
+        let pos = result.unwrap();
+        assert!((pos.x - (-10.0)).abs() < 0.001);
+        assert!((pos.y - (-20.0)).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_ray_ground_intersection_isometric_camera_angle() {
+        use bevy::math::{Dir3, Ray3d};
+
+        // Simulating an isometric camera at (0, 20, 15) looking at origin
+        // This is similar to the actual game camera setup
+        let camera_pos = Vec3::new(0.0, 20.0, 15.0);
+        let target = Vec3::ZERO;
+        let direction = (target - camera_pos).normalize();
+
+        let ray = Ray3d::new(
+            camera_pos,
+            Dir3::new(direction).unwrap(),
+        );
+
+        let result = ray_ground_intersection(ray);
+        assert!(result.is_some());
+        let pos = result.unwrap();
+        // Should hit near origin
+        assert!(pos.x.abs() < 0.1, "Expected x ≈ 0, got {}", pos.x);
+        assert!(pos.y.abs() < 0.1, "Expected z ≈ 0, got {}", pos.y);
     }
 }
