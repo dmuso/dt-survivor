@@ -5,12 +5,22 @@ use crate::powerup::components::*;
 use crate::player::components::*;
 use crate::weapon::components::*;
 use crate::game::events::EnemyDeathEvent;
+use crate::game::resources::{GameMeshes, GameMaterials};
+
+/// Height at which powerups float (slightly above ground)
+const POWERUP_Y_HEIGHT: f32 = 0.25;
 
 /// System to spawn powerups when enemies die (2% drop rate)
 pub fn powerup_spawning_system(
     mut commands: Commands,
     mut enemy_death_events: MessageReader<EnemyDeathEvent>,
+    game_meshes: Option<Res<GameMeshes>>,
+    game_materials: Option<Res<GameMaterials>>,
 ) {
+    let (Some(game_meshes), Some(game_materials)) = (game_meshes, game_materials) else {
+        return;
+    };
+
     for event in enemy_death_events.read() {
         let enemy_pos = event.position;
 
@@ -27,11 +37,12 @@ pub fn powerup_spawning_system(
 
             let selected_type = powerup_types[rand::thread_rng().gen_range(0..powerup_types.len())].clone();
 
-            // Spawn the powerup with pulsing animation
-            let color = selected_type.color();
+            // Spawn the powerup with pulsing animation using 3D mesh
+            // enemy_pos is already in 3D (x, y, z) where y is height and xz is ground plane
             commands.spawn((
-                Sprite::from_color(color, Vec2::new(21.0, 21.0)), // 30% larger than 16.0
-                Transform::from_translation(Vec3::new(enemy_pos.x, enemy_pos.y, 0.5)),
+                Mesh3d(game_meshes.powerup.clone()),
+                MeshMaterial3d(game_materials.powerup.clone()),
+                Transform::from_translation(Vec3::new(enemy_pos.x, POWERUP_Y_HEIGHT, enemy_pos.z)),
                 PowerupItem {
                     powerup_type: selected_type,
                     velocity: Vec2::ZERO,
@@ -67,11 +78,18 @@ pub fn powerup_pickup_system(
     mut active_powerups: ResMut<ActivePowerups>,
 ) {
     if let Ok((player_transform, player)) = player_query.single() {
-        let player_pos = player_transform.translation.truncate();
+        // Use XZ plane for distance calculation (3D ground plane)
+        let player_pos_xz = Vec2::new(
+            player_transform.translation.x,
+            player_transform.translation.z,
+        );
 
         for (powerup_entity, powerup_transform, powerup_item) in powerup_query.iter() {
-            let powerup_pos = powerup_transform.translation.truncate();
-            let distance = player_pos.distance(powerup_pos);
+            let powerup_pos_xz = Vec2::new(
+                powerup_transform.translation.x,
+                powerup_transform.translation.z,
+            );
+            let distance = player_pos_xz.distance(powerup_pos_xz);
 
             // Collision detection - use player's pickup radius
             if distance < player.pickup_radius {

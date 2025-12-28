@@ -71,6 +71,8 @@ pub struct GameMeshes {
     pub whisper_arc: Handle<Mesh>,
     /// Orbital particle mesh (small sphere for trail particles)
     pub orbital_particle: Handle<Mesh>,
+    /// Powerup mesh (medium cube for powerup items)
+    pub powerup: Handle<Mesh>,
 }
 
 impl GameMeshes {
@@ -91,6 +93,7 @@ impl GameMeshes {
             lightning_segment: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
             whisper_arc: meshes.add(Cuboid::new(0.1, 0.02, 0.02)),
             orbital_particle: meshes.add(Sphere::new(0.05)),
+            powerup: meshes.add(Cuboid::new(0.5, 0.5, 0.5)),
         }
     }
 }
@@ -304,6 +307,7 @@ mod tests {
             assert!(meshes.get(&game_meshes.lightning_segment).is_some());
             assert!(meshes.get(&game_meshes.whisper_arc).is_some());
             assert!(meshes.get(&game_meshes.orbital_particle).is_some());
+            assert!(meshes.get(&game_meshes.powerup).is_some());
         }
 
         #[test]

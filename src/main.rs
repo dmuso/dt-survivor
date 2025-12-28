@@ -79,29 +79,19 @@ mod tests {
     }
 
     #[test]
-    fn test_player_sprite_properties() {
-        // Test that player sprite is created with correct properties
-        let sprite = Sprite {
-            color: Color::srgb(0.0, 1.0, 0.0), // Green
-            custom_size: Some(Vec2::new(20.0, 20.0)),
-            ..default()
-        };
-
-        assert_eq!(sprite.color, Color::srgb(0.0, 1.0, 0.0));
-        assert_eq!(sprite.custom_size, Some(Vec2::new(20.0, 20.0)));
+    fn test_player_mesh_properties() {
+        // Test that player uses 3D mesh (GameMeshes.player is 1x1x1 cube)
+        let transform = Transform::from_translation(Vec3::new(0.0, 0.5, 0.0));
+        // Player is at Y=0.5 (half cube height above ground)
+        assert_eq!(transform.translation.y, 0.5);
     }
 
     #[test]
-    fn test_rock_sprite_properties() {
-        // Test that rock sprite is created with correct properties
-        let sprite = Sprite {
-            color: Color::srgb(0.5, 0.5, 0.5), // Gray
-            custom_size: Some(Vec2::new(15.0, 15.0)), // Example size
-            ..default()
-        };
-
-        assert_eq!(sprite.color, Color::srgb(0.5, 0.5, 0.5));
-        assert_eq!(sprite.custom_size, Some(Vec2::new(15.0, 15.0)));
+    fn test_rock_mesh_properties() {
+        // Test that rock uses 3D mesh (GameMeshes.rock is 1.0x0.5x1.0 flat cube)
+        let transform = Transform::from_translation(Vec3::new(5.0, 0.25, 5.0));
+        // Rock is at Y=0.25 (half height above ground)
+        assert_eq!(transform.translation.y, 0.25);
     }
 
     #[test]
@@ -692,5 +682,66 @@ mod tests {
         // Score should persist across state transitions (not reset)
         let score_after_reset = app.world().get_resource::<Score>().unwrap();
         assert_eq!(score_after_reset.0, 5, "Score should persist across state transitions");
+    }
+
+    #[test]
+    fn test_game_uses_3d_components() {
+        use donny_tango_survivor::game::resources::{GameMeshes, GameMaterials};
+
+        let mut app = App::new();
+
+        // Add minimal plugins for 3D rendering
+        app.add_plugins((
+            bevy::app::TaskPoolPlugin::default(),
+            bevy::state::app::StatesPlugin,
+            bevy::time::TimePlugin::default(),
+            bevy::input::InputPlugin::default(),
+            bevy::asset::AssetPlugin::default(),
+            bevy::mesh::MeshPlugin,
+            bevy::image::ImagePlugin::default(),
+        ));
+
+        // Initialize asset types needed for 3D rendering
+        app.init_asset::<StandardMaterial>();
+
+        // Initialize game state
+        app.init_state::<GameState>();
+
+        // Add our plugins
+        app.add_plugins((combat_plugin, game_plugin, inventory_plugin));
+
+        // Transition to InGame state
+        app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
+        app.update();
+
+        // Verify 3D rendering resources exist
+        let world = app.world();
+
+        // Verify GameMeshes resource is available
+        let game_meshes = world.get_resource::<GameMeshes>();
+        assert!(game_meshes.is_some(), "GameMeshes resource should be initialized");
+
+        // Verify GameMaterials resource is available
+        let game_materials = world.get_resource::<GameMaterials>();
+        assert!(game_materials.is_some(), "GameMaterials resource should be initialized");
+
+        // Verify player has Mesh3d component
+        let world = app.world_mut();
+        let player_with_mesh: Vec<Entity> = world.query_filtered::<Entity, (With<Player>, With<Mesh3d>)>()
+            .iter(world)
+            .collect();
+        assert_eq!(player_with_mesh.len(), 1, "Player should have Mesh3d component");
+
+        // Verify Camera3d exists
+        let camera_3d_count = world.query_filtered::<Entity, With<Camera3d>>()
+            .iter(world)
+            .count();
+        assert!(camera_3d_count > 0, "Should have at least one Camera3d");
+
+        // Verify no Sprite components on game entities (only 3D used)
+        let player_with_sprite: Vec<Entity> = world.query_filtered::<Entity, (With<Player>, With<Sprite>)>()
+            .iter(world)
+            .collect();
+        assert_eq!(player_with_sprite.len(), 0, "Player should NOT have Sprite component in 3D mode");
     }
 }

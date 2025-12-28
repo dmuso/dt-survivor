@@ -6,6 +6,5 @@ edition = "2021"
 [dependencies]
 bevy = { version = "0.17.3", features = ["file_watcher"] }
 bevy_kira_audio = { version = "0.24", features = ["ogg", "wav"] }
-bevy_lit = "0.9"
 bevy_hanabi = "0.17"
 rand = "0.8"

@@ -5,13 +5,16 @@ use crate::experience::components::*;
 use crate::experience::resources::*;
 
 /// Updates experience orb positions based on velocity (attraction)
+/// Movement is on XZ plane (3D ground plane) with Y as height
 pub fn experience_orb_movement_system(
     time: Res<Time>,
     mut orb_query: Query<(&mut Transform, &ExperienceOrb)>,
 ) {
     for (mut transform, orb) in orb_query.iter_mut() {
         let movement = orb.velocity * time.delta_secs();
-        transform.translation += movement.extend(0.0);
+        // Movement is on XZ plane: velocity.x -> translation.x, velocity.y -> translation.z
+        transform.translation.x += movement.x;
+        transform.translation.z += movement.y;
     }
 }
 
@@ -27,13 +30,20 @@ pub fn experience_orb_collection_system(
 ) {
     // Get player data
     if let Ok((player_transform, mut player_exp)) = player_query.single_mut() {
-        let player_pos = player_transform.translation.truncate();
+        // Use XZ plane for distance calculation (3D ground plane)
+        let player_pos_xz = Vec2::new(
+            player_transform.translation.x,
+            player_transform.translation.z,
+        );
         let mut orbs_to_despawn = Vec::new();
 
         // Process each orb
         for (entity, orb_transform, orb) in orb_query.iter() {
-            let orb_pos = orb_transform.translation.truncate();
-            let distance = player_pos.distance(orb_pos);
+            let orb_pos_xz = Vec2::new(
+                orb_transform.translation.x,
+                orb_transform.translation.z,
+            );
+            let distance = player_pos_xz.distance(orb_pos_xz);
 
             // Check if orb should be collected
             if distance < 10.0 {

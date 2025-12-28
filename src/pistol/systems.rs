@@ -4,8 +4,14 @@ use crate::bullets::components::Bullet;
 use crate::audio::plugin::*;
 use bevy_kira_audio::prelude::*;
 use crate::pistol::components::PistolConfig;
+use crate::game::resources::{GameMeshes, GameMaterials};
+
+/// Height at which bullets fly (slightly above ground)
+const BULLET_Y_HEIGHT: f32 = 0.5;
 
 /// Fire pistol weapon
+/// `spawn_position` and `target_pos` are on the XZ plane (x, z as Vec2)
+#[allow(clippy::too_many_arguments)]
 pub fn fire_pistol(
     commands: &mut Commands,
     weapon: &Weapon,
@@ -14,6 +20,8 @@ pub fn fire_pistol(
     asset_server: Option<&Res<AssetServer>>,
     weapon_channel: Option<&mut ResMut<AudioChannel<WeaponSoundChannel>>>,
     sound_limiter: Option<&mut ResMut<SoundLimiter>>,
+    game_meshes: Option<&GameMeshes>,
+    game_materials: Option<&GameMaterials>,
 ) {
     if let crate::weapon::components::WeaponType::Pistol { .. } = &weapon.weapon_type {
         let config = PistolConfig::default();
@@ -34,15 +42,37 @@ pub fn fire_pistol(
                 base_direction.x * sin_offset + base_direction.y * cos_offset,
             );
 
-            commands.spawn((
-                Sprite::from_color(config.bullet_color, config.bullet_size),
-                Transform::from_translation(spawn_position.extend(0.1)),
-                Bullet {
-                    direction,
-                    speed: config.bullet_speed,
-                    lifetime: Timer::from_seconds(config.bullet_lifetime, TimerMode::Once),
-                },
-            ));
+            // Spawn bullet as 3D mesh on XZ plane
+            if let (Some(meshes), Some(materials)) = (game_meshes, game_materials) {
+                commands.spawn((
+                    Mesh3d(meshes.bullet.clone()),
+                    MeshMaterial3d(materials.bullet.clone()),
+                    Transform::from_translation(Vec3::new(
+                        spawn_position.x,
+                        BULLET_Y_HEIGHT,
+                        spawn_position.y, // spawn_position.y is the Z coordinate
+                    )),
+                    Bullet {
+                        direction,
+                        speed: config.bullet_speed,
+                        lifetime: Timer::from_seconds(config.bullet_lifetime, TimerMode::Once),
+                    },
+                ));
+            } else {
+                // Fallback for tests without mesh resources - just spawn the component
+                commands.spawn((
+                    Transform::from_translation(Vec3::new(
+                        spawn_position.x,
+                        BULLET_Y_HEIGHT,
+                        spawn_position.y,
+                    )),
+                    Bullet {
+                        direction,
+                        speed: config.bullet_speed,
+                        lifetime: Timer::from_seconds(config.bullet_lifetime, TimerMode::Once),
+                    },
+                ));
+            }
         }
 
         // Play weapon sound effect

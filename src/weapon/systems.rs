@@ -271,6 +271,8 @@ pub fn weapon_firing_system(
                         asset_server.as_ref(),
                         weapon_channel.as_mut(),
                         sound_limiter.as_mut(),
+                        game_meshes.as_deref(),
+                        game_materials.as_deref(),
                     );
                 }
                  WeaponType::Laser => {
