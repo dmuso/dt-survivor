@@ -144,11 +144,21 @@ pub fn button_interactions(
 #[allow(clippy::type_complexity)]
 pub fn cleanup_intro(
     mut commands: Commands,
-    query: Query<Entity, Or<(With<MenuButton>, With<Node>, With<Text>)>>,
+    ui_query: Query<Entity, Or<(With<MenuButton>, With<Node>, With<Text>)>>,
+    camera_query: Query<Entity, With<Camera2d>>,
 ) {
-    // Clean up UI elements but preserve the camera
-    let entities: Vec<Entity> = query.iter().collect();
+    // Clean up UI elements
+    let entities: Vec<Entity> = ui_query.iter().collect();
     for entity in entities {
+        commands.queue(move |world: &mut World| {
+            if world.get_entity(entity).is_ok() {
+                let _ = world.despawn(entity);
+            }
+        });
+    }
+
+    // Despawn Camera2d so that setup_game can spawn Camera3d with proper lighting
+    for entity in camera_query.iter() {
         commands.queue(move |world: &mut World| {
             if world.get_entity(entity).is_ok() {
                 let _ = world.despawn(entity);
