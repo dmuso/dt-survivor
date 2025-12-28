@@ -1,38 +1,38 @@
 use bevy::prelude::*;
 use bevy_hanabi::prelude::{
     Attribute, ColorBlendMask, ColorBlendMode, ColorOverLifetimeModifier, EffectAsset, ExprWriter,
-    Gradient as HanabiGradient, ParticleEffect, SetAttributeModifier, SetPositionCircleModifier,
+    Gradient as HanabiGradient, SetAttributeModifier, SetPositionCircleModifier,
     SetVelocitySphereModifier, ShapeDimension, SizeOverLifetimeModifier, SpawnerSettings,
 };
 use rand::Rng;
 
 use crate::game::resources::{GameMaterials, GameMeshes};
+use crate::loot::components::{DroppedItem, ItemData, PickupState};
 use crate::movement::components::from_xz;
 use crate::player::components::Player;
 use crate::whisper::components::{
     ArcBurstTimer, LightningBolt, LightningSegment, LightningSpawnTimer, OrbitalParticle,
     OrbitalParticleSpawnTimer, ParticleTrail, TrailSegment, WhisperArc, WhisperCompanion,
-    WhisperDrop, WhisperOuterGlow,
+    WhisperOuterGlow,
 };
-use crate::whisper::events::*;
 use crate::whisper::resources::*;
 
-/// Color constants for Whisper visual effects (red mode)
-const WHISPER_LIGHT_COLOR: Color = Color::srgb(1.0, 0.3, 0.2); // Red-orange
+/// Color constants for Whisper visual effects (white mode)
+pub const WHISPER_LIGHT_COLOR: Color = Color::srgb(1.0, 1.0, 1.0); // White
 /// 3D PointLight intensity (lumens)
-const WHISPER_LIGHT_INTENSITY: f32 = 2000.0;
+pub const WHISPER_LIGHT_INTENSITY: f32 = 2000.0;
 /// 3D PointLight radius
-const WHISPER_LIGHT_RADIUS: f32 = 5.0;
+pub const WHISPER_LIGHT_RADIUS: f32 = 5.0;
 
 /// Particle effect constants for 3D space
-const SPARK_SPAWN_RATE: f32 = 120.0; // particles per second
-const SPARK_LIFETIME: f32 = 0.35; // seconds
-const SPARK_SPEED: f32 = 2.0; // 3D world units per second
-const SPARK_SIZE_START: f32 = 0.05; // 3D world units
-const SPARK_SIZE_END: f32 = 0.0;
+const SPARK_SPAWN_RATE: f32 = 80.0; // particles per second
+const SPARK_LIFETIME: f32 = 0.5; // seconds
+const SPARK_SPEED: f32 = 3.0; // 3D world units per second
+const SPARK_SIZE_START: f32 = 0.08; // 3D world units
+const SPARK_SIZE_END: f32 = 0.02;
 
-/// Whisper core radius in 3D world units
-const WHISPER_CORE_RADIUS: f32 = 0.5;
+/// Whisper core radius in 3D world units (also used as max bolt length)
+const WHISPER_CORE_RADIUS: f32 = 1.2;
 
 /// Lightning bolt visual constants
 const LIGHTNING_BOLTS_PER_SPAWN: u32 = 3;
@@ -48,11 +48,11 @@ pub fn setup_whisper_particle_effect(
     let Some(mut effects) = effects else {
         return; // HanabiPlugin not loaded, skip particle setup
     };
-    // Create a gradient for particle color (red-orange to transparent)
+    // Create a gradient for particle color (white to transparent)
     let mut color_gradient = HanabiGradient::new();
-    color_gradient.add_key(0.0, Vec4::new(1.0, 0.5, 0.3, 1.0)); // Bright red-orange
-    color_gradient.add_key(0.5, Vec4::new(1.0, 0.7, 0.5, 0.6)); // Lighter orange
-    color_gradient.add_key(1.0, Vec4::new(1.0, 0.9, 0.8, 0.0)); // Fade to transparent
+    color_gradient.add_key(0.0, Vec4::new(1.0, 1.0, 1.0, 1.0)); // Bright white
+    color_gradient.add_key(0.5, Vec4::new(1.0, 1.0, 1.0, 0.6)); // White, fading
+    color_gradient.add_key(1.0, Vec4::new(1.0, 1.0, 1.0, 0.0)); // Fade to transparent
 
     // Create a gradient for particle size (shrinks over lifetime)
     let mut size_gradient = HanabiGradient::new();
@@ -102,40 +102,52 @@ pub fn setup_whisper_particle_effect(
     commands.insert_resource(WhisperSparkEffect(effect_handle));
 }
 
-/// Spawns Whisper drop within a certain radius of the player spawn position (origin).
+/// Spawns Whisper drop close to player (2.5-3.5 units) but outside pickup radius.
 /// Uses polar coordinates to ensure uniform distribution in a ring around the player.
 /// Runs on OnEnter(GameState::InGame)
 pub fn spawn_whisper_drop(
     mut commands: Commands,
     game_meshes: Option<Res<GameMeshes>>,
     game_materials: Option<Res<GameMaterials>>,
+    player_query: Query<&Transform, With<Player>>,
 ) {
     let Some(game_meshes) = game_meshes else { return };
     let Some(game_materials) = game_materials else { return };
 
+    // Get player position, default to origin if no player exists yet
+    let player_pos = player_query
+        .single()
+        .map(|t| t.translation)
+        .unwrap_or(Vec3::ZERO);
+
     let mut rng = rand::thread_rng();
 
-    // Generate random position on XZ plane within 5-10 world units of origin
-    // Using polar coordinates for uniform distribution
+    // Spawn close to the player but outside pickup_radius (2.0) so it's visible but not auto-collected
     let angle = rng.gen_range(0.0..std::f32::consts::TAU);
-    let distance = rng.gen_range(3.0..8.0);
-    let x = angle.cos() * distance;
-    let z = angle.sin() * distance;
+    let distance = rng.gen_range(2.5..3.5);
+    let x = player_pos.x + angle.cos() * distance;
+    let z = player_pos.z + angle.sin() * distance;
     // Y is height - place whisper slightly above ground
     let position = Vec3::new(x, 1.0, z);
 
-    // Spawn the Whisper drop with 3D visual elements
+    // Spawn the Whisper drop with 3D visual elements and DroppedItem for loot system
     commands
         .spawn((
-            WhisperDrop::default(),
+            DroppedItem {
+                pickup_state: PickupState::Idle,
+                item_data: ItemData::Whisper,
+                velocity: Vec3::ZERO,
+                rotation_speed: 0.0,
+                rotation_direction: 1.0,
+            },
             LightningSpawnTimer::default(),
             OrbitalParticleSpawnTimer::default(),
             Transform::from_translation(position),
             Visibility::default(),
-            // Add 3D PointLight for glow effect (dimmer when not collected)
+            // Add 3D PointLight for glow effect
             PointLight {
                 color: WHISPER_LIGHT_COLOR,
-                intensity: WHISPER_LIGHT_INTENSITY * 0.5,
+                intensity: WHISPER_LIGHT_INTENSITY,
                 radius: WHISPER_LIGHT_RADIUS,
                 shadows_enabled: false,
                 ..default()
@@ -150,157 +162,6 @@ pub fn spawn_whisper_drop(
                 Transform::default(),
             ));
         });
-}
-
-/// Detects when player is close enough to collect Whisper.
-/// Uses XZ plane for 3D collision detection.
-/// Runs in GameSet::Combat
-pub fn detect_whisper_pickup(
-    player_query: Query<(Entity, &Transform), With<Player>>,
-    whisper_query: Query<(Entity, &Transform, &WhisperDrop)>,
-    mut whisper_events: MessageWriter<WhisperCollectedEvent>,
-) {
-    let Ok((player_entity, player_transform)) = player_query.single() else {
-        return;
-    };
-
-    // Use XZ plane for 3D collision detection
-    let player_pos = from_xz(player_transform.translation);
-
-    for (whisper_entity, whisper_transform, whisper_drop) in whisper_query.iter() {
-        let whisper_pos = from_xz(whisper_transform.translation);
-        let distance = player_pos.distance(whisper_pos);
-
-        // Pickup radius scaled for 3D world units (1.5 = ~1.5 world units)
-        if distance <= whisper_drop.pickup_radius_3d() {
-            whisper_events.write(WhisperCollectedEvent {
-                player_entity,
-                whisper_drop_entity: whisper_entity,
-                position: whisper_pos,
-            });
-        }
-    }
-}
-
-/// Handles WhisperCollectedEvent - transforms drop into companion.
-/// Runs in GameSet::Effects
-#[allow(clippy::too_many_arguments)]
-pub fn handle_whisper_collection(
-    mut commands: Commands,
-    mut whisper_events: MessageReader<WhisperCollectedEvent>,
-    mut whisper_state: ResMut<WhisperState>,
-    mut inventory: ResMut<crate::inventory::resources::Inventory>,
-    player_query: Query<&Transform, With<Player>>,
-    weapon_query: Query<Entity, With<crate::weapon::components::Weapon>>,
-    spark_effect: Option<Res<WhisperSparkEffect>>,
-    asset_server: Option<Res<AssetServer>>,
-    mut audio_channel: Option<ResMut<bevy_kira_audio::prelude::AudioChannel<crate::audio::plugin::LootSoundChannel>>>,
-    mut sound_limiter: Option<ResMut<crate::audio::plugin::SoundLimiter>>,
-    game_meshes: Option<Res<GameMeshes>>,
-    game_materials: Option<Res<GameMaterials>>,
-) {
-    use crate::inventory::components::EquippedWeapon;
-    use crate::weapon::components::{Weapon, WeaponType};
-
-    let Some(game_meshes) = game_meshes else { return };
-    let Some(game_materials) = game_materials else { return };
-
-    for event in whisper_events.read() {
-        // Skip if already collected (prevents double-processing)
-        if whisper_state.collected {
-            continue;
-        }
-
-        // Despawn the WhisperDrop entity and its children
-        commands.entity(event.whisper_drop_entity).despawn();
-
-        // Get player position for spawning companion
-        let player_pos = player_query
-            .get(event.player_entity)
-            .map(|t| t.translation)
-            .unwrap_or(Vec3::ZERO);
-
-        // Spawn WhisperCompanion at player position with offset
-        let companion = WhisperCompanion::default();
-        let companion_pos = player_pos + companion.follow_offset;
-
-        let mut companion_entity = commands.spawn((
-            companion,
-            ArcBurstTimer::default(),
-            LightningSpawnTimer::default(),
-            OrbitalParticleSpawnTimer::default(),
-            Transform::from_translation(companion_pos),
-            Visibility::default(),
-            // Full brightness 3D PointLight when collected
-            PointLight {
-                color: WHISPER_LIGHT_COLOR,
-                intensity: WHISPER_LIGHT_INTENSITY,
-                radius: WHISPER_LIGHT_RADIUS,
-                shadows_enabled: false,
-                ..default()
-            },
-        ));
-
-        // Add particle effect if available
-        if let Some(effect) = spark_effect.as_ref() {
-            companion_entity.insert(ParticleEffect::new(effect.0.clone()));
-        }
-
-        companion_entity.with_children(|parent| {
-            // Core glow sphere using 3D mesh
-            parent.spawn((
-                WhisperOuterGlow,
-                Mesh3d(game_meshes.whisper_core.clone()),
-                MeshMaterial3d(game_materials.whisper_core.clone()),
-                Transform::default(),
-            ));
-        });
-
-        // Mark as collected
-        whisper_state.collected = true;
-
-        // Add default pistol to inventory
-        let pistol = Weapon {
-            weapon_type: WeaponType::Pistol {
-                bullet_count: 5,
-                spread_angle: 15.0,
-            },
-            level: 1,
-            fire_rate: 2.0,
-            base_damage: 1.0,
-            last_fired: -2.0, // Prevent immediate firing
-        };
-        inventory.add_or_level_weapon(pistol.clone());
-
-        // Recreate weapon entities
-        let weapon_entities: Vec<Entity> = weapon_query.iter().collect();
-        for entity in weapon_entities {
-            commands.entity(entity).despawn();
-        }
-
-        // Create new weapon entities for all weapons in inventory
-        for (_weapon_id, weapon) in inventory.iter_weapons() {
-            commands.spawn((
-                weapon.clone(),
-                EquippedWeapon {
-                    weapon_type: weapon.weapon_type.clone(),
-                },
-                Transform::from_translation(player_pos),
-            ));
-        }
-
-        // Play collection sound
-        if let (Some(asset_server), Some(audio_channel), Some(sound_limiter)) =
-            (asset_server.as_ref(), audio_channel.as_mut(), sound_limiter.as_mut())
-        {
-            crate::audio::plugin::play_limited_sound(
-                audio_channel.as_mut(),
-                asset_server,
-                "sounds/366104__original_sound__confirmation-downward.wav",
-                sound_limiter.as_mut(),
-            );
-        }
-    }
 }
 
 /// Resets whisper state when entering game.
@@ -402,23 +263,15 @@ pub fn spawn_whisper_arcs(
 }
 
 /// Spawns lightning bolts from center of Whisper that animate outward.
-/// Works on both WhisperDrop and WhisperCompanion entities.
+/// Works on any entity with LightningSpawnTimer (DroppedItem whisper or WhisperCompanion).
 /// Bolts are spawned as children of the whisper so they move with it.
 /// Timer resets to a random duration after each spawn for varied timing.
 /// Uses 3D meshes and XZ plane for bolt orientation.
 /// Runs in GameSet::Effects
-#[allow(clippy::type_complexity)]
 pub fn spawn_lightning_bolts(
     mut commands: Commands,
     time: Res<Time>,
-    mut drop_query: Query<
-        (Entity, &mut LightningSpawnTimer),
-        (With<WhisperDrop>, Without<WhisperCompanion>),
-    >,
-    mut companion_query: Query<
-        (Entity, &mut LightningSpawnTimer),
-        (With<WhisperCompanion>, Without<WhisperDrop>),
-    >,
+    mut query: Query<(Entity, &mut LightningSpawnTimer)>,
     game_meshes: Option<Res<GameMeshes>>,
     game_materials: Option<Res<GameMaterials>>,
 ) {
@@ -426,28 +279,7 @@ pub fn spawn_lightning_bolts(
     let Some(game_materials) = game_materials else { return };
     let mut rng = rand::thread_rng();
 
-    // Process WhisperDrop entities
-    for (whisper_entity, mut timer) in drop_query.iter_mut() {
-        timer.timer.tick(time.delta());
-
-        if !timer.timer.just_finished() {
-            continue;
-        }
-
-        spawn_bolts_as_children(
-            &mut commands,
-            whisper_entity,
-            &mut rng,
-            &game_meshes,
-            &game_materials,
-        );
-
-        // Reset timer with a new random duration
-        timer.reset_with_random_duration(&mut rng);
-    }
-
-    // Process WhisperCompanion entities
-    for (whisper_entity, mut timer) in companion_query.iter_mut() {
+    for (whisper_entity, mut timer) in query.iter_mut() {
         timer.timer.tick(time.delta());
 
         if !timer.timer.just_finished() {
@@ -506,7 +338,7 @@ fn spawn_bolts_as_children(
                     Visibility::default(),
                 ))
                 .with_children(|bolt_parent| {
-                    // Spawn segment meshes as children of the bolt
+                    // Spawn segment meshes as children of the bolt (start with zero scale to avoid flash)
                     for i in 0..segment_count {
                         bolt_parent.spawn((
                             LightningSegment {
@@ -515,7 +347,8 @@ fn spawn_bolts_as_children(
                             },
                             Mesh3d(game_meshes.lightning_segment.clone()),
                             MeshMaterial3d(game_materials.lightning.clone()),
-                            Transform::from_translation(Vec3::new(0.0, 0.01 + i as f32 * 0.001, 0.0)),
+                            Transform::from_translation(Vec3::new(0.0, 0.01 + i as f32 * 0.001, 0.0))
+                                .with_scale(Vec3::ZERO),
                         ));
                     }
                 });
@@ -613,12 +446,12 @@ pub fn animate_lightning_bolts(
         transform.rotation = Quat::from_rotation_y(-rotation);
 
         // Calculate thickness (tapers from center to tip)
-        let thickness = bolt.thickness_at_segment(segment.index) * 0.02; // Scale for 3D
+        let thickness = bolt.thickness_at_segment(segment.index) * 3.0; // Scale for 3D
 
         // Update size via transform scale
         // Scale factor for opacity effect
         let scale_factor = opacity;
-        transform.scale = Vec3::new(length * 0.03 * scale_factor, thickness * scale_factor, thickness * scale_factor);
+        transform.scale = Vec3::new(length * scale_factor, thickness * scale_factor, thickness * scale_factor);
     }
 }
 
@@ -642,20 +475,13 @@ pub fn update_whisper_arcs(
 const TRAIL_SEGMENT_COUNT: usize = 36;
 
 /// Spawns orbital particles around Whisper at random intervals.
+/// Works on any entity with OrbitalParticleSpawnTimer (DroppedItem whisper or WhisperCompanion).
 /// Particles orbit in true 3D space around the whisper core.
 /// Runs in GameSet::Effects
-#[allow(clippy::type_complexity)]
 pub fn spawn_orbital_particles(
     mut commands: Commands,
     time: Res<Time>,
-    mut drop_query: Query<
-        (Entity, &mut OrbitalParticleSpawnTimer),
-        (With<WhisperDrop>, Without<WhisperCompanion>),
-    >,
-    mut companion_query: Query<
-        (Entity, &mut OrbitalParticleSpawnTimer),
-        (With<WhisperCompanion>, Without<WhisperDrop>),
-    >,
+    mut query: Query<(Entity, &mut OrbitalParticleSpawnTimer)>,
     game_meshes: Option<Res<GameMeshes>>,
     game_materials: Option<Res<GameMaterials>>,
 ) {
@@ -663,27 +489,7 @@ pub fn spawn_orbital_particles(
     let Some(game_materials) = game_materials else { return };
     let mut rng = rand::thread_rng();
 
-    // Process WhisperDrop entities
-    for (whisper_entity, mut timer) in drop_query.iter_mut() {
-        timer.timer.tick(time.delta());
-
-        if !timer.timer.just_finished() {
-            continue;
-        }
-
-        spawn_orbital_particle_as_child(
-            &mut commands,
-            whisper_entity,
-            &game_meshes,
-            &game_materials,
-            &mut rng,
-        );
-
-        timer.reset_with_random_duration(&mut rng);
-    }
-
-    // Process WhisperCompanion entities
-    for (whisper_entity, mut timer) in companion_query.iter_mut() {
+    for (whisper_entity, mut timer) in query.iter_mut() {
         timer.timer.tick(time.delta());
 
         if !timer.timer.just_finished() {
@@ -887,142 +693,73 @@ mod tests {
     }
 
     #[test]
-    fn test_spawn_whisper_drop_creates_entity() {
+    fn test_spawn_whisper_drop_creates_dropped_item() {
+        use crate::loot::components::{DroppedItem, ItemData, PickupState};
+
         let mut app = setup_test_app_with_game_resources();
         app.add_systems(Startup, spawn_whisper_drop);
 
         app.update();
 
-        // Verify WhisperDrop entity was spawned
-        let whisper_count = app
-            .world_mut()
-            .query::<&WhisperDrop>()
-            .iter(app.world())
-            .count();
-        assert_eq!(whisper_count, 1);
+        // Verify DroppedItem entity was spawned with ItemData::Whisper
+        let mut query = app.world_mut().query::<&DroppedItem>();
+        let items: Vec<_> = query.iter(app.world()).collect();
+        assert_eq!(items.len(), 1, "Should spawn exactly one DroppedItem");
+
+        let item = items[0];
+        assert!(
+            matches!(item.item_data, ItemData::Whisper),
+            "ItemData should be Whisper variant"
+        );
+        assert_eq!(
+            item.pickup_state,
+            PickupState::Idle,
+            "Pickup state should be Idle"
+        );
     }
 
     #[test]
     fn test_spawn_whisper_drop_position_within_range_of_player() {
-        // Run multiple times to verify random positions are within expected range of origin
+        // Run multiple times to verify random positions are within expected range of player
         for _ in 0..20 {
             let mut app = setup_test_app_with_game_resources();
+
+            // Spawn a player at origin for the whisper to spawn relative to
+            app.world_mut().spawn((
+                Player {
+                    speed: 200.0,
+                    regen_rate: 1.0,
+                    pickup_radius: 50.0,
+                    last_movement_direction: Vec3::ZERO,
+                },
+                Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+            ));
+
             app.add_systems(Startup, spawn_whisper_drop);
 
             app.update();
 
-            let mut query = app.world_mut().query::<(&WhisperDrop, &Transform)>();
+            let mut query = app.world_mut().query::<(&DroppedItem, &Transform)>();
             for (_, transform) in query.iter(app.world()) {
                 let pos = transform.translation;
-                // Use XZ plane for 3D distance
+                // Use XZ plane for 3D distance from player (at origin)
                 let distance = (pos.x * pos.x + pos.z * pos.z).sqrt();
 
-                // Whisper should spawn within 8 world units of origin
+                // Whisper should spawn within 3.5 world units of player
                 assert!(
-                    distance <= 8.0,
-                    "Whisper spawned at distance {} which exceeds 8 units",
+                    distance <= 3.5,
+                    "Whisper spawned at distance {} which exceeds 3.5 units",
                     distance
                 );
 
-                // Whisper should spawn at least some minimum distance away
+                // Whisper should spawn at least 2.5 units away (outside pickup_radius of 2.0)
                 assert!(
-                    distance >= 3.0,
+                    distance >= 2.5,
                     "Whisper spawned too close to player at distance {}",
                     distance
                 );
             }
         }
-    }
-
-    #[test]
-    fn test_detect_whisper_pickup_fires_event_when_in_range() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::sync::Arc;
-
-        let mut app = App::new();
-        app.add_message::<WhisperCollectedEvent>();
-
-        // Add a simple event counter system that runs after pickup detection
-        let event_count = Arc::new(AtomicUsize::new(0));
-        let event_count_clone = event_count.clone();
-
-        app.add_systems(
-            Update,
-            (
-                detect_whisper_pickup,
-                move |mut events: MessageReader<WhisperCollectedEvent>| {
-                    for _event in events.read() {
-                        event_count_clone.fetch_add(1, Ordering::SeqCst);
-                    }
-                },
-            )
-                .chain(),
-        );
-
-        // Create player at (0, 0.5, 0) on XZ plane
-        app.world_mut().spawn((
-            Player {
-                speed: 200.0,
-                regen_rate: 1.0,
-                pickup_radius: 50.0,
-            },
-            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
-        ));
-
-        // Create WhisperDrop at (0.5, 1.0, 0.5) - within 3D pickup radius on XZ plane
-        app.world_mut().spawn((
-            WhisperDrop::default(),
-            Transform::from_translation(Vec3::new(0.5, 1.0, 0.5)),
-        ));
-
-        app.update();
-
-        // Verify event was fired
-        assert_eq!(event_count.load(Ordering::SeqCst), 1);
-    }
-
-    #[test]
-    fn test_detect_whisper_pickup_no_event_when_out_of_range() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::sync::Arc;
-
-        let mut app = App::new();
-        app.add_message::<WhisperCollectedEvent>();
-        app.add_systems(Update, detect_whisper_pickup);
-
-        // Create player at (0, 0.5, 0) on XZ plane
-        app.world_mut().spawn((
-            Player {
-                speed: 200.0,
-                regen_rate: 1.0,
-                pickup_radius: 50.0,
-            },
-            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
-        ));
-
-        // Create WhisperDrop far away on XZ plane
-        app.world_mut().spawn((
-            WhisperDrop::default(),
-            Transform::from_translation(Vec3::new(10.0, 1.0, 10.0)),
-        ));
-
-        // Add a simple event counter
-        let event_count = Arc::new(AtomicUsize::new(0));
-        let event_count_clone = event_count.clone();
-
-        app.add_systems(
-            Update,
-            move |mut events: MessageReader<WhisperCollectedEvent>| {
-                for _event in events.read() {
-                    event_count_clone.fetch_add(1, Ordering::SeqCst);
-                }
-            },
-        );
-
-        app.update();
-
-        // Verify no event was fired
-        assert_eq!(event_count.load(Ordering::SeqCst), 0);
     }
 
     #[test]
@@ -1055,6 +792,7 @@ mod tests {
                 speed: 200.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
+                last_movement_direction: Vec3::ZERO,
             },
             Transform::from_translation(Vec3::new(100.0, 0.5, 100.0)),
         ));
@@ -1167,10 +905,10 @@ mod tests {
 
         app.update();
 
-        // Verify WhisperDrop entity was spawned with 3D PointLight
-        let mut query = app.world_mut().query::<(&WhisperDrop, &PointLight)>();
+        // Verify DroppedItem Whisper entity was spawned with 3D PointLight
+        let mut query = app.world_mut().query::<(&DroppedItem, &PointLight)>();
         let count = query.iter(app.world()).count();
-        assert_eq!(count, 1, "WhisperDrop should have PointLight component");
+        assert_eq!(count, 1, "Whisper DroppedItem should have PointLight component");
     }
 
     #[test]
@@ -1184,8 +922,8 @@ mod tests {
         let mut query = app.world_mut().query::<&PointLight>();
         let light = query.single(app.world()).unwrap();
 
-        // Drop has dimmer light (half intensity)
-        assert_eq!(light.intensity, WHISPER_LIGHT_INTENSITY * 0.5);
+        // Drop now uses full intensity (same as companion)
+        assert_eq!(light.intensity, WHISPER_LIGHT_INTENSITY);
         assert_eq!(light.radius, WHISPER_LIGHT_RADIUS);
     }
 
@@ -1356,12 +1094,12 @@ mod tests {
 
         app.update();
 
-        // Verify WhisperDrop entity has LightningSpawnTimer
-        let mut query = app.world_mut().query::<(&WhisperDrop, &LightningSpawnTimer)>();
+        // Verify Whisper DroppedItem entity has LightningSpawnTimer
+        let mut query = app.world_mut().query::<(&DroppedItem, &LightningSpawnTimer)>();
         let count = query.iter(app.world()).count();
         assert_eq!(
             count, 1,
-            "WhisperDrop should have LightningSpawnTimer component"
+            "Whisper DroppedItem should have LightningSpawnTimer component"
         );
     }
 
@@ -1683,14 +1421,20 @@ mod tests {
     }
 
     #[test]
-    fn test_orbital_particles_work_with_whisper_drop() {
+    fn test_orbital_particles_work_with_whisper_dropped_item() {
         let mut app = setup_test_app_with_game_resources();
         app.add_plugins(bevy::time::TimePlugin);
         app.add_systems(Update, spawn_orbital_particles);
 
-        // Create a WhisperDrop (not companion) with spawn timer
+        // Create a DroppedItem Whisper (not companion) with spawn timer
         app.world_mut().spawn((
-            WhisperDrop::default(),
+            DroppedItem {
+                pickup_state: PickupState::Idle,
+                item_data: ItemData::Whisper,
+                velocity: Vec3::ZERO,
+                rotation_speed: 0.0,
+                rotation_direction: 1.0,
+            },
             OrbitalParticleSpawnTimer {
                 timer: Timer::from_seconds(0.0, TimerMode::Once),
                 min_interval: 0.5,
@@ -1706,7 +1450,7 @@ mod tests {
             .advance_by(Duration::from_secs_f32(0.1));
         app.update();
 
-        // Verify orbital particle was spawned for WhisperDrop too
+        // Verify orbital particle was spawned for Whisper DroppedItem too
         let particle_count = app
             .world_mut()
             .query::<&OrbitalParticle>()
@@ -1714,7 +1458,7 @@ mod tests {
             .count();
         assert_eq!(
             particle_count, 1,
-            "WhisperDrop should also spawn orbital particles"
+            "Whisper DroppedItem should also spawn orbital particles"
         );
     }
 }

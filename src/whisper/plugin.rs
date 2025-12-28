@@ -2,7 +2,6 @@ use bevy::prelude::*;
 
 use crate::game::sets::GameSet;
 use crate::states::GameState;
-use crate::whisper::events::*;
 use crate::whisper::resources::*;
 use crate::whisper::systems::*;
 
@@ -11,14 +10,13 @@ pub fn plugin(app: &mut App) {
         // Resources
         .init_resource::<WeaponOrigin>()
         .init_resource::<WhisperState>()
-        // Events
-        .add_message::<WhisperCollectedEvent>()
         // Startup systems (particle effect setup)
         .add_systems(Startup, setup_whisper_particle_effect)
         // Setup systems (OnEnter)
+        // Note: spawn_whisper_drop is called from game plugin to ensure resources are ready
         .add_systems(
             OnEnter(GameState::InGame),
-            (reset_whisper_state, spawn_whisper_drop).chain(),
+            reset_whisper_state,
         )
         // Movement systems
         .add_systems(
@@ -28,18 +26,10 @@ pub fn plugin(app: &mut App) {
                 .in_set(GameSet::Movement)
                 .run_if(in_state(GameState::InGame)),
         )
-        // Combat/pickup detection
-        .add_systems(
-            Update,
-            detect_whisper_pickup
-                .in_set(GameSet::Combat)
-                .run_if(in_state(GameState::InGame)),
-        )
-        // Effect systems
+        // Effect systems (pickup is handled by loot system via DroppedItem)
         .add_systems(
             Update,
             (
-                handle_whisper_collection,
                 spawn_whisper_arcs,
                 spawn_lightning_bolts,
                 animate_lightning_bolts,

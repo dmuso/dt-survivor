@@ -5,7 +5,6 @@ pub mod resources;
 pub mod systems;
 
 pub use components::*;
-pub use events::*;
 pub use plugin::*;
 pub use resources::*;
 pub use systems::*;
