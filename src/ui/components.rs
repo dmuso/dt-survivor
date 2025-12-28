@@ -40,6 +40,19 @@ pub struct WeaponLevelDisplay {
     pub weapon_type: WeaponType,
 }
 
+// Debug HUD components
+#[derive(Component)]
+pub struct DebugHud;
+
+#[derive(Component)]
+pub struct DebugPlayerPosition;
+
+#[derive(Component)]
+pub struct DebugCameraPosition;
+
+#[derive(Component)]
+pub struct DebugEnemyCount;
+
 #[cfg(test)]
 mod tests {
     use super::*;

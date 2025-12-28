@@ -1,11 +1,16 @@
 use bevy::prelude::*;
 use bevy::ecs::world::World;
 use crate::combat::components::Health;
+use crate::enemies::components::Enemy;
 use crate::states::*;
 use crate::ui::components::*;
 use crate::player::components::*;
 use crate::weapon::components::*;
 use crate::inventory::{Inventory, EquippedWeapon};
+
+/// Resource to track debug HUD visibility
+#[derive(Resource, Default)]
+pub struct DebugHudVisible(pub bool);
 
 pub fn setup_intro(
     mut commands: Commands,
@@ -531,5 +536,121 @@ pub fn cleanup_game_over(
                 let _ = world.despawn(entity);
             }
         });
+    }
+}
+
+/// Setup debug HUD (hidden by default, toggle with D key)
+pub fn setup_debug_hud(mut commands: Commands) {
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(20.0),
+            right: Val::Px(20.0),
+            flex_direction: FlexDirection::Column,
+            padding: UiRect::all(Val::Px(10.0)),
+            ..default()
+        },
+        BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.7)),
+        Visibility::Hidden, // Hidden by default
+        DebugHud,
+    ))
+    .with_children(|parent| {
+        // Title
+        parent.spawn((
+            Text::new("DEBUG"),
+            TextFont {
+                font_size: 16.0,
+                ..default()
+            },
+            TextColor(Color::srgb(1.0, 1.0, 0.0)),
+            Node {
+                margin: UiRect::bottom(Val::Px(5.0)),
+                ..default()
+            },
+        ));
+
+        // Player position
+        parent.spawn((
+            Text::new("Player: (0.0, 0.0, 0.0)"),
+            TextFont {
+                font_size: 14.0,
+                ..default()
+            },
+            TextColor(Color::srgb(0.8, 0.8, 0.8)),
+            DebugPlayerPosition,
+        ));
+
+        // Camera position
+        parent.spawn((
+            Text::new("Camera: (0.0, 0.0, 0.0)"),
+            TextFont {
+                font_size: 14.0,
+                ..default()
+            },
+            TextColor(Color::srgb(0.8, 0.8, 0.8)),
+            DebugCameraPosition,
+        ));
+
+        // Enemy count
+        parent.spawn((
+            Text::new("Enemies: 0"),
+            TextFont {
+                font_size: 14.0,
+                ..default()
+            },
+            TextColor(Color::srgb(0.8, 0.8, 0.8)),
+            DebugEnemyCount,
+        ));
+    });
+}
+
+/// Toggle debug HUD visibility with D key
+pub fn toggle_debug_hud(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut debug_visible: ResMut<DebugHudVisible>,
+    mut hud_query: Query<&mut Visibility, With<DebugHud>>,
+) {
+    if keyboard_input.just_pressed(KeyCode::KeyD) {
+        debug_visible.0 = !debug_visible.0;
+        for mut visibility in hud_query.iter_mut() {
+            *visibility = if debug_visible.0 {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+        }
+    }
+}
+
+/// Update debug HUD with current values
+#[allow(clippy::type_complexity)]
+pub fn update_debug_hud(
+    player_query: Query<&Transform, With<Player>>,
+    camera_query: Query<&Transform, With<Camera>>,
+    enemy_query: Query<&Enemy>,
+    mut player_text: Query<&mut Text, (With<DebugPlayerPosition>, Without<DebugCameraPosition>, Without<DebugEnemyCount>)>,
+    mut camera_text: Query<&mut Text, (With<DebugCameraPosition>, Without<DebugPlayerPosition>, Without<DebugEnemyCount>)>,
+    mut enemy_text: Query<&mut Text, (With<DebugEnemyCount>, Without<DebugPlayerPosition>, Without<DebugCameraPosition>)>,
+) {
+    // Update player position
+    if let Ok(player_transform) = player_query.single() {
+        let pos = player_transform.translation;
+        for mut text in player_text.iter_mut() {
+            **text = format!("Player: ({:.1}, {:.1}, {:.1})", pos.x, pos.y, pos.z);
+        }
+    }
+
+    // Update camera position
+    if let Ok(camera_transform) = camera_query.single() {
+        let pos = camera_transform.translation;
+        for mut text in camera_text.iter_mut() {
+            **text = format!("Camera: ({:.1}, {:.1}, {:.1})", pos.x, pos.y, pos.z);
+        }
+    }
+
+    // Update enemy count
+    let enemy_count = enemy_query.iter().count();
+    for mut text in enemy_text.iter_mut() {
+        **text = format!("Enemies: {}", enemy_count);
     }
 }
