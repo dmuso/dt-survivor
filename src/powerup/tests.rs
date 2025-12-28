@@ -153,13 +153,13 @@ mod tests {
         // Run effects system
         app.update();
 
-        // Check player stats were modified
+        // Check player stats were modified (base values: speed=7.0, pickup_radius=2.0)
         let player = app.world().get::<Player>(player_entity).unwrap();
         let health = app.world().get::<Health>(player_entity).unwrap();
         assert_eq!(health.max, 125.0, "Max health should be 100 * 1.25 = 125");
         assert_eq!(player.regen_rate, 1.25, "Regen rate should be 1.0 * 1.25 = 1.25");
-        assert_eq!(player.pickup_radius, 62.5, "Pickup radius should be 50 * 1.25 = 62.5");
-        assert_eq!(player.speed, 250.0, "Speed should be 200 * 1.25 = 250");
+        assert_eq!(player.pickup_radius, 2.5, "Pickup radius should be 2.0 * 1.25 = 2.5");
+        assert_eq!(player.speed, 8.75, "Speed should be 7.0 * 1.25 = 8.75");
     }
 
     #[test]

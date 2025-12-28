@@ -16,10 +16,10 @@ impl Default for PistolConfig {
         Self {
             bullet_count: 5,
             spread_angle: 15.0,
-            bullet_speed: 200.0,
-            bullet_lifetime: 15.0,
+            bullet_speed: 10.0, // 3D world units/sec (was 200 pixels/sec in 2D)
+            bullet_lifetime: 5.0, // Reduced for smaller world
             bullet_color: Color::srgb(1.0, 1.0, 0.0), // Yellow
-            bullet_size: Vec2::new(8.0, 8.0),
+            bullet_size: Vec2::new(0.3, 0.3), // 3D world units (was 8 pixels in 2D)
         }
     }
 }

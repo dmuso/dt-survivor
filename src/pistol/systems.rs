@@ -98,10 +98,10 @@ mod tests {
         let config = PistolConfig::default();
         assert_eq!(config.bullet_count, 5);
         assert_eq!(config.spread_angle, 15.0);
-        assert_eq!(config.bullet_speed, 200.0);
-        assert_eq!(config.bullet_lifetime, 15.0);
+        assert_eq!(config.bullet_speed, 10.0); // 3D world units/sec
+        assert_eq!(config.bullet_lifetime, 5.0);
         assert_eq!(config.bullet_color, Color::srgb(1.0, 1.0, 0.0));
-        assert_eq!(config.bullet_size, Vec2::new(8.0, 8.0));
+        assert_eq!(config.bullet_size, Vec2::new(0.3, 0.3)); // 3D world units
     }
 
     #[test]

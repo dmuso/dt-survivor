@@ -79,9 +79,9 @@ pub fn setup_game(
         MeshMaterial3d(game_materials.player.clone()),
         Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
         Player {
-            speed: 200.0,
-            regen_rate: 1.0, // 1 health per second (was 1% of 100)
-            pickup_radius: 50.0, // Radius within which loot is attracted to player
+            speed: 7.0, // 3D world units/sec (was 200 pixels/sec in 2D)
+            regen_rate: 1.0, // 1 health per second
+            pickup_radius: 2.0, // 3D world units (was 50 pixels in 2D)
         },
         Health::new(100.0), // Player health as separate component
         crate::experience::components::PlayerExperience {

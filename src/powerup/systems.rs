@@ -109,11 +109,11 @@ pub fn apply_player_powerup_effects(
     mut player_query: Query<(&mut Player, &mut Health)>,
 ) {
     if let Ok((mut player, mut health)) = player_query.single_mut() {
-        // Calculate base values (this assumes we know the original values)
+        // Calculate base values (3D world units)
         let base_max_health = 100.0;
         let base_regen_rate = 1.0;
-        let base_pickup_radius = 50.0;
-        let base_speed = 200.0;
+        let base_pickup_radius = 2.0; // 3D world units (was 50 pixels)
+        let base_speed = 7.0; // 3D world units/sec (was 200 pixels/sec)
 
         // Apply permanent powerup effects
         let max_health_stacks = active_powerups.get_stack_count(&PowerupType::MaxHealth);

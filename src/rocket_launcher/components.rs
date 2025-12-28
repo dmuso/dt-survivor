@@ -36,8 +36,8 @@ impl RocketProjectile {
 
         (
             Self {
-                velocity: initial_direction.normalize() * 100.0, // Initial speed
-                speed: 150.0, // Homing speed
+                velocity: initial_direction.normalize() * 5.0, // Initial speed (3D units/sec)
+                speed: 8.0, // Homing speed (3D units/sec)
                 damage,
                 target_position: None,
                 homing_strength: 2.0, // How quickly it turns toward target
@@ -97,7 +97,7 @@ mod tests {
         let (rocket, transform) = RocketProjectile::new(Vec2::new(100.0, 50.0), Vec2::new(1.0, 0.0), 30.0);
 
         assert_eq!(rocket.damage, 30.0);
-        assert_eq!(rocket.speed, 150.0);
+        assert_eq!(rocket.speed, 8.0); // 3D world units/sec
         assert_eq!(rocket.homing_strength, 2.0);
         assert!(matches!(rocket.state, RocketState::Pausing));
         assert_eq!(rocket.pause_timer.duration(), std::time::Duration::from_secs_f32(0.5));

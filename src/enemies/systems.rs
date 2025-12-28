@@ -89,7 +89,7 @@ pub fn enemy_spawning_system(
                 MeshMaterial3d(game_materials.enemy.clone()),
                 Transform::from_translation(Vec3::new(spawn_xz.x, ENEMY_Y_HEIGHT, spawn_xz.y)),
                 Enemy {
-                    speed: 50.0,
+                    speed: 1.7, // 3D world units/sec (was 50 pixels/sec in 2D)
                     strength: 10.0,
                 },
                 Health::new(10.0),

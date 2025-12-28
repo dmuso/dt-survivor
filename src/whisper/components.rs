@@ -35,9 +35,9 @@ pub struct WhisperCompanion {
 impl Default for WhisperCompanion {
     fn default() -> Self {
         Self {
-            follow_offset: Vec3::new(0.0, 30.0, 0.5),
+            follow_offset: Vec3::new(0.0, 1.0, 0.0), // 3D world units above player
             bob_phase: 0.0,
-            bob_amplitude: 5.0,
+            bob_amplitude: 0.15, // 3D world units (was 5 pixels)
         }
     }
 }
@@ -127,7 +127,7 @@ impl LightningBolt {
             angle,
             distance: 0.0,
             max_distance: actual_distance,
-            speed: 200.0,
+            speed: 7.0, // 3D world units/sec (was 200 pixels/sec)
             base_opacity: 1.0,
             segment_count,
             seed,
@@ -523,9 +523,9 @@ mod tests {
     #[test]
     fn test_whisper_companion_default() {
         let companion = WhisperCompanion::default();
-        assert_eq!(companion.follow_offset, Vec3::new(0.0, 30.0, 0.5));
+        assert_eq!(companion.follow_offset, Vec3::new(0.0, 1.0, 0.0)); // 3D world units
         assert_eq!(companion.bob_phase, 0.0);
-        assert_eq!(companion.bob_amplitude, 5.0);
+        assert_eq!(companion.bob_amplitude, 0.15); // 3D world units
     }
 
     #[test]
@@ -549,7 +549,7 @@ mod tests {
         assert_eq!(bolt.angle, 1.57);
         assert_eq!(bolt.distance, 0.0);
         assert_eq!(bolt.max_distance, 32.0); // 32.0 * 1.0
-        assert_eq!(bolt.speed, 200.0);
+        assert_eq!(bolt.speed, 7.0); // 3D world units/sec
         assert_eq!(bolt.base_opacity, 1.0);
         assert_eq!(bolt.segment_count, 5);
         assert_eq!(bolt.seed, 42);
