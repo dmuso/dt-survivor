@@ -216,6 +216,8 @@ pub fn camera_follow_player(
         for mut camera_transform in camera_query.iter_mut() {
             // Maintain isometric offset while following player on XZ plane
             camera_transform.translation = player_transform.translation + camera_offset;
+            // Keep looking at the player to maintain isometric angle
+            camera_transform.look_at(player_transform.translation, Vec3::Y);
         }
     }
 }
