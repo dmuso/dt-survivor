@@ -1049,14 +1049,14 @@ mod tests {
         app.add_plugins(bevy::time::TimePlugin);
         app.add_systems(Update, whisper_follow_player);
 
-        // Create player at (100, 100)
+        // Create player at X=100, Z=100 on ground plane (Y=0.5 is height)
         app.world_mut().spawn((
             Player {
                 speed: 200.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
-            Transform::from_translation(Vec3::new(100.0, 100.0, 1.0)),
+            Transform::from_translation(Vec3::new(100.0, 0.5, 100.0)),
         ));
 
         // Create WhisperCompanion at origin
@@ -1074,16 +1074,20 @@ mod tests {
             .advance_by(Duration::from_secs_f32(0.016));
         app.update();
 
-        // Verify Whisper followed player
+        // Verify Whisper followed player on XZ plane
         let whisper_transform = app.world().get::<Transform>(whisper_entity).unwrap();
         assert!(
             (whisper_transform.translation.x - 100.0).abs() < 1.0,
             "Whisper X should be near player X"
         );
-        // Y will have follow_offset (30.0) plus some bobbing
         assert!(
-            whisper_transform.translation.y > 100.0,
-            "Whisper Y should be above player"
+            (whisper_transform.translation.z - 100.0).abs() < 1.0,
+            "Whisper Z should be near player Z"
+        );
+        // Y (height) will have follow_offset plus some bobbing, should be above player
+        assert!(
+            whisper_transform.translation.y > 0.5,
+            "Whisper Y should be above player height"
         );
     }
 
