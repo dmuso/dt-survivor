@@ -543,6 +543,7 @@ mod tests {
                 speed: 200.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
+                last_movement_direction: Vec3::ZERO,
             },
             Health::new(100.0),
         ));
@@ -590,6 +591,7 @@ mod tests {
                 speed: 200.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
+                last_movement_direction: Vec3::ZERO,
             },
             Health::new(100.0),
         ));
@@ -631,6 +633,7 @@ mod tests {
                 speed: 200.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
+                last_movement_direction: Vec3::ZERO,
             },
             Health::new(100.0),
         ));
@@ -677,6 +680,7 @@ mod tests {
                 speed: 200.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
+                last_movement_direction: Vec3::ZERO,
             },
             Health::new(100.0),
         ));
@@ -726,6 +730,7 @@ mod tests {
                 speed: 200.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
+                last_movement_direction: Vec3::ZERO,
             },
             Health::new(100.0),
         ));
@@ -768,6 +773,7 @@ mod tests {
                 speed: 200.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
+                last_movement_direction: Vec3::ZERO,
             },
             Health::new(100.0),
         ));
