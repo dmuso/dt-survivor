@@ -5,6 +5,8 @@ pub struct Player {
     pub speed: f32,
     pub regen_rate: f32, // health per second
     pub pickup_radius: f32, // Radius within which loot is attracted to player
+    /// Last non-zero movement direction (normalized) for pickup rotation effect
+    pub last_movement_direction: Vec3,
 }
 
 #[derive(Component)]
@@ -24,6 +26,7 @@ mod tests {
             speed: 150.0,
             regen_rate: 1.0,
             pickup_radius: 50.0,
+            last_movement_direction: Vec3::ZERO,
         };
         assert_eq!(player.speed, 150.0);
         assert_eq!(player.regen_rate, 1.0);
@@ -34,6 +37,7 @@ mod tests {
             speed: 200.0,
             regen_rate: 1.0,
             pickup_radius: 50.0,
+            last_movement_direction: Vec3::ZERO,
         };
         assert_eq!(default_player.speed, 200.0);
         assert_eq!(default_player.regen_rate, 1.0);
@@ -46,11 +50,13 @@ mod tests {
             speed: 100.0,
             regen_rate: 1.0,
             pickup_radius: 50.0,
+            last_movement_direction: Vec3::ZERO,
         };
         let fast_player = Player {
             speed: 500.0,
             regen_rate: 1.0,
             pickup_radius: 50.0,
+            last_movement_direction: Vec3::ZERO,
         };
 
         assert_eq!(slow_player.speed, 100.0);

@@ -70,7 +70,7 @@ pub fn apply_knockback(
 pub fn player_movement(
     mouse_button_input: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
-    mut player_query: Query<(&mut Transform, &Player, Option<&SlowModifier>)>,
+    mut player_query: Query<(&mut Transform, &mut Player, Option<&SlowModifier>)>,
     camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     time: Res<Time>,
 ) {
@@ -96,9 +96,14 @@ pub fn player_movement(
             return;
         };
 
-        for (mut transform, player, slow_modifier) in player_query.iter_mut() {
+        for (mut transform, mut player, slow_modifier) in player_query.iter_mut() {
             let player_pos = from_xz(transform.translation);
             let direction = (world_position - player_pos).normalize_or_zero();
+
+            // Track movement direction for loot rotation effects
+            if direction.length_squared() > 0.0 {
+                player.last_movement_direction = Vec3::new(direction.x, 0.0, direction.y);
+            }
 
             // Calculate effective speed considering slow modifiers
             let effective_speed = if let Some(slow) = slow_modifier {
