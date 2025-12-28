@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use bevy::camera::ScalingMode;
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::ecs::world::World;
+use bevy::image::{ImageLoaderSettings, ImageSampler, ImageAddressMode, ImageSamplerDescriptor};
 use bevy::post_process::bloom::Bloom;
 use bevy::render::view::Hdr;
 use rand::Rng;
@@ -14,13 +15,14 @@ use crate::game::events::*;
 use crate::movement::components::from_xz;
 use crate::player::components::*;
 use crate::states::*;
-use crate::whisper::components::{WhisperDrop, WhisperCompanion, WhisperArc};
+use crate::whisper::components::{WhisperCompanion, WhisperArc};
 
 
 pub fn setup_game(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
     camera_query: Query<Entity, With<Camera>>,
     game_meshes: Res<GameMeshes>,
     game_materials: Res<GameMaterials>,
@@ -39,8 +41,8 @@ pub fn setup_game(
                 intensity: 0.3,
                 ..default()
             },
-            // Position camera for isometric view: looking down at ~45° angle
-            Transform::from_xyz(0.0, 20.0, 15.0).looking_at(Vec3::ZERO, Vec3::Y),
+            // Position camera for isometric view: offset on both X and Z for diagonal angle
+            Transform::from_xyz(15.0, 20.0, 15.0).looking_at(Vec3::ZERO, Vec3::Y),
         ));
 
         // Add directional light (sun)
@@ -60,11 +62,23 @@ pub fn setup_game(
             affects_lightmapped_meshes: false,
         });
 
-        // Add ground plane (unique mesh, not from GameMeshes)
+        // Add ground plane with concrete texture (tiled)
+        let ground_texture = asset_server.load_with_settings(
+            "textures/concrete-01.png",
+            |settings: &mut ImageLoaderSettings| {
+                settings.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+                    address_mode_u: ImageAddressMode::Repeat,
+                    address_mode_v: ImageAddressMode::Repeat,
+                    ..default()
+                });
+            },
+        );
         commands.spawn((
             Mesh3d(meshes.add(Plane3d::new(Vec3::Y, Vec2::new(100.0, 100.0)))),
             MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: Color::srgb(0.2, 0.2, 0.3),
+                base_color_texture: Some(ground_texture),
+                // Scale UVs to tile the texture across the ground plane
+                uv_transform: bevy::math::Affine2::from_scale(Vec2::new(20.0, 20.0)),
                 ..default()
             })),
             Transform::from_translation(Vec3::ZERO),
@@ -82,6 +96,7 @@ pub fn setup_game(
             speed: 7.0, // 3D world units/sec (was 200 pixels/sec in 2D)
             regen_rate: 1.0, // 1 health per second
             pickup_radius: 2.0, // 3D world units (was 50 pixels in 2D)
+            last_movement_direction: Vec3::ZERO,
         },
         Health::new(100.0), // Player health as separate component
         crate::experience::components::PlayerExperience {
@@ -127,7 +142,7 @@ pub fn game_input(
 #[allow(clippy::type_complexity)]
 pub fn cleanup_game(
     mut commands: Commands,
-    query: Query<Entity, Or<(With<Player>, With<Rock>, With<Enemy>, With<crate::loot::components::DroppedItem>, With<crate::weapon::components::Weapon>, With<crate::laser::components::LaserBeam>, With<crate::experience::components::ExperienceOrb>, With<WhisperDrop>, With<WhisperCompanion>, With<WhisperArc>)>>,
+    query: Query<Entity, Or<(With<Player>, With<Rock>, With<Enemy>, With<crate::loot::components::DroppedItem>, With<crate::weapon::components::Weapon>, With<crate::laser::components::LaserBeam>, With<crate::experience::components::ExperienceOrb>, With<WhisperCompanion>, With<WhisperArc>)>>,
 ) {
     // Don't despawn the camera - let the UI system reuse it
     // Collect entities first to avoid iterator invalidation issues
@@ -321,6 +336,7 @@ mod tests {
                 speed: 200.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
+                last_movement_direction: Vec3::ZERO,
             },
             Health::new(100.0),
             Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
@@ -352,6 +368,7 @@ mod tests {
                 speed: 200.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
+                last_movement_direction: Vec3::ZERO,
             },
             Health::new(100.0),
             Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
@@ -393,6 +410,7 @@ mod tests {
                 speed: 200.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
+                last_movement_direction: Vec3::ZERO,
             },
             Health::new(100.0),
             Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
@@ -456,6 +474,7 @@ mod tests {
                 speed: 200.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
+                last_movement_direction: Vec3::ZERO,
             },
             Health::new(100.0),
             Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
@@ -500,6 +519,7 @@ mod tests {
                 speed: 200.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
+                last_movement_direction: Vec3::ZERO,
             },
             Health::new(100.0),
             Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
@@ -627,6 +647,7 @@ mod tests {
                 speed: 200.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
+                last_movement_direction: Vec3::ZERO,
             },
             Health::new(0.0), // Dead player
             Transform::default(),
@@ -670,6 +691,7 @@ mod tests {
                 speed: 200.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
+                last_movement_direction: Vec3::ZERO,
             },
             Health::new(100.0), // Alive player
             Transform::default(),
@@ -704,6 +726,7 @@ mod tests {
                 speed: 200.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
+                last_movement_direction: Vec3::ZERO,
             },
             Health::new(100.0),
             Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
@@ -744,6 +767,7 @@ mod tests {
                 speed: 200.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
+                last_movement_direction: Vec3::ZERO,
             },
             Health::new(100.0),
             Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
