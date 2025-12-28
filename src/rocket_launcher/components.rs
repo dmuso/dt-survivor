@@ -1,5 +1,16 @@
 use bevy::prelude::*;
+use bevy_hanabi::EffectAsset;
+use bevy_kira_audio::AudioInstance;
 use crate::movement::components::to_xz;
+
+/// Component storing the audio handle for the rocket's hiss sound.
+/// Used to stop the sound when the rocket explodes.
+#[derive(Component)]
+pub struct RocketHissSound(pub Handle<AudioInstance>);
+
+/// Resource storing the handle to the rocket exhaust particle effect.
+#[derive(Resource)]
+pub struct RocketExhaustEffect(pub Handle<EffectAsset>);
 
 /// Height at which rockets fly above the ground plane.
 pub const ROCKET_Y_HEIGHT: f32 = 0.5;
@@ -182,6 +193,14 @@ mod tests {
 
         assert!(marker.target_entity.is_none());
         assert_eq!(marker.lifetime.duration(), std::time::Duration::from_secs(1));
+    }
+
+    #[test]
+    fn test_rocket_hiss_sound_component_exists() {
+        // Verify the RocketHissSound component can be created with a default handle
+        let handle: Handle<AudioInstance> = Handle::default();
+        let hiss_sound = RocketHissSound(handle.clone());
+        assert_eq!(hiss_sound.0.id(), handle.id());
     }
 }
 

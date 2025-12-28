@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy_kira_audio::prelude::*;
+use bevy_hanabi::prelude::*;
 use rand::Rng;
 use crate::weapon::components::*;
 
@@ -9,6 +10,7 @@ use crate::audio::plugin::SoundLimiter;
 use crate::game::resources::{GameMeshes, GameMaterials};
 use crate::movement::components::from_xz;
 use crate::whisper::resources::WeaponOrigin;
+use crate::rocket_launcher::components::RocketExhaustEffect;
 
 #[cfg(test)]
 mod tests {
@@ -210,6 +212,7 @@ pub fn weapon_firing_system(
     weapon_origin: Res<WeaponOrigin>,
     game_meshes: Option<Res<GameMeshes>>,
     game_materials: Option<Res<GameMaterials>>,
+    rocket_exhaust: Option<Res<RocketExhaustEffect>>,
     enemy_query: Query<(Entity, &Transform, &Enemy)>,
     mut weapon_query: Query<&mut Weapon>,
 ) {
@@ -297,32 +300,50 @@ pub fn weapon_firing_system(
                      let rocket_target_pos = closest_enemies.get(target_index).map(|(_, pos)| *pos);
 
                      // Create a rocket projectile
-                     use crate::rocket_launcher::components::RocketProjectile;
+                     use crate::rocket_launcher::components::{RocketProjectile, RocketHissSound};
                      let (mut rocket, transform) = RocketProjectile::new(origin_pos, base_direction, weapon.damage());
                      rocket.target_position = rocket_target_pos;
 
+                     // Play looped hiss sound and get handle for stopping on explosion
+                     let hiss_handle = if let (Some(asset_server), Some(weapon_channel)) =
+                         (asset_server.as_ref(), weapon_channel.as_mut()) {
+                         Some(weapon_channel
+                             .play(asset_server.load("sounds/45131__erh__85-hiss-b.wav"))
+                             .looped()
+                             .with_volume(Decibels(-6.0)) // Play at reduced volume
+                             .handle())
+                     } else {
+                         None
+                     };
+
                      // Spawn rocket with 3D mesh using GameMeshes/GameMaterials
                      if let (Some(ref meshes), Some(ref materials)) = (&game_meshes, &game_materials) {
-                         commands.spawn((
+                         let mut entity_commands = commands.spawn((
                              rocket,
                              transform,
                              Mesh3d(meshes.rocket.clone()),
                              MeshMaterial3d(materials.rocket_pausing.clone()), // Initial state is pausing
                          ));
+                         // Attach hiss sound handle if available
+                         if let Some(handle) = hiss_handle {
+                             entity_commands.insert(RocketHissSound(handle));
+                         }
+                         // Attach exhaust particle effect as child
+                         if let Some(ref exhaust) = rocket_exhaust {
+                             entity_commands.with_children(|parent| {
+                                 parent.spawn((
+                                     ParticleEffect::new(exhaust.0.clone()),
+                                     // Position exhaust at back of rocket (negative Z in local space)
+                                     Transform::from_translation(Vec3::new(0.0, 0.0, -0.2)),
+                                 ));
+                             });
+                         }
                      } else {
                          // Fallback: spawn without mesh (for tests)
-                         commands.spawn((rocket, transform));
-                     }
-
-                     // Play rocket launch sound
-                     if let (Some(asset_server), Some(weapon_channel), Some(sound_limiter)) =
-                         (asset_server.as_ref(), weapon_channel.as_mut(), sound_limiter.as_mut()) {
-                         crate::audio::plugin::play_limited_sound(
-                             weapon_channel.as_mut(),
-                             asset_server,
-                             "sounds/143610__dwoboyle__weapons-synth-blast-02.wav",
-                             sound_limiter.as_mut(),
-                         );
+                         let mut entity_commands = commands.spawn((rocket, transform));
+                         if let Some(handle) = hiss_handle {
+                             entity_commands.insert(RocketHissSound(handle));
+                         }
                      }
                  }
                  _ => {

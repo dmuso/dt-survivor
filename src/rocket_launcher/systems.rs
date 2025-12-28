@@ -1,9 +1,89 @@
 use bevy::prelude::*;
+use bevy_kira_audio::prelude::*;
+use bevy_hanabi::prelude::{
+    Attribute, ColorBlendMask, ColorBlendMode, ColorOverLifetimeModifier, EffectAsset, ExprWriter,
+    Gradient as HanabiGradient, SetAttributeModifier, SetPositionCone3dModifier,
+    SetVelocityTangentModifier, SizeOverLifetimeModifier, SpawnerSettings,
+};
 use crate::rocket_launcher::components::*;
 use crate::prelude::*;
 use crate::game::events::EnemyDeathEvent;
 use crate::game::resources::{GameMeshes, GameMaterials};
 use crate::movement::components::{from_xz, to_xz};
+use crate::audio::plugin::WeaponSoundChannel;
+
+/// Rocket exhaust particle effect constants
+const EXHAUST_SPAWN_RATE: f32 = 120.0; // particles per second
+const EXHAUST_LIFETIME: f32 = 0.3; // seconds
+const EXHAUST_SPEED: f32 = 2.0; // 3D world units per second (moves backward from rocket)
+const EXHAUST_SIZE_START: f32 = 0.15; // 3D world units
+const EXHAUST_SIZE_END: f32 = 0.02;
+
+/// Creates and inserts the rocket exhaust particle effect asset.
+/// Should be called once on startup. Silently skips if HanabiPlugin is not loaded.
+pub fn setup_rocket_exhaust_effect(
+    mut commands: Commands,
+    effects: Option<ResMut<Assets<EffectAsset>>>,
+) {
+    let Some(mut effects) = effects else {
+        return; // HanabiPlugin not loaded, skip particle setup
+    };
+
+    // Create a gradient for particle color (orange-yellow to transparent)
+    let mut color_gradient = HanabiGradient::new();
+    color_gradient.add_key(0.0, Vec4::new(1.0, 0.8, 0.2, 1.0)); // Bright orange-yellow
+    color_gradient.add_key(0.3, Vec4::new(1.0, 0.4, 0.0, 0.8)); // Orange
+    color_gradient.add_key(0.7, Vec4::new(0.5, 0.2, 0.0, 0.4)); // Dark orange/brown
+    color_gradient.add_key(1.0, Vec4::new(0.2, 0.1, 0.0, 0.0)); // Fade to transparent
+
+    // Create a gradient for particle size (starts larger, shrinks)
+    let mut size_gradient = HanabiGradient::new();
+    size_gradient.add_key(0.0, Vec3::splat(EXHAUST_SIZE_START));
+    size_gradient.add_key(1.0, Vec3::splat(EXHAUST_SIZE_END));
+
+    let writer = ExprWriter::new();
+
+    // Position: spawn in a small cone behind the rocket (pointing -Z in local space)
+    let init_pos = SetPositionCone3dModifier {
+        base_radius: writer.lit(0.02).expr(),
+        top_radius: writer.lit(0.08).expr(),
+        height: writer.lit(0.1).expr(),
+        dimension: bevy_hanabi::ShapeDimension::Volume,
+    };
+
+    // Velocity: particles move backward from rocket with some spread
+    let init_vel = SetVelocityTangentModifier {
+        origin: writer.lit(Vec3::ZERO).expr(),
+        axis: writer.lit(Vec3::NEG_Z).expr(), // Exhaust points backward
+        speed: writer.lit(EXHAUST_SPEED).expr(),
+    };
+
+    // Lifetime
+    let lifetime = writer.lit(EXHAUST_LIFETIME).expr();
+    let init_lifetime = SetAttributeModifier::new(Attribute::LIFETIME, lifetime);
+
+    let module = writer.finish();
+
+    // Create the effect with SpawnerSettings
+    let spawner = SpawnerSettings::rate(EXHAUST_SPAWN_RATE.into());
+    let effect = EffectAsset::new(512, spawner, module)
+        .with_name("rocket_exhaust")
+        .init(init_pos)
+        .init(init_vel)
+        .init(init_lifetime)
+        .render(ColorOverLifetimeModifier {
+            gradient: color_gradient,
+            blend: ColorBlendMode::Overwrite,
+            mask: ColorBlendMask::RGBA,
+        })
+        .render(SizeOverLifetimeModifier {
+            gradient: size_gradient,
+            screen_space_size: false,
+        });
+
+    let effect_handle = effects.add(effect);
+    commands.insert_resource(RocketExhaustEffect(effect_handle));
+}
 
 pub fn rocket_spawning_system(
     time: Res<Time>,
@@ -51,16 +131,20 @@ pub fn target_marking_system(
 
 /// Rocket movement system that uses XZ plane for targeting and movement.
 /// Y axis is height, rockets move on the ground plane.
+#[allow(clippy::too_many_arguments)]
 pub fn rocket_movement_system(
     mut commands: Commands,
     time: Res<Time>,
-    mut rocket_query: Query<(Entity, &mut RocketProjectile, &mut Transform)>,
-    game_meshes: Res<GameMeshes>,
-    game_materials: Res<GameMaterials>,
+    mut rocket_query: Query<(Entity, &mut RocketProjectile, &mut Transform, Option<&RocketHissSound>)>,
+    game_meshes: Option<Res<GameMeshes>>,
+    game_materials: Option<Res<GameMaterials>>,
+    mut audio_instances: Option<ResMut<Assets<AudioInstance>>>,
+    weapon_channel: Option<Res<AudioChannel<WeaponSoundChannel>>>,
+    asset_server: Option<Res<AssetServer>>,
 ) {
-    let mut rockets_to_explode = Vec::new();
+    let mut rockets_to_explode: Vec<(Entity, Vec2, f32, Option<Handle<AudioInstance>>)> = Vec::new();
 
-    for (rocket_entity, mut rocket, mut transform) in rocket_query.iter_mut() {
+    for (rocket_entity, mut rocket, mut transform, hiss_sound) in rocket_query.iter_mut() {
         // Extract XZ position from 3D transform
         let rocket_pos = from_xz(transform.translation);
 
@@ -84,8 +168,9 @@ pub fn rocket_movement_system(
 
                     // Explosion distance scaled for 3D world units
                     if distance < 2.0 {
-                        // Close enough - explode
-                        rockets_to_explode.push((rocket_entity, rocket_pos, rocket.damage));
+                        // Close enough - explode. Store the hiss sound handle for stopping
+                        let hiss_handle = hiss_sound.map(|h| h.0.clone());
+                        rockets_to_explode.push((rocket_entity, rocket_pos, rocket.damage, hiss_handle));
                         continue;
                     }
 
@@ -107,17 +192,35 @@ pub fn rocket_movement_system(
     }
 
     // Handle explosions
-    for (rocket_entity, explosion_pos, damage) in rockets_to_explode {
+    for (rocket_entity, explosion_pos, damage, hiss_handle) in rockets_to_explode {
         commands.entity(rocket_entity).despawn();
 
+        // Stop the hiss sound
+        if let (Some(handle), Some(ref mut instances)) = (hiss_handle, &mut audio_instances) {
+            if let Some(instance) = instances.get_mut(&handle) {
+                instance.stop(AudioTween::default());
+            }
+        }
+
+        // Play explosion sound
+        if let (Some(ref channel), Some(ref server)) = (&weapon_channel, &asset_server) {
+            channel.play(server.load("sounds/191691__deleted_user_3544904__explosion-1.wav"))
+                .with_volume(Decibels(-3.0));
+        }
+
         // Create explosion at XZ position (Y at ground level)
-        let explosion_translation = to_xz(explosion_pos) + Vec3::new(0.0, 0.2, 0.0);
-        commands.spawn((
-            Mesh3d(game_meshes.explosion.clone()),
-            MeshMaterial3d(game_materials.explosion.clone()),
-            Transform::from_translation(explosion_translation).with_scale(Vec3::ZERO), // Start at zero size
-            Explosion::new(explosion_pos, damage),
-        ));
+        if let (Some(ref meshes), Some(ref materials)) = (&game_meshes, &game_materials) {
+            let explosion_translation = to_xz(explosion_pos) + Vec3::new(0.0, 0.2, 0.0);
+            let mut explosion = Explosion::new(explosion_pos, damage);
+            // Start with a small visible radius so the explosion is immediately visible
+            explosion.current_radius = 0.3;
+            commands.spawn((
+                Mesh3d(meshes.explosion.clone()),
+                MeshMaterial3d(materials.explosion.clone()),
+                Transform::from_translation(explosion_translation).with_scale(Vec3::splat(0.3)),
+                explosion,
+            ));
+        }
     }
 }
 
@@ -201,7 +304,7 @@ pub fn update_rocket_visuals(
             RocketState::Exploding => game_materials.rocket_exploding.clone(),
         };
 
-        commands.entity(entity).insert(MeshMaterial3d(material));
+        commands.entity(entity).try_insert(MeshMaterial3d(material));
     }
 }
 
@@ -227,7 +330,9 @@ mod tests {
         let loot = DroppedItem {
             pickup_state: PickupState::Idle,
             item_data: ItemData::Weapon(weapon.clone()),
-            velocity: Vec2::ZERO,
+            velocity: Vec3::ZERO,
+            rotation_speed: 0.0,
+            rotation_direction: 1.0,
         };
 
         // Verify item data is weapon

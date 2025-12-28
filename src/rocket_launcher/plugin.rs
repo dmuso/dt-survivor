@@ -4,6 +4,7 @@ use crate::rocket_launcher::systems::*;
 
 pub fn plugin(app: &mut App) {
     app
+        .add_systems(Startup, setup_rocket_exhaust_effect)
         .add_systems(
             PostUpdate,
             (
@@ -14,6 +15,7 @@ pub fn plugin(app: &mut App) {
                 area_damage_system,
                 update_rocket_visuals,
             )
+                .chain()
                 .run_if(in_state(GameState::InGame))
         );
 }
