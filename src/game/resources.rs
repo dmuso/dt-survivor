@@ -38,6 +38,28 @@ pub struct ScreenTintEffect {
 #[derive(Resource, Default)]
 pub struct SurvivalTime(pub f32);
 
+/// Tracks whether the camera is in free-look mode (right mouse button held)
+#[derive(Resource, Default)]
+pub struct FreeCameraState {
+    /// Whether free camera mode is currently active
+    pub active: bool,
+    /// Camera yaw (horizontal rotation) in radians
+    pub yaw: f32,
+    /// Camera pitch (vertical rotation) in radians
+    pub pitch: f32,
+}
+
+impl FreeCameraState {
+    /// Resets the camera rotation to match the isometric view angles
+    pub fn reset_to_isometric(&mut self) {
+        // Isometric camera looks at origin from (0, 20, 15)
+        // Pitch is the angle down from horizontal: atan2(20, 15) ≈ 0.93 rad (53°)
+        self.yaw = 0.0;
+        self.pitch = -std::f32::consts::FRAC_PI_4; // -45 degrees (looking down)
+        self.active = false;
+    }
+}
+
 /// Shared mesh handles for all game entities to avoid recreating meshes
 #[derive(Resource)]
 pub struct GameMeshes {
@@ -49,7 +71,7 @@ pub struct GameMeshes {
     pub bullet: Handle<Mesh>,
     /// Laser beam mesh (thin elongated cube: 0.1 x 0.1 x 1.0, scaled by length)
     pub laser: Handle<Mesh>,
-    /// Rocket mesh (elongated cube: 0.15 x 0.15 x 0.4)
+    /// Rocket mesh (elongated cube: 0.25 x 0.25 x 0.6)
     pub rocket: Handle<Mesh>,
     /// Explosion mesh (sphere with radius 1.0, scaled by explosion radius)
     pub explosion: Handle<Mesh>,
@@ -82,15 +104,15 @@ impl GameMeshes {
             enemy: meshes.add(Cuboid::new(0.75, 0.75, 0.75)),
             bullet: meshes.add(Cuboid::new(0.3, 0.3, 0.3)),
             laser: meshes.add(Cuboid::new(0.1, 0.1, 1.0)),
-            rocket: meshes.add(Cuboid::new(0.15, 0.15, 0.4)),
+            rocket: meshes.add(Cuboid::new(0.25, 0.25, 0.6)),
             explosion: meshes.add(Sphere::new(1.0)),
             target_marker: meshes.add(Cuboid::new(0.3, 0.05, 0.3)),
             loot_small: meshes.add(Cuboid::new(0.4, 0.4, 0.4)),
             loot_medium: meshes.add(Cuboid::new(0.5, 0.5, 0.5)),
             loot_large: meshes.add(Cuboid::new(0.6, 0.6, 0.6)),
             rock: meshes.add(Cuboid::new(1.0, 0.5, 1.0)),
-            whisper_core: meshes.add(Sphere::new(0.5)),
-            lightning_segment: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
+            whisper_core: meshes.add(Sphere::new(0.15)),
+            lightning_segment: meshes.add(Cuboid::new(1.0, 0.02, 0.02)),
             whisper_arc: meshes.add(Cuboid::new(0.1, 0.02, 0.02)),
             orbital_particle: meshes.add(Sphere::new(0.05)),
             powerup: meshes.add(Cuboid::new(0.5, 0.5, 0.5)),
@@ -169,7 +191,8 @@ impl GameMaterials {
                 ..default()
             }),
             rocket_pausing: materials.add(StandardMaterial {
-                base_color: Color::srgb(0.5, 0.5, 0.5),
+                base_color: Color::srgb(0.8, 0.6, 0.0),
+                emissive: bevy::color::LinearRgba::rgb(0.3, 0.2, 0.0),
                 ..default()
             }),
             rocket_targeting: materials.add(StandardMaterial {
@@ -188,7 +211,7 @@ impl GameMaterials {
                 ..default()
             }),
             explosion: materials.add(StandardMaterial {
-                base_color: Color::srgba(1.0, 0.3, 0.0, 0.8),
+                base_color: Color::srgba(1.0, 0.3, 0.0, 0.5), // 50% transparency
                 emissive: bevy::color::LinearRgba::rgb(1.0, 0.2, 0.0),
                 alpha_mode: AlphaMode::Blend,
                 ..default()
@@ -227,26 +250,26 @@ impl GameMaterials {
                 ..default()
             }),
             whisper_core: materials.add(StandardMaterial {
-                base_color: Color::srgb(1.0, 0.3, 0.2),
-                emissive: bevy::color::LinearRgba::rgb(3.0, 0.9, 0.6),
+                base_color: Color::srgb(1.0, 1.0, 1.0),
+                emissive: bevy::color::LinearRgba::rgb(3.0, 3.0, 3.0),
                 unlit: true,
                 ..default()
             }),
             whisper_drop: materials.add(StandardMaterial {
-                base_color: Color::srgb(1.0, 0.3, 0.2),
-                emissive: bevy::color::LinearRgba::rgb(1.5, 0.45, 0.3),
+                base_color: Color::srgb(1.0, 1.0, 1.0),
+                emissive: bevy::color::LinearRgba::rgb(1.5, 1.5, 1.5),
                 unlit: true,
                 ..default()
             }),
             lightning: materials.add(StandardMaterial {
-                base_color: Color::srgb(1.0, 0.5, 0.3),
-                emissive: bevy::color::LinearRgba::rgb(3.0, 1.5, 1.0),
+                base_color: Color::srgb(1.0, 1.0, 1.0),
+                emissive: bevy::color::LinearRgba::rgb(3.0, 3.0, 3.0),
                 unlit: true,
                 ..default()
             }),
             orbital_particle: materials.add(StandardMaterial {
-                base_color: Color::srgb(1.0, 0.5, 0.3),
-                emissive: bevy::color::LinearRgba::rgb(3.0, 1.0, 0.6),
+                base_color: Color::srgb(1.0, 1.0, 1.0),
+                emissive: bevy::color::LinearRgba::rgb(3.0, 3.0, 3.0),
                 unlit: true,
                 ..default()
             }),
@@ -269,6 +292,27 @@ mod tests {
         let mut time = SurvivalTime::default();
         time.0 += 1.5;
         assert_eq!(time.0, 1.5);
+    }
+
+    #[test]
+    fn test_free_camera_state_default() {
+        let state = FreeCameraState::default();
+        assert!(!state.active);
+        assert_eq!(state.yaw, 0.0);
+        assert_eq!(state.pitch, 0.0);
+    }
+
+    #[test]
+    fn test_free_camera_state_reset_to_isometric() {
+        let mut state = FreeCameraState {
+            active: true,
+            yaw: 1.5,
+            pitch: 0.5,
+        };
+        state.reset_to_isometric();
+        assert!(!state.active);
+        assert_eq!(state.yaw, 0.0);
+        assert_eq!(state.pitch, -std::f32::consts::FRAC_PI_4);
     }
 
     mod game_meshes_tests {
@@ -365,9 +409,9 @@ mod tests {
             assert_eq!(laser_mat.base_color, Color::srgb(0.0, 1.0, 1.0));
             assert!(laser_mat.unlit);
 
-            // Verify rocket_pausing is grey
+            // Verify rocket_pausing is yellow-orange (visible during pause phase)
             let rocket_pausing_mat = materials.get(&game_materials.rocket_pausing).unwrap();
-            assert_eq!(rocket_pausing_mat.base_color, Color::srgb(0.5, 0.5, 0.5));
+            assert_eq!(rocket_pausing_mat.base_color, Color::srgb(0.8, 0.6, 0.0));
 
             // Verify rocket_targeting is yellow
             let rocket_targeting_mat = materials.get(&game_materials.rocket_targeting).unwrap();
@@ -381,9 +425,9 @@ mod tests {
             let rocket_exploding_mat = materials.get(&game_materials.rocket_exploding).unwrap();
             assert_eq!(rocket_exploding_mat.base_color, Color::srgb(1.0, 0.0, 0.0));
 
-            // Verify explosion is orange with transparency
+            // Verify explosion is orange with 50% transparency
             let explosion_mat = materials.get(&game_materials.explosion).unwrap();
-            assert_eq!(explosion_mat.base_color, Color::srgba(1.0, 0.3, 0.0, 0.8));
+            assert_eq!(explosion_mat.base_color, Color::srgba(1.0, 0.3, 0.0, 0.5));
             assert_eq!(explosion_mat.alpha_mode, AlphaMode::Blend);
 
             // Verify target_marker is red
@@ -418,24 +462,24 @@ mod tests {
             let rock_mat = materials.get(&game_materials.rock).unwrap();
             assert_eq!(rock_mat.base_color, Color::srgb(0.5, 0.5, 0.5));
 
-            // Verify whisper_core is red-orange with emissive glow
+            // Verify whisper_core is white with emissive glow
             let whisper_core_mat = materials.get(&game_materials.whisper_core).unwrap();
-            assert_eq!(whisper_core_mat.base_color, Color::srgb(1.0, 0.3, 0.2));
+            assert_eq!(whisper_core_mat.base_color, Color::srgb(1.0, 1.0, 1.0));
             assert!(whisper_core_mat.unlit);
 
-            // Verify whisper_drop is dimmer red-orange
+            // Verify whisper_drop is white (dimmer emissive)
             let whisper_drop_mat = materials.get(&game_materials.whisper_drop).unwrap();
-            assert_eq!(whisper_drop_mat.base_color, Color::srgb(1.0, 0.3, 0.2));
+            assert_eq!(whisper_drop_mat.base_color, Color::srgb(1.0, 1.0, 1.0));
             assert!(whisper_drop_mat.unlit);
 
-            // Verify lightning is red-orange with HDR emissive
+            // Verify lightning is white with HDR emissive
             let lightning_mat = materials.get(&game_materials.lightning).unwrap();
-            assert_eq!(lightning_mat.base_color, Color::srgb(1.0, 0.5, 0.3));
+            assert_eq!(lightning_mat.base_color, Color::srgb(1.0, 1.0, 1.0));
             assert!(lightning_mat.unlit);
 
-            // Verify orbital_particle is red-orange
+            // Verify orbital_particle is white
             let orbital_mat = materials.get(&game_materials.orbital_particle).unwrap();
-            assert_eq!(orbital_mat.base_color, Color::srgb(1.0, 0.5, 0.3));
+            assert_eq!(orbital_mat.base_color, Color::srgb(1.0, 1.0, 1.0));
             assert!(orbital_mat.unlit);
         }
 

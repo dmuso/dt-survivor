@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod bullets;
+pub mod camera;
 pub mod combat;
 pub mod enemies;
 pub mod enemy_death;
@@ -21,6 +22,7 @@ pub mod weapon;
 pub mod whisper;
 
 pub use audio::plugin as audio_plugin;
+pub use camera::plugin as camera_plugin;
 pub use combat::plugin as combat_plugin;
 pub use enemy_death::plugin as enemy_death_plugin;
 pub use experience::plugin as experience_plugin;
