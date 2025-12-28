@@ -6,11 +6,12 @@ use crate::player::components::*;
 use crate::weapon::components::*;
 use crate::game::events::EnemyDeathEvent;
 use crate::game::resources::{GameMeshes, GameMaterials};
-
-/// Height at which powerups float (slightly above ground)
-const POWERUP_Y_HEIGHT: f32 = 0.25;
+use crate::loot::components::{DroppedItem, ItemData, PickupState};
+use crate::loot::systems::LOOT_LARGE_Y_HEIGHT;
 
 /// System to spawn powerups when enemies die (2% drop rate)
+/// Powerups are spawned as DroppedItem entities so they use the loot pickup system
+/// with popup animation and magnetic attraction.
 pub fn powerup_spawning_system(
     mut commands: Commands,
     mut enemy_death_events: MessageReader<EnemyDeathEvent>,
@@ -37,15 +38,18 @@ pub fn powerup_spawning_system(
 
             let selected_type = powerup_types[rand::thread_rng().gen_range(0..powerup_types.len())].clone();
 
-            // Spawn the powerup with pulsing animation using 3D mesh
-            // enemy_pos is already in 3D (x, y, z) where y is height and xz is ground plane
+            // Spawn the powerup as a DroppedItem so it uses the loot pickup system
+            // with popup animation and magnetic attraction
             commands.spawn((
                 Mesh3d(game_meshes.powerup.clone()),
                 MeshMaterial3d(game_materials.powerup.clone()),
-                Transform::from_translation(Vec3::new(enemy_pos.x, POWERUP_Y_HEIGHT, enemy_pos.z)),
-                PowerupItem {
-                    powerup_type: selected_type,
-                    velocity: Vec2::ZERO,
+                Transform::from_translation(Vec3::new(enemy_pos.x, LOOT_LARGE_Y_HEIGHT, enemy_pos.z)),
+                DroppedItem {
+                    pickup_state: PickupState::Idle,
+                    item_data: ItemData::Powerup(selected_type),
+                    velocity: Vec3::ZERO,
+                    rotation_speed: 0.0,
+                    rotation_direction: 1.0,
                 },
                 PowerupPulse {
                     base_scale: Vec3::new(1.0, 1.0, 1.0),
@@ -67,39 +71,6 @@ pub fn powerup_pulse_system(
         pulse.time += time.delta_secs();
         let scale_factor = 1.0 + pulse.amplitude * (pulse.time * pulse.frequency).sin().abs();
         transform.scale = pulse.base_scale * scale_factor;
-    }
-}
-
-/// System to handle powerup pickup and collision with player
-pub fn powerup_pickup_system(
-    mut commands: Commands,
-    player_query: Query<(&Transform, &Player), With<Player>>,
-    powerup_query: Query<(Entity, &Transform, &PowerupItem)>,
-    mut active_powerups: ResMut<ActivePowerups>,
-) {
-    if let Ok((player_transform, player)) = player_query.single() {
-        // Use XZ plane for distance calculation (3D ground plane)
-        let player_pos_xz = Vec2::new(
-            player_transform.translation.x,
-            player_transform.translation.z,
-        );
-
-        for (powerup_entity, powerup_transform, powerup_item) in powerup_query.iter() {
-            let powerup_pos_xz = Vec2::new(
-                powerup_transform.translation.x,
-                powerup_transform.translation.z,
-            );
-            let distance = player_pos_xz.distance(powerup_pos_xz);
-
-            // Collision detection - use player's pickup radius
-            if distance < player.pickup_radius {
-                // Apply the powerup effect
-                active_powerups.add_powerup(powerup_item.powerup_type.clone());
-
-                // Remove the powerup entity
-                commands.entity(powerup_entity).despawn();
-            }
-        }
     }
 }
 

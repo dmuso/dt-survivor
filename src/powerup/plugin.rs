@@ -11,7 +11,7 @@ pub fn plugin(app: &mut App) {
             (
                 powerup_spawning_system,
                 powerup_pulse_system,
-                powerup_pickup_system,
+                // Powerup pickup is now handled by the loot system (DroppedItem)
                 apply_player_powerup_effects,
                 apply_weapon_powerup_effects,
                 update_powerup_timers,
