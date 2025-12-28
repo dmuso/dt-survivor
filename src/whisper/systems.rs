@@ -1,13 +1,13 @@
 use bevy::prelude::*;
-use bevy::sprite_render::MeshMaterial2d;
 use bevy_hanabi::prelude::{
     Attribute, ColorBlendMask, ColorBlendMode, ColorOverLifetimeModifier, EffectAsset, ExprWriter,
     Gradient as HanabiGradient, ParticleEffect, SetAttributeModifier, SetPositionCircleModifier,
     SetVelocitySphereModifier, ShapeDimension, SizeOverLifetimeModifier, SpawnerSettings,
 };
-use bevy_lit::prelude::*;
 use rand::Rng;
 
+use crate::game::resources::{GameMaterials, GameMeshes};
+use crate::movement::components::from_xz;
 use crate::player::components::Player;
 use crate::whisper::components::{
     ArcBurstTimer, LightningBolt, LightningSegment, LightningSpawnTimer, OrbitalParticle,
@@ -15,24 +15,24 @@ use crate::whisper::components::{
     WhisperDrop, WhisperOuterGlow,
 };
 use crate::whisper::events::*;
-use crate::whisper::materials::{AdditiveColorMaterial, AdditiveTextureMaterial};
 use crate::whisper::resources::*;
 
 /// Color constants for Whisper visual effects (red mode)
 const WHISPER_LIGHT_COLOR: Color = Color::srgb(1.0, 0.3, 0.2); // Red-orange
-const WHISPER_LIGHT_INTENSITY: f32 = 5.0;
-const WHISPER_LIGHT_OUTER_RADIUS: f32 = 140.0; // 50% of original 280
-const WHISPER_LIGHT_FALLOFF: f32 = 2.0;
+/// 3D PointLight intensity (lumens)
+const WHISPER_LIGHT_INTENSITY: f32 = 2000.0;
+/// 3D PointLight radius
+const WHISPER_LIGHT_RADIUS: f32 = 5.0;
 
-/// Particle effect constants (50% of original values)
-const SPARK_SPAWN_RATE: f32 = 120.0; // particles per second (unchanged)
-const SPARK_LIFETIME: f32 = 0.35; // seconds (unchanged)
-const SPARK_SPEED: f32 = 90.0; // 50% of original 180
-const SPARK_SIZE_START: f32 = 2.0; // 50% of original 4.0
-const SPARK_SIZE_END: f32 = 0.0; // pixels
+/// Particle effect constants for 3D space
+const SPARK_SPAWN_RATE: f32 = 120.0; // particles per second
+const SPARK_LIFETIME: f32 = 0.35; // seconds
+const SPARK_SPEED: f32 = 2.0; // 3D world units per second
+const SPARK_SIZE_START: f32 = 0.05; // 3D world units
+const SPARK_SIZE_END: f32 = 0.0;
 
-/// Whisper base texture size (50% of original 128)
-const WHISPER_TEXTURE_SIZE: f32 = 64.0;
+/// Whisper core radius in 3D world units
+const WHISPER_CORE_RADIUS: f32 = 0.5;
 
 /// Lightning bolt visual constants
 const LIGHTNING_BOLTS_PER_SPAWN: u32 = 3;
@@ -61,11 +61,11 @@ pub fn setup_whisper_particle_effect(
 
     let writer = ExprWriter::new();
 
-    // Position: spawn at center (2D, so use Z axis for the circle plane)
+    // Position: spawn at center (3D, so use Y axis for the circle plane on XZ ground)
     let init_pos = SetPositionCircleModifier {
         center: writer.lit(Vec3::ZERO).expr(),
-        axis: writer.lit(Vec3::Z).expr(), // Circle in XY plane
-        radius: writer.lit(4.0).expr(),   // 50% of original 8.0
+        axis: writer.lit(Vec3::Y).expr(), // Circle in XZ plane (Y is up)
+        radius: writer.lit(0.2).expr(),   // 3D world units
         dimension: ShapeDimension::Surface,
     };
 
@@ -102,39 +102,29 @@ pub fn setup_whisper_particle_effect(
     commands.insert_resource(WhisperSparkEffect(effect_handle));
 }
 
-/// Spawns Whisper drop within 1000px of the player spawn position (origin).
+/// Spawns Whisper drop within a certain radius of the player spawn position (origin).
 /// Uses polar coordinates to ensure uniform distribution in a ring around the player.
 /// Runs on OnEnter(GameState::InGame)
 pub fn spawn_whisper_drop(
     mut commands: Commands,
-    asset_server: Option<Res<AssetServer>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut additive_materials: ResMut<Assets<AdditiveTextureMaterial>>,
+    game_meshes: Option<Res<GameMeshes>>,
+    game_materials: Option<Res<GameMaterials>>,
 ) {
+    let Some(game_meshes) = game_meshes else { return };
+    let Some(game_materials) = game_materials else { return };
+
     let mut rng = rand::thread_rng();
 
-    // Generate random position within 200px of player spawn (origin)
+    // Generate random position on XZ plane within 5-10 world units of origin
     // Using polar coordinates for uniform distribution
     let angle = rng.gen_range(0.0..std::f32::consts::TAU);
-    let distance = rng.gen_range(50.0..200.0);
+    let distance = rng.gen_range(3.0..8.0);
     let x = angle.cos() * distance;
-    let y = angle.sin() * distance;
-    let position = Vec3::new(x, y, 0.5);
+    let z = angle.sin() * distance;
+    // Y is height - place whisper slightly above ground
+    let position = Vec3::new(x, 1.0, z);
 
-    // Load the red-mode texture (or use default if no asset server)
-    let texture: Handle<Image> = asset_server
-        .as_ref()
-        .map(|s| s.load("whisper/red-mode.png"))
-        .unwrap_or_default();
-
-    // Create mesh and material for additive blending (50% size)
-    let mesh = meshes.add(Rectangle::new(WHISPER_TEXTURE_SIZE, WHISPER_TEXTURE_SIZE));
-    let material = additive_materials.add(AdditiveTextureMaterial {
-        texture: texture.clone(),
-        color: LinearRgba::new(1.0, 1.0, 1.0, 0.7),
-    });
-
-    // Spawn the Whisper drop with visual elements
+    // Spawn the Whisper drop with 3D visual elements
     commands
         .spawn((
             WhisperDrop::default(),
@@ -142,27 +132,28 @@ pub fn spawn_whisper_drop(
             OrbitalParticleSpawnTimer::default(),
             Transform::from_translation(position),
             Visibility::default(),
-            // Add PointLight2d for 2D lighting effect
-            PointLight2d {
+            // Add 3D PointLight for glow effect (dimmer when not collected)
+            PointLight {
                 color: WHISPER_LIGHT_COLOR,
-                intensity: WHISPER_LIGHT_INTENSITY * 0.5, // Dimmer when not collected
-                outer_radius: WHISPER_LIGHT_OUTER_RADIUS * 0.5,
-                falloff: WHISPER_LIGHT_FALLOFF,
+                intensity: WHISPER_LIGHT_INTENSITY * 0.5,
+                radius: WHISPER_LIGHT_RADIUS,
+                shadows_enabled: false,
                 ..default()
             },
         ))
         .with_children(|parent| {
-            // Base glow using red-mode.png texture with additive blending
+            // Core glow sphere using 3D mesh
             parent.spawn((
                 WhisperOuterGlow,
-                Mesh2d(mesh.clone()),
-                MeshMaterial2d(material.clone()),
-                Transform::from_xyz(0.0, 0.0, -0.1),
+                Mesh3d(game_meshes.whisper_core.clone()),
+                MeshMaterial3d(game_materials.whisper_drop.clone()),
+                Transform::default(),
             ));
         });
 }
 
 /// Detects when player is close enough to collect Whisper.
+/// Uses XZ plane for 3D collision detection.
 /// Runs in GameSet::Combat
 pub fn detect_whisper_pickup(
     player_query: Query<(Entity, &Transform), With<Player>>,
@@ -173,13 +164,15 @@ pub fn detect_whisper_pickup(
         return;
     };
 
-    let player_pos = player_transform.translation.truncate();
+    // Use XZ plane for 3D collision detection
+    let player_pos = from_xz(player_transform.translation);
 
     for (whisper_entity, whisper_transform, whisper_drop) in whisper_query.iter() {
-        let whisper_pos = whisper_transform.translation.truncate();
+        let whisper_pos = from_xz(whisper_transform.translation);
         let distance = player_pos.distance(whisper_pos);
 
-        if distance <= whisper_drop.pickup_radius {
+        // Pickup radius scaled for 3D world units (1.5 = ~1.5 world units)
+        if distance <= whisper_drop.pickup_radius_3d() {
             whisper_events.write(WhisperCollectedEvent {
                 player_entity,
                 whisper_drop_entity: whisper_entity,
@@ -203,11 +196,14 @@ pub fn handle_whisper_collection(
     asset_server: Option<Res<AssetServer>>,
     mut audio_channel: Option<ResMut<bevy_kira_audio::prelude::AudioChannel<crate::audio::plugin::LootSoundChannel>>>,
     mut sound_limiter: Option<ResMut<crate::audio::plugin::SoundLimiter>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut additive_materials: ResMut<Assets<AdditiveTextureMaterial>>,
+    game_meshes: Option<Res<GameMeshes>>,
+    game_materials: Option<Res<GameMaterials>>,
 ) {
     use crate::inventory::components::EquippedWeapon;
     use crate::weapon::components::{Weapon, WeaponType};
+
+    let Some(game_meshes) = game_meshes else { return };
+    let Some(game_materials) = game_materials else { return };
 
     for event in whisper_events.read() {
         // Skip if already collected (prevents double-processing)
@@ -228,19 +224,6 @@ pub fn handle_whisper_collection(
         let companion = WhisperCompanion::default();
         let companion_pos = player_pos + companion.follow_offset;
 
-        // Load the red-mode texture for companion
-        let texture: Handle<Image> = asset_server
-            .as_ref()
-            .map(|s| s.load("whisper/red-mode.png"))
-            .unwrap_or_default();
-
-        // Create mesh and material for additive blending (50% size)
-        let mesh = meshes.add(Rectangle::new(WHISPER_TEXTURE_SIZE, WHISPER_TEXTURE_SIZE));
-        let material = additive_materials.add(AdditiveTextureMaterial {
-            texture: texture.clone(),
-            color: LinearRgba::new(1.0, 1.0, 1.0, 0.9),
-        });
-
         let mut companion_entity = commands.spawn((
             companion,
             ArcBurstTimer::default(),
@@ -248,12 +231,12 @@ pub fn handle_whisper_collection(
             OrbitalParticleSpawnTimer::default(),
             Transform::from_translation(companion_pos),
             Visibility::default(),
-            // Full brightness PointLight2d when collected
-            PointLight2d {
+            // Full brightness 3D PointLight when collected
+            PointLight {
                 color: WHISPER_LIGHT_COLOR,
                 intensity: WHISPER_LIGHT_INTENSITY,
-                outer_radius: WHISPER_LIGHT_OUTER_RADIUS,
-                falloff: WHISPER_LIGHT_FALLOFF,
+                radius: WHISPER_LIGHT_RADIUS,
+                shadows_enabled: false,
                 ..default()
             },
         ));
@@ -264,12 +247,12 @@ pub fn handle_whisper_collection(
         }
 
         companion_entity.with_children(|parent| {
-            // Base glow using red-mode.png texture with additive blending
+            // Core glow sphere using 3D mesh
             parent.spawn((
                 WhisperOuterGlow,
-                Mesh2d(mesh.clone()),
-                MeshMaterial2d(material.clone()),
-                Transform::from_xyz(0.0, 0.0, -0.1),
+                Mesh3d(game_meshes.whisper_core.clone()),
+                MeshMaterial3d(game_materials.whisper_core.clone()),
+                Transform::default(),
             ));
         });
 
@@ -357,27 +340,33 @@ pub fn whisper_follow_player(
 }
 
 /// Updates WeaponOrigin resource with Whisper's current position.
+/// Uses XZ plane for 3D position (ignores Y height).
 /// Runs in GameSet::Movement (after whisper_follow_player)
 pub fn update_weapon_origin(
     whisper_query: Query<&Transform, With<WhisperCompanion>>,
     mut weapon_origin: ResMut<WeaponOrigin>,
 ) {
     if let Ok(whisper_transform) = whisper_query.single() {
-        weapon_origin.position = Some(whisper_transform.translation.truncate());
+        // Use XZ plane (from_xz extracts X and Z as Vec2)
+        weapon_origin.position = Some(from_xz(whisper_transform.translation));
     } else {
         weapon_origin.position = None;
     }
 }
 
 /// Spawns occasional lightning arc effects around Whisper.
+/// Uses XZ plane for 3D positioning.
 /// Runs in GameSet::Effects
 pub fn spawn_whisper_arcs(
     mut commands: Commands,
     time: Res<Time>,
     mut whisper_query: Query<(&Transform, &mut ArcBurstTimer), With<WhisperCompanion>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut color_materials: ResMut<Assets<AdditiveColorMaterial>>,
+    game_meshes: Option<Res<GameMeshes>>,
+    game_materials: Option<Res<GameMaterials>>,
 ) {
+    let Some(game_meshes) = game_meshes else { return };
+    let Some(game_materials) = game_materials else { return };
+
     for (whisper_transform, mut timer) in whisper_query.iter_mut() {
         timer.0.tick(time.delta());
 
@@ -391,28 +380,22 @@ pub fn spawn_whisper_arcs(
         let mut rng = rand::thread_rng();
         let arc_count = rng.gen_range(1..=2);
 
-        // Create mesh and material for additive blending (50% size)
-        let mesh = meshes.add(Rectangle::new(6.0, 2.0)); // 50% of original 12x4
-        let material = color_materials.add(AdditiveColorMaterial {
-            color: LinearRgba::new(3.0, 1.5, 1.0, 0.9), // HDR red-orange for bloom
-        });
-
         for _ in 0..arc_count {
             let angle = rng.gen_range(0.0..std::f32::consts::TAU);
-            let distance = rng.gen_range(10.0..20.0); // 50% of original 20..40
-            let dir = Vec2::new(angle.cos(), angle.sin());
+            let distance = rng.gen_range(0.3..0.6); // 3D world units
+            // Position on XZ plane around whisper
             let pos = Vec3::new(
-                center.x + dir.x * distance,
-                center.y + dir.y * distance,
-                center.z + 0.1,
+                center.x + angle.cos() * distance,
+                center.y,
+                center.z + angle.sin() * distance,
             );
 
-            // Spawn a small lightning arc with additive blending
+            // Spawn a small lightning arc with 3D mesh
             commands.spawn((
                 WhisperArc::new(0.06),
-                Mesh2d(mesh.clone()),
-                MeshMaterial2d(material.clone()),
-                Transform::from_translation(pos).with_rotation(Quat::from_rotation_z(angle)),
+                Mesh3d(game_meshes.whisper_arc.clone()),
+                MeshMaterial3d(game_materials.lightning.clone()),
+                Transform::from_translation(pos).with_rotation(Quat::from_rotation_y(angle)),
             ));
         }
     }
@@ -422,6 +405,7 @@ pub fn spawn_whisper_arcs(
 /// Works on both WhisperDrop and WhisperCompanion entities.
 /// Bolts are spawned as children of the whisper so they move with it.
 /// Timer resets to a random duration after each spawn for varied timing.
+/// Uses 3D meshes and XZ plane for bolt orientation.
 /// Runs in GameSet::Effects
 #[allow(clippy::type_complexity)]
 pub fn spawn_lightning_bolts(
@@ -435,9 +419,11 @@ pub fn spawn_lightning_bolts(
         (Entity, &mut LightningSpawnTimer),
         (With<WhisperCompanion>, Without<WhisperDrop>),
     >,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut color_materials: ResMut<Assets<AdditiveColorMaterial>>,
+    game_meshes: Option<Res<GameMeshes>>,
+    game_materials: Option<Res<GameMaterials>>,
 ) {
+    let Some(game_meshes) = game_meshes else { return };
+    let Some(game_materials) = game_materials else { return };
     let mut rng = rand::thread_rng();
 
     // Process WhisperDrop entities
@@ -452,8 +438,8 @@ pub fn spawn_lightning_bolts(
             &mut commands,
             whisper_entity,
             &mut rng,
-            &mut meshes,
-            &mut color_materials,
+            &game_meshes,
+            &game_materials,
         );
 
         // Reset timer with a new random duration
@@ -472,8 +458,8 @@ pub fn spawn_lightning_bolts(
             &mut commands,
             whisper_entity,
             &mut rng,
-            &mut meshes,
-            &mut color_materials,
+            &game_meshes,
+            &game_materials,
         );
 
         // Reset timer with a new random duration
@@ -483,21 +469,19 @@ pub fn spawn_lightning_bolts(
 
 /// Helper function to spawn lightning bolts as children of the whisper entity.
 /// Uses local coordinates so bolts move with the whisper.
+/// Bolts radiate outward on the XZ plane in 3D space.
 fn spawn_bolts_as_children(
     commands: &mut Commands,
     whisper_entity: Entity,
     rng: &mut impl Rng,
-    meshes: &mut Assets<Mesh>,
-    color_materials: &mut Assets<AdditiveColorMaterial>,
+    game_meshes: &GameMeshes,
+    game_materials: &GameMaterials,
 ) {
-    // Create a unit mesh for segments (will be scaled via transform)
-    let unit_mesh = meshes.add(Rectangle::new(1.0, 1.0));
-
-    // Max bolt length is based on texture radius
-    let max_bolt_distance = WHISPER_TEXTURE_SIZE / 2.0;
+    // Max bolt length in 3D world units
+    let max_bolt_distance = WHISPER_CORE_RADIUS;
 
     // Local center (relative to whisper parent)
-    let local_center = Vec3::new(0.0, 0.0, 0.1);
+    let local_center = Vec3::new(0.0, 0.0, 0.0);
 
     // Spawn multiple bolts at different angles
     for _ in 0..LIGHTNING_BOLTS_PER_SPAWN {
@@ -505,25 +489,13 @@ fn spawn_bolts_as_children(
         let seed = rng.gen::<u32>();
 
         // Random size from 20% to 100%, weighted so longer bolts are rarer
-        // Using inverse transform: smaller values are more likely
-        // raw^2 biases toward 0, then we invert so larger sizes are rarer
         let raw = rng.gen::<f32>();
-        // Square it to bias toward smaller values, then map to range
         let size_multiplier =
             BOLT_MIN_SIZE_FRACTION + (1.0 - raw * raw) * (1.0 - BOLT_MIN_SIZE_FRACTION);
 
         // Use local center (Vec3::ZERO relative to parent)
         let bolt = LightningBolt::new(angle, seed, local_center, max_bolt_distance, size_multiplier);
         let segment_count = bolt.segment_count;
-
-        // Create materials for all segments first
-        let segment_materials: Vec<_> = (0..segment_count)
-            .map(|_| {
-                color_materials.add(AdditiveColorMaterial {
-                    color: LinearRgba::new(3.0, 1.5, 1.0, 0.0), // Start invisible
-                })
-            })
-            .collect();
 
         // Spawn bolt as child of whisper, with segments as children of bolt
         commands.entity(whisper_entity).with_children(|parent| {
@@ -539,11 +511,11 @@ fn spawn_bolts_as_children(
                         bolt_parent.spawn((
                             LightningSegment {
                                 index: i,
-                                bolt_entity: Entity::PLACEHOLDER, // Will be updated after spawn
+                                bolt_entity: Entity::PLACEHOLDER,
                             },
-                            Mesh2d(unit_mesh.clone()),
-                            MeshMaterial2d(segment_materials[i as usize].clone()),
-                            Transform::from_translation(Vec3::new(0.0, 0.0, 0.05 + i as f32 * 0.001)),
+                            Mesh3d(game_meshes.lightning_segment.clone()),
+                            MeshMaterial3d(game_materials.lightning.clone()),
+                            Transform::from_translation(Vec3::new(0.0, 0.01 + i as f32 * 0.001, 0.0)),
                         ));
                     }
                 });
@@ -553,19 +525,13 @@ fn spawn_bolts_as_children(
 
 /// Animates lightning bolts moving outward from center and fading.
 /// Uses local coordinates since bolts are children of whisper entities.
+/// Uses 3D transforms on XZ plane - bolts radiate from center.
 /// Runs in GameSet::Effects
 pub fn animate_lightning_bolts(
     mut commands: Commands,
     time: Res<Time>,
     mut bolt_query: Query<(Entity, &mut LightningBolt), Without<LightningSegment>>,
-    mut segment_query: Query<(
-        Entity,
-        &LightningSegment,
-        &ChildOf,
-        &mut Transform,
-        &MeshMaterial2d<AdditiveColorMaterial>,
-    )>,
-    mut color_materials: ResMut<Assets<AdditiveColorMaterial>>,
+    mut segment_query: Query<(&LightningSegment, &ChildOf, &mut Transform)>,
 ) {
     // First, update all bolt distances
     for (entity, mut bolt) in bolt_query.iter_mut() {
@@ -578,20 +544,16 @@ pub fn animate_lightning_bolts(
     }
 
     // Then update all segments based on their parent bolt
-    for (_segment_entity, segment, child_of, mut transform, material_handle) in
-        segment_query.iter_mut()
-    {
+    for (segment, child_of, mut transform) in segment_query.iter_mut() {
         // Get the parent bolt data using the ChildOf component
         let Ok((_, bolt)) = bolt_query.get(child_of.parent()) else {
             // Parent bolt was despawned, segment will be cleaned up automatically
             continue;
         };
 
-        // If bolt is expired, hide segment (bolt will be despawned with children)
+        // If bolt is expired, hide segment
         if bolt.is_expired() {
-            if let Some(material) = color_materials.get_mut(&material_handle.0) {
-                material.color = LinearRgba::new(0.0, 0.0, 0.0, 0.0);
-            }
+            transform.scale = Vec3::ZERO;
             continue;
         }
 
@@ -604,15 +566,13 @@ pub fn animate_lightning_bolts(
 
         // Only show segment if the bolt has reached it
         if bolt.distance < segment_start_dist {
-            if let Some(material) = color_materials.get_mut(&material_handle.0) {
-                material.color = LinearRgba::new(0.0, 0.0, 0.0, 0.0); // Invisible
-            }
+            transform.scale = Vec3::ZERO;
             continue;
         }
 
         // Calculate visibility progress for this segment
         let segment_progress = if bolt.distance >= segment_end_dist {
-            1.0 // Fully visible
+            1.0
         } else if segment_len > 0.0 {
             (bolt.distance - segment_start_dist) / segment_len
         } else {
@@ -621,47 +581,44 @@ pub fn animate_lightning_bolts(
 
         // Calculate opacity based on overall bolt progress and segment position
         let base_opacity = bolt.current_opacity();
-        // Segments further from center fade more
         let segment_fade = 1.0 - (segment_idx as f32 / bolt.segment_count as f32) * 0.3;
         let opacity = (base_opacity * segment_fade * segment_progress).clamp(0.0, 1.0);
 
-        // Skip rendering segments that are nearly invisible
+        // Hide segments that are nearly invisible
         if opacity < 0.01 {
-            if let Some(material) = color_materials.get_mut(&material_handle.0) {
-                material.color = LinearRgba::new(0.0, 0.0, 0.0, 0.0);
-            }
+            transform.scale = Vec3::ZERO;
             continue;
         }
 
-        // Get joint positions for this segment (in local coordinates relative to bolt center)
+        // Get joint positions for this segment (in local coords relative to bolt center)
+        // These are in XY space; we need to map to XZ for 3D
         let start_pos = bolt.joint_position(segment_idx);
         let end_pos = bolt.joint_position(segment_idx + 1);
 
         // Interpolate end position based on progress
         let current_end = start_pos + (end_pos - start_pos) * segment_progress;
 
-        // Calculate segment midpoint and length (local to bolt parent)
+        // Calculate segment midpoint and length
         let midpoint = (start_pos + current_end) / 2.0;
         let segment_vec = current_end - start_pos;
-        let length = segment_vec.length().max(0.1);
+        let length = segment_vec.length().max(0.01);
         let rotation = segment_vec.y.atan2(segment_vec.x);
 
-        // Update local transform position and rotation (relative to bolt parent)
+        // Update local transform - map XY to XZ plane
         transform.translation.x = midpoint.x;
-        transform.translation.y = midpoint.y;
-        transform.translation.z = 0.05 + segment_idx as f32 * 0.001;
-        transform.rotation = Quat::from_rotation_z(rotation);
+        transform.translation.y = 0.01 + segment_idx as f32 * 0.001; // Slight Y offset
+        transform.translation.z = midpoint.y; // Y -> Z for 3D
+
+        // Rotate around Y axis (vertical) instead of Z
+        transform.rotation = Quat::from_rotation_y(-rotation);
 
         // Calculate thickness (tapers from center to tip)
-        let thickness = bolt.thickness_at_segment(segment.index);
+        let thickness = bolt.thickness_at_segment(segment.index) * 0.02; // Scale for 3D
 
-        // Update size via transform scale (mesh is 1x1 unit)
-        transform.scale = Vec3::new(length, thickness, 1.0);
-
-        // Update material color with HDR red-orange and calculated opacity
-        if let Some(material) = color_materials.get_mut(&material_handle.0) {
-            material.color = LinearRgba::new(3.0, 1.5, 1.0, opacity);
-        }
+        // Update size via transform scale
+        // Scale factor for opacity effect
+        let scale_factor = opacity;
+        transform.scale = Vec3::new(length * 0.03 * scale_factor, thickness * scale_factor, thickness * scale_factor);
     }
 }
 
@@ -681,11 +638,11 @@ pub fn update_whisper_arcs(
     }
 }
 
-/// Number of trail segments per orbital particle (3x the original for smoother trails)
+/// Number of trail segments per orbital particle
 const TRAIL_SEGMENT_COUNT: usize = 36;
 
 /// Spawns orbital particles around Whisper at random intervals.
-/// Particles orbit in tilted 3D planes projected to 2D.
+/// Particles orbit in true 3D space around the whisper core.
 /// Runs in GameSet::Effects
 #[allow(clippy::type_complexity)]
 pub fn spawn_orbital_particles(
@@ -699,9 +656,11 @@ pub fn spawn_orbital_particles(
         (Entity, &mut OrbitalParticleSpawnTimer),
         (With<WhisperCompanion>, Without<WhisperDrop>),
     >,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut color_materials: ResMut<Assets<AdditiveColorMaterial>>,
+    game_meshes: Option<Res<GameMeshes>>,
+    game_materials: Option<Res<GameMaterials>>,
 ) {
+    let Some(game_meshes) = game_meshes else { return };
+    let Some(game_materials) = game_materials else { return };
     let mut rng = rand::thread_rng();
 
     // Process WhisperDrop entities
@@ -715,8 +674,8 @@ pub fn spawn_orbital_particles(
         spawn_orbital_particle_as_child(
             &mut commands,
             whisper_entity,
-            &mut meshes,
-            &mut color_materials,
+            &game_meshes,
+            &game_materials,
             &mut rng,
         );
 
@@ -734,8 +693,8 @@ pub fn spawn_orbital_particles(
         spawn_orbital_particle_as_child(
             &mut commands,
             whisper_entity,
-            &mut meshes,
-            &mut color_materials,
+            &game_meshes,
+            &game_materials,
             &mut rng,
         );
 
@@ -744,19 +703,20 @@ pub fn spawn_orbital_particles(
 }
 
 /// Helper function to spawn an orbital particle as a child of the whisper entity.
+/// Uses 3D meshes and positions in true 3D space.
 fn spawn_orbital_particle_as_child(
     commands: &mut Commands,
     whisper_entity: Entity,
-    meshes: &mut Assets<Mesh>,
-    color_materials: &mut Assets<AdditiveColorMaterial>,
+    game_meshes: &GameMeshes,
+    game_materials: &GameMaterials,
     rng: &mut impl Rng,
 ) {
-    // Random orbital parameters - orbit within texture area (32px radius)
-    let radius = rng.gen_range(12.0..28.0);
-    let period = rng.gen_range(0.19..0.38); // Very fast orbit (8x original speed)
+    // Random orbital parameters - orbit in 3D space around core
+    let radius = rng.gen_range(0.3..0.7); // 3D world units
+    let period = rng.gen_range(0.19..0.38); // Fast orbit
     let inclination = rng.gen_range(0.3..1.2); // ~17 to ~69 degrees
     let ascending_node = rng.gen_range(0.0..std::f32::consts::TAU);
-    let size = rng.gen_range(3.0..5.0);
+    let size = rng.gen_range(0.03..0.06); // 3D world units
     let phase = rng.gen_range(0.0..std::f32::consts::TAU);
 
     let particle = OrbitalParticle::new(
@@ -768,15 +728,11 @@ fn spawn_orbital_particle_as_child(
         size,
     );
 
-    // Trail with more samples for smoother appearance
+    // Trail with samples for appearance
     let trail = ParticleTrail::new(TRAIL_SEGMENT_COUNT, 0.015);
 
-    // Calculate initial position
-    let (pos_2d, _z_depth) = particle.calculate_position();
-    let render_z = particle.calculate_render_z();
-
-    // Create mesh and materials for trail segments
-    let unit_mesh = meshes.add(Rectangle::new(1.0, 1.0));
+    // Calculate initial position (XY -> XZ mapping)
+    let (pos_2d, z_depth) = particle.calculate_position();
 
     // Spawn particle as child of whisper
     commands.entity(whisper_entity).with_children(|parent| {
@@ -784,20 +740,18 @@ fn spawn_orbital_particle_as_child(
             .spawn((
                 particle,
                 trail,
-                Transform::from_translation(Vec3::new(pos_2d.x, pos_2d.y, render_z)),
+                // Map XY to XZ plane: x -> x, y -> z, z_depth -> y
+                Transform::from_translation(Vec3::new(pos_2d.x, z_depth * 0.1, pos_2d.y)),
                 Visibility::default(),
             ))
             .with_children(|particle_parent| {
                 // Pre-spawn trail segment meshes
                 for i in 0..TRAIL_SEGMENT_COUNT {
-                    let material = color_materials.add(AdditiveColorMaterial {
-                        color: LinearRgba::new(3.0, 1.0, 0.6, 0.0), // Start invisible
-                    });
                     particle_parent.spawn((
                         TrailSegment { index: i },
-                        Mesh2d(unit_mesh.clone()),
-                        MeshMaterial2d(material),
-                        Transform::from_translation(Vec3::new(0.0, 0.0, -0.01 - i as f32 * 0.001)),
+                        Mesh3d(game_meshes.orbital_particle.clone()),
+                        MeshMaterial3d(game_materials.orbital_particle.clone()),
+                        Transform::from_translation(Vec3::new(0.0, -0.001 * i as f32, 0.0)),
                     ));
                 }
             });
@@ -805,6 +759,7 @@ fn spawn_orbital_particle_as_child(
 }
 
 /// Updates orbital particle positions and trails.
+/// Uses 3D transforms with XZ as ground plane.
 /// Runs in GameSet::Effects
 pub fn update_orbital_particles(
     mut commands: Commands,
@@ -829,7 +784,7 @@ pub fn update_orbital_particles(
         // Update phase (orbital position)
         particle.advance_phase(delta_secs);
 
-        // Calculate new position
+        // Calculate new position (in 2D orbital plane)
         let (position_2d, z_depth) = particle.calculate_position();
 
         // Update trail sampling
@@ -839,32 +794,28 @@ pub fn update_orbital_particles(
             trail.reset_sample_timer();
         }
 
-        // Update particle transform (local to whisper parent)
+        // Update particle transform - map XY orbital plane to XZ 3D plane
+        // x -> x, y -> z, z_depth -> y (height)
         transform.translation.x = position_2d.x;
-        transform.translation.y = position_2d.y;
-        transform.translation.z = particle.calculate_render_z();
+        transform.translation.y = z_depth * 0.1; // Height based on orbital depth
+        transform.translation.z = position_2d.y;
 
         // Scale based on z (pseudo-perspective: slightly larger when closer)
         let normalized_z = (z_depth / particle.radius).clamp(-1.0, 1.0);
-        let perspective_scale = 1.0 - normalized_z * 0.1; // Closer = larger
+        let perspective_scale = 1.0 - normalized_z * 0.1;
         transform.scale = Vec3::splat(perspective_scale);
     }
 }
 
 /// Renders particle trails by positioning trail segments between recorded positions.
-/// Each segment following the head is progressively more transparent.
+/// Each segment following the head is progressively smaller for fade effect.
+/// Uses 3D transforms with XZ as ground plane.
 /// Runs in GameSet::Effects (after update_orbital_particles)
 pub fn render_particle_trails(
     particle_query: Query<(&ParticleTrail, &OrbitalParticle), Without<TrailSegment>>,
-    mut segment_query: Query<(
-        &TrailSegment,
-        &ChildOf,
-        &mut Transform,
-        &MeshMaterial2d<AdditiveColorMaterial>,
-    )>,
-    mut color_materials: ResMut<Assets<AdditiveColorMaterial>>,
+    mut segment_query: Query<(&TrailSegment, &ChildOf, &mut Transform)>,
 ) {
-    for (segment, child_of, mut transform, material_handle) in segment_query.iter_mut() {
+    for (segment, child_of, mut transform) in segment_query.iter_mut() {
         // Get parent particle data
         let Ok((trail, particle)) = particle_query.get(child_of.parent()) else {
             continue;
@@ -874,76 +825,70 @@ pub fn render_particle_trails(
 
         // Not enough trail points yet - hide segment
         if idx + 1 >= trail.positions.len() {
-            if let Some(material) = color_materials.get_mut(&material_handle.0) {
-                material.color.alpha = 0.0;
-            }
+            transform.scale = Vec3::ZERO;
             continue;
         }
 
-        // Trail positions are in Whisper's local space, but segments are children of the particle.
-        // Transform trail positions to particle's local space by subtracting particle's current position.
+        // Trail positions are in 2D orbital space (XY), need to map to 3D (XZ + Y height)
         let (particle_pos, _) = particle.calculate_position();
         let start = trail.positions[idx] - particle_pos;
         let end = trail.positions[idx + 1] - particle_pos;
         let start_z = trail.z_depths[idx];
         let end_z = trail.z_depths[idx + 1];
 
-        // Segment geometry
+        // Segment geometry in 2D orbital plane
         let midpoint = (start + end) / 2.0;
-        let direction = end - start;
-        let length = direction.length().max(0.1);
-        let angle = direction.y.atan2(direction.x);
-
-        // Z position (average of segment endpoints)
         let avg_z = (start_z + end_z) / 2.0;
 
-        // Update transform (local to particle parent)
+        // Update transform - map XY orbital plane to XZ 3D plane
         transform.translation.x = midpoint.x;
-        transform.translation.y = midpoint.y;
-        // Slightly behind particle head
-        transform.translation.z = -0.01 - idx as f32 * 0.001;
-        transform.rotation = Quat::from_rotation_z(angle);
+        transform.translation.y = avg_z * 0.1 - 0.001 * idx as f32; // Height with slight offset
+        transform.translation.z = midpoint.y;
 
-        // Thickness tapers along trail
-        let progress = idx as f32 / (TRAIL_SEGMENT_COUNT - 1) as f32;
-        let thickness = particle.size * 0.8 * (1.0 - progress);
-        transform.scale = Vec3::new(length, thickness.max(0.1), 1.0);
-
-        // Calculate depth-based brightness (further away = dimmer)
-        // Normalize z_depth: positive = behind (dimmer), negative = in front (brighter)
-        let normalized_z = (avg_z / particle.radius).clamp(-1.0, 1.0);
-        // Behind the core (positive z) = 0.3-0.6 brightness, in front = 0.8-1.0 brightness
-        let depth_brightness = 0.65 - normalized_z * 0.35;
-
-        // Get segment brightness (includes head fade-in/out and progressive trail fade)
-        // This controls HDR intensity rather than alpha for additive blending
+        // Calculate segment brightness for scale-based fade effect
+        let depth_brightness = 0.65 - (avg_z / particle.radius).clamp(-1.0, 1.0) * 0.35;
         let segment_brightness = particle.segment_opacity(idx, TRAIL_SEGMENT_COUNT);
-
-        // Combined brightness: segment fade * depth
         let brightness = (segment_brightness * depth_brightness).clamp(0.0, 1.0);
 
-        // Use brightness to scale HDR color values (not alpha) for additive blending
-        if let Some(material) = color_materials.get_mut(&material_handle.0) {
-            material.color = LinearRgba::new(
-                3.0 * brightness,
-                1.0 * brightness,
-                0.6 * brightness,
-                1.0, // Full alpha, brightness controls visibility
-            );
-        }
+        // Thickness tapers along trail, scaled by brightness
+        let progress = idx as f32 / (TRAIL_SEGMENT_COUNT - 1) as f32;
+        let base_size = particle.size * 0.5 * (1.0 - progress);
+        let size = (base_size * brightness).max(0.001);
+
+        transform.scale = Vec3::splat(size);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::pbr::StandardMaterial;
     use std::time::Duration;
+
+    fn setup_test_app_with_game_resources() -> App {
+        let mut app = App::new();
+        app.add_plugins(bevy::asset::AssetPlugin::default());
+        app.init_asset::<Mesh>();
+        app.init_asset::<StandardMaterial>();
+
+        // Set up game meshes and materials
+        {
+            let world = app.world_mut();
+            world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
+                world.resource_scope(|world, mut materials: Mut<Assets<StandardMaterial>>| {
+                    let game_meshes = GameMeshes::new(&mut meshes);
+                    let game_materials = GameMaterials::new(&mut materials);
+                    world.insert_resource(game_meshes);
+                    world.insert_resource(game_materials);
+                });
+            });
+        }
+        app
+    }
 
     #[test]
     fn test_spawn_whisper_drop_creates_entity() {
-        let mut app = App::new();
-        app.init_resource::<Assets<Mesh>>();
-        app.init_resource::<Assets<AdditiveTextureMaterial>>();
+        let mut app = setup_test_app_with_game_resources();
         app.add_systems(Startup, spawn_whisper_drop);
 
         app.update();
@@ -958,12 +903,10 @@ mod tests {
     }
 
     #[test]
-    fn test_spawn_whisper_drop_position_within_200px_of_player() {
-        // Run multiple times to verify random positions are within 200px of player origin
+    fn test_spawn_whisper_drop_position_within_range_of_player() {
+        // Run multiple times to verify random positions are within expected range of origin
         for _ in 0..20 {
-            let mut app = App::new();
-            app.init_resource::<Assets<Mesh>>();
-            app.init_resource::<Assets<AdditiveTextureMaterial>>();
+            let mut app = setup_test_app_with_game_resources();
             app.add_systems(Startup, spawn_whisper_drop);
 
             app.update();
@@ -971,18 +914,19 @@ mod tests {
             let mut query = app.world_mut().query::<(&WhisperDrop, &Transform)>();
             for (_, transform) in query.iter(app.world()) {
                 let pos = transform.translation;
-                let distance = (pos.x * pos.x + pos.y * pos.y).sqrt();
+                // Use XZ plane for 3D distance
+                let distance = (pos.x * pos.x + pos.z * pos.z).sqrt();
 
-                // Whisper should spawn within 200px of origin (where player spawns)
+                // Whisper should spawn within 8 world units of origin
                 assert!(
-                    distance <= 200.0,
-                    "Whisper spawned at distance {} which exceeds 200px",
+                    distance <= 8.0,
+                    "Whisper spawned at distance {} which exceeds 8 units",
                     distance
                 );
 
-                // Whisper should spawn at least some minimum distance away (not on top of player)
+                // Whisper should spawn at least some minimum distance away
                 assert!(
-                    distance >= 50.0,
+                    distance >= 3.0,
                     "Whisper spawned too close to player at distance {}",
                     distance
                 );
@@ -1015,20 +959,20 @@ mod tests {
                 .chain(),
         );
 
-        // Create player at (0, 0)
+        // Create player at (0, 0.5, 0) on XZ plane
         app.world_mut().spawn((
             Player {
                 speed: 200.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
-            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
         ));
 
-        // Create WhisperDrop at (10, 10) - within pickup radius
+        // Create WhisperDrop at (0.5, 1.0, 0.5) - within 3D pickup radius on XZ plane
         app.world_mut().spawn((
             WhisperDrop::default(),
-            Transform::from_translation(Vec3::new(10.0, 10.0, 0.0)),
+            Transform::from_translation(Vec3::new(0.5, 1.0, 0.5)),
         ));
 
         app.update();
@@ -1046,20 +990,20 @@ mod tests {
         app.add_message::<WhisperCollectedEvent>();
         app.add_systems(Update, detect_whisper_pickup);
 
-        // Create player at (0, 0)
+        // Create player at (0, 0.5, 0) on XZ plane
         app.world_mut().spawn((
             Player {
                 speed: 200.0,
                 regen_rate: 1.0,
                 pickup_radius: 50.0,
             },
-            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
         ));
 
-        // Create WhisperDrop far away
+        // Create WhisperDrop far away on XZ plane
         app.world_mut().spawn((
             WhisperDrop::default(),
-            Transform::from_translation(Vec3::new(100.0, 100.0, 0.0)),
+            Transform::from_translation(Vec3::new(10.0, 1.0, 10.0)),
         ));
 
         // Add a simple event counter
@@ -1149,15 +1093,15 @@ mod tests {
         app.init_resource::<WeaponOrigin>();
         app.add_systems(Update, update_weapon_origin);
 
-        // Create WhisperCompanion at (50, 60)
+        // Create WhisperCompanion at (50, 1.5, 60) on XZ plane (Y is height)
         app.world_mut().spawn((
             WhisperCompanion::default(),
-            Transform::from_translation(Vec3::new(50.0, 60.0, 0.5)),
+            Transform::from_translation(Vec3::new(50.0, 1.5, 60.0)),
         ));
 
         app.update();
 
-        // Verify WeaponOrigin was updated
+        // Verify WeaponOrigin was updated - should use XZ plane (X and Z)
         let weapon_origin = app.world().resource::<WeaponOrigin>();
         assert!(weapon_origin.position.is_some());
         assert_eq!(weapon_origin.position.unwrap(), Vec2::new(50.0, 60.0));
@@ -1214,36 +1158,31 @@ mod tests {
 
     #[test]
     fn test_spawn_whisper_drop_has_point_light() {
-        let mut app = App::new();
-        app.init_resource::<Assets<Mesh>>();
-        app.init_resource::<Assets<AdditiveTextureMaterial>>();
+        let mut app = setup_test_app_with_game_resources();
         app.add_systems(Startup, spawn_whisper_drop);
 
         app.update();
 
-        // Verify WhisperDrop entity was spawned with PointLight2d
-        let mut query = app.world_mut().query::<(&WhisperDrop, &PointLight2d)>();
+        // Verify WhisperDrop entity was spawned with 3D PointLight
+        let mut query = app.world_mut().query::<(&WhisperDrop, &PointLight)>();
         let count = query.iter(app.world()).count();
-        assert_eq!(count, 1, "WhisperDrop should have PointLight2d component");
+        assert_eq!(count, 1, "WhisperDrop should have PointLight component");
     }
 
     #[test]
     fn test_spawn_whisper_drop_light_properties() {
-        let mut app = App::new();
-        app.init_resource::<Assets<Mesh>>();
-        app.init_resource::<Assets<AdditiveTextureMaterial>>();
+        let mut app = setup_test_app_with_game_resources();
         app.add_systems(Startup, spawn_whisper_drop);
 
         app.update();
 
         // Verify the light properties
-        let mut query = app.world_mut().query::<&PointLight2d>();
+        let mut query = app.world_mut().query::<&PointLight>();
         let light = query.single(app.world()).unwrap();
 
-        // Drop has dimmer light (half intensity and radius)
+        // Drop has dimmer light (half intensity)
         assert_eq!(light.intensity, WHISPER_LIGHT_INTENSITY * 0.5);
-        assert_eq!(light.outer_radius, WHISPER_LIGHT_OUTER_RADIUS * 0.5);
-        assert_eq!(light.falloff, WHISPER_LIGHT_FALLOFF);
+        assert_eq!(light.radius, WHISPER_LIGHT_RADIUS);
     }
 
     // Note: test_setup_whisper_particle_effect_creates_resource requires full HanabiPlugin
@@ -1265,40 +1204,35 @@ mod tests {
 
     #[test]
     fn test_lightning_bolt_animation_updates_distance() {
-        let mut app = App::new();
+        let mut app = setup_test_app_with_game_resources();
         app.add_plugins(bevy::time::TimePlugin);
-        app.init_resource::<Assets<Mesh>>();
-        app.init_resource::<Assets<AdditiveColorMaterial>>();
         app.add_systems(Update, animate_lightning_bolts);
 
         // Create a lightning bolt at origin facing right (angle = 0)
-        let center = Vec3::new(0.0, 0.0, 0.5);
-        let bolt = LightningBolt::new(0.0, 42, center, 32.0, 1.0);
+        let center = Vec3::new(0.0, 0.0, 0.0);
+        let bolt = LightningBolt::new(0.0, 42, center, 0.5, 1.0);
         let bolt_entity = app
             .world_mut()
             .spawn((bolt, Transform::from_translation(center), Visibility::default()))
             .id();
 
-        // Create mesh and material for segment
+        // Create a segment for this bolt using 3D mesh
         let mesh_handle = {
-            let mut meshes = app.world_mut().resource_mut::<Assets<Mesh>>();
-            meshes.add(Rectangle::new(1.0, 1.0))
+            let game_meshes = app.world().resource::<GameMeshes>();
+            game_meshes.lightning_segment.clone()
         };
         let material_handle = {
-            let mut materials = app.world_mut().resource_mut::<Assets<AdditiveColorMaterial>>();
-            materials.add(AdditiveColorMaterial {
-                color: LinearRgba::WHITE,
-            })
+            let game_materials = app.world().resource::<GameMaterials>();
+            game_materials.lightning.clone()
         };
 
-        // Create a segment for this bolt
         app.world_mut().spawn((
             LightningSegment {
                 index: 0,
                 bolt_entity,
             },
-            Mesh2d(mesh_handle),
-            MeshMaterial2d(material_handle),
+            Mesh3d(mesh_handle),
+            MeshMaterial3d(material_handle),
             Transform::from_translation(center),
         ));
 
@@ -1324,13 +1258,11 @@ mod tests {
     fn test_lightning_bolt_despawns_when_expired() {
         let mut app = App::new();
         app.add_plugins(bevy::time::TimePlugin);
-        app.init_resource::<Assets<Mesh>>();
-        app.init_resource::<Assets<AdditiveColorMaterial>>();
         app.add_systems(Update, animate_lightning_bolts);
 
         // Create a lightning bolt that's already expired (distance >= max_distance)
         let center = Vec3::ZERO;
-        let mut bolt = LightningBolt::new(0.0, 42, center, 32.0, 1.0);
+        let mut bolt = LightningBolt::new(0.0, 42, center, 0.5, 1.0);
         bolt.distance = bolt.max_distance; // At max, should be despawned
 
         let bolt_entity = app
@@ -1356,27 +1288,23 @@ mod tests {
 
     #[test]
     fn test_lightning_segments_despawn_with_parent_bolt() {
-        let mut app = App::new();
+        let mut app = setup_test_app_with_game_resources();
         app.add_plugins(bevy::time::TimePlugin);
-        app.init_resource::<Assets<Mesh>>();
-        app.init_resource::<Assets<AdditiveColorMaterial>>();
         app.add_systems(Update, animate_lightning_bolts);
 
-        // Create mesh and material for segment
+        // Get mesh and material for segment
         let mesh_handle = {
-            let mut meshes = app.world_mut().resource_mut::<Assets<Mesh>>();
-            meshes.add(Rectangle::new(1.0, 1.0))
+            let game_meshes = app.world().resource::<GameMeshes>();
+            game_meshes.lightning_segment.clone()
         };
         let material_handle = {
-            let mut materials = app.world_mut().resource_mut::<Assets<AdditiveColorMaterial>>();
-            materials.add(AdditiveColorMaterial {
-                color: LinearRgba::WHITE,
-            })
+            let game_materials = app.world().resource::<GameMaterials>();
+            game_materials.lightning.clone()
         };
 
         // Create an expired lightning bolt with a child segment
         let center = Vec3::ZERO;
-        let mut bolt = LightningBolt::new(0.0, 42, center, 32.0, 1.0);
+        let mut bolt = LightningBolt::new(0.0, 42, center, 0.5, 1.0);
         bolt.distance = bolt.max_distance; // Mark as expired
 
         let bolt_entity = app
@@ -1388,8 +1316,8 @@ mod tests {
                         index: 0,
                         bolt_entity: Entity::PLACEHOLDER,
                     },
-                    Mesh2d(mesh_handle.clone()),
-                    MeshMaterial2d(material_handle.clone()),
+                    Mesh3d(mesh_handle),
+                    MeshMaterial3d(material_handle),
                     Transform::default(),
                 ));
             })
@@ -1419,9 +1347,7 @@ mod tests {
 
     #[test]
     fn test_spawn_whisper_drop_has_lightning_spawn_timer() {
-        let mut app = App::new();
-        app.init_resource::<Assets<Mesh>>();
-        app.init_resource::<Assets<AdditiveTextureMaterial>>();
+        let mut app = setup_test_app_with_game_resources();
         app.add_systems(Startup, spawn_whisper_drop);
 
         app.update();
@@ -1437,35 +1363,31 @@ mod tests {
 
     #[test]
     fn test_spawn_bolts_as_children_creates_bolts_and_segments() {
-        let mut app = App::new();
-        app.init_resource::<Assets<Mesh>>();
-        app.init_resource::<Assets<AdditiveColorMaterial>>();
+        let mut app = setup_test_app_with_game_resources();
 
         // Create a whisper entity to be the parent
         let whisper_entity = app
             .world_mut()
             .spawn((
                 WhisperCompanion::default(),
-                Transform::from_translation(Vec3::new(100.0, 100.0, 0.5)),
+                Transform::from_translation(Vec3::new(50.0, 1.5, 50.0)),
             ))
             .id();
 
         // Spawn bolts as children of the whisper entity
         {
             let world = app.world_mut();
-            world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
-                world.resource_scope(
-                    |world, mut color_materials: Mut<Assets<AdditiveColorMaterial>>| {
-                        let mut commands = world.commands();
-                        spawn_bolts_as_children(
-                            &mut commands,
-                            whisper_entity,
-                            &mut rand::thread_rng(),
-                            &mut meshes,
-                            &mut color_materials,
-                        );
-                    },
-                );
+            world.resource_scope(|world, game_meshes: Mut<GameMeshes>| {
+                world.resource_scope(|world, game_materials: Mut<GameMaterials>| {
+                    let mut commands = world.commands();
+                    spawn_bolts_as_children(
+                        &mut commands,
+                        whisper_entity,
+                        &mut rand::thread_rng(),
+                        &game_meshes,
+                        &game_materials,
+                    );
+                });
             });
         }
         app.update();
@@ -1498,40 +1420,36 @@ mod tests {
 
     #[test]
     fn test_lightning_bolts_use_local_coordinates() {
-        let mut app = App::new();
-        app.init_resource::<Assets<Mesh>>();
-        app.init_resource::<Assets<AdditiveColorMaterial>>();
+        let mut app = setup_test_app_with_game_resources();
 
         // Create a whisper entity at some world position
         let whisper_entity = app
             .world_mut()
             .spawn((
                 WhisperCompanion::default(),
-                Transform::from_translation(Vec3::new(50.0, 75.0, 0.5)),
+                Transform::from_translation(Vec3::new(50.0, 1.5, 75.0)),
             ))
             .id();
 
         // Spawn bolts as children
         {
             let world = app.world_mut();
-            world.resource_scope(|world, mut meshes: Mut<Assets<Mesh>>| {
-                world.resource_scope(
-                    |world, mut color_materials: Mut<Assets<AdditiveColorMaterial>>| {
-                        let mut commands = world.commands();
-                        spawn_bolts_as_children(
-                            &mut commands,
-                            whisper_entity,
-                            &mut rand::thread_rng(),
-                            &mut meshes,
-                            &mut color_materials,
-                        );
-                    },
-                );
+            world.resource_scope(|world, game_meshes: Mut<GameMeshes>| {
+                world.resource_scope(|world, game_materials: Mut<GameMaterials>| {
+                    let mut commands = world.commands();
+                    spawn_bolts_as_children(
+                        &mut commands,
+                        whisper_entity,
+                        &mut rand::thread_rng(),
+                        &game_meshes,
+                        &game_materials,
+                    );
+                });
             });
         }
         app.update();
 
-        // Verify bolts store local center (0, 0, 0.1) not world position
+        // Verify bolts store local center (0, 0, 0) not world position
         let mut query = app.world_mut().query::<&LightningBolt>();
         for bolt in query.iter(app.world()) {
             assert!(
@@ -1551,10 +1469,8 @@ mod tests {
 
     #[test]
     fn test_spawn_orbital_particles_spawns_particle_as_child() {
-        let mut app = App::new();
+        let mut app = setup_test_app_with_game_resources();
         app.add_plugins(bevy::time::TimePlugin);
-        app.init_resource::<Assets<Mesh>>();
-        app.init_resource::<Assets<AdditiveColorMaterial>>();
         app.add_systems(Update, spawn_orbital_particles);
 
         // Create a WhisperCompanion with spawn timer set to trigger immediately
@@ -1565,7 +1481,7 @@ mod tests {
                 min_interval: 0.5,
                 max_interval: 1.0,
             },
-            Transform::from_translation(Vec3::new(100.0, 100.0, 0.5)),
+            Transform::from_translation(Vec3::new(50.0, 1.5, 50.0)),
             Visibility::default(),
         ));
 
@@ -1586,10 +1502,8 @@ mod tests {
 
     #[test]
     fn test_spawn_orbital_particles_creates_trail_segments() {
-        let mut app = App::new();
+        let mut app = setup_test_app_with_game_resources();
         app.add_plugins(bevy::time::TimePlugin);
-        app.init_resource::<Assets<Mesh>>();
-        app.init_resource::<Assets<AdditiveColorMaterial>>();
         app.add_systems(Update, spawn_orbital_particles);
 
         // Create a WhisperCompanion with spawn timer set to trigger immediately
@@ -1600,7 +1514,7 @@ mod tests {
                 min_interval: 0.5,
                 max_interval: 1.0,
             },
-            Transform::from_translation(Vec3::new(100.0, 100.0, 0.5)),
+            Transform::from_translation(Vec3::new(50.0, 1.5, 50.0)),
             Visibility::default(),
         ));
 
@@ -1610,7 +1524,7 @@ mod tests {
             .advance_by(Duration::from_secs_f32(0.1));
         app.update();
 
-        // Verify trail segments were spawned (12 per particle)
+        // Verify trail segments were spawned
         let segment_count = app
             .world_mut()
             .query::<&TrailSegment>()
@@ -1766,10 +1680,8 @@ mod tests {
 
     #[test]
     fn test_orbital_particles_work_with_whisper_drop() {
-        let mut app = App::new();
+        let mut app = setup_test_app_with_game_resources();
         app.add_plugins(bevy::time::TimePlugin);
-        app.init_resource::<Assets<Mesh>>();
-        app.init_resource::<Assets<AdditiveColorMaterial>>();
         app.add_systems(Update, spawn_orbital_particles);
 
         // Create a WhisperDrop (not companion) with spawn timer
@@ -1780,7 +1692,7 @@ mod tests {
                 min_interval: 0.5,
                 max_interval: 1.0,
             },
-            Transform::from_translation(Vec3::new(100.0, 100.0, 0.5)),
+            Transform::from_translation(Vec3::new(50.0, 1.5, 50.0)),
             Visibility::default(),
         ));
 

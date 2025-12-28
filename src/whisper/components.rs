@@ -4,12 +4,20 @@ use std::f32::consts::TAU;
 /// Marker component for Whisper when it's a dropped collectible (before pickup)
 #[derive(Component)]
 pub struct WhisperDrop {
+    /// Pickup radius in 2D pixels (legacy)
     pub pickup_radius: f32,
 }
 
 impl Default for WhisperDrop {
     fn default() -> Self {
         Self { pickup_radius: 25.0 }
+    }
+}
+
+impl WhisperDrop {
+    /// Returns pickup radius in 3D world units
+    pub fn pickup_radius_3d(&self) -> f32 {
+        1.5 // 1.5 world units for 3D collision
     }
 }
 

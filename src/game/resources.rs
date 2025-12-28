@@ -63,6 +63,14 @@ pub struct GameMeshes {
     pub loot_large: Handle<Mesh>,
     /// Rock mesh (1.0 x 0.5 x 1.0 flat cube)
     pub rock: Handle<Mesh>,
+    /// Whisper core mesh (small sphere for the glowing center)
+    pub whisper_core: Handle<Mesh>,
+    /// Lightning segment mesh (thin elongated cube for lightning bolts, 1x1 unit scaled per segment)
+    pub lightning_segment: Handle<Mesh>,
+    /// Whisper arc mesh (small rectangle for lightning arc effects)
+    pub whisper_arc: Handle<Mesh>,
+    /// Orbital particle mesh (small sphere for trail particles)
+    pub orbital_particle: Handle<Mesh>,
 }
 
 impl GameMeshes {
@@ -79,6 +87,10 @@ impl GameMeshes {
             loot_medium: meshes.add(Cuboid::new(0.5, 0.5, 0.5)),
             loot_large: meshes.add(Cuboid::new(0.6, 0.6, 0.6)),
             rock: meshes.add(Cuboid::new(1.0, 0.5, 1.0)),
+            whisper_core: meshes.add(Sphere::new(0.5)),
+            lightning_segment: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
+            whisper_arc: meshes.add(Cuboid::new(0.1, 0.02, 0.02)),
+            orbital_particle: meshes.add(Sphere::new(0.05)),
         }
     }
 }
@@ -120,6 +132,14 @@ pub struct GameMaterials {
     pub powerup: Handle<StandardMaterial>,
     /// Rock obstacle material (grey)
     pub rock: Handle<StandardMaterial>,
+    /// Whisper core material (red-orange with strong emissive glow)
+    pub whisper_core: Handle<StandardMaterial>,
+    /// Whisper drop material (dimmer red-orange)
+    pub whisper_drop: Handle<StandardMaterial>,
+    /// Lightning bolt/arc material (red-orange with HDR emissive)
+    pub lightning: Handle<StandardMaterial>,
+    /// Orbital particle/trail material (red-orange)
+    pub orbital_particle: Handle<StandardMaterial>,
 }
 
 impl GameMaterials {
@@ -203,6 +223,30 @@ impl GameMaterials {
                 base_color: Color::srgb(0.5, 0.5, 0.5),
                 ..default()
             }),
+            whisper_core: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 0.3, 0.2),
+                emissive: bevy::color::LinearRgba::rgb(3.0, 0.9, 0.6),
+                unlit: true,
+                ..default()
+            }),
+            whisper_drop: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 0.3, 0.2),
+                emissive: bevy::color::LinearRgba::rgb(1.5, 0.45, 0.3),
+                unlit: true,
+                ..default()
+            }),
+            lightning: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 0.5, 0.3),
+                emissive: bevy::color::LinearRgba::rgb(3.0, 1.5, 1.0),
+                unlit: true,
+                ..default()
+            }),
+            orbital_particle: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 0.5, 0.3),
+                emissive: bevy::color::LinearRgba::rgb(3.0, 1.0, 0.6),
+                unlit: true,
+                ..default()
+            }),
         }
     }
 }
@@ -256,6 +300,10 @@ mod tests {
             assert!(meshes.get(&game_meshes.loot_medium).is_some());
             assert!(meshes.get(&game_meshes.loot_large).is_some());
             assert!(meshes.get(&game_meshes.rock).is_some());
+            assert!(meshes.get(&game_meshes.whisper_core).is_some());
+            assert!(meshes.get(&game_meshes.lightning_segment).is_some());
+            assert!(meshes.get(&game_meshes.whisper_arc).is_some());
+            assert!(meshes.get(&game_meshes.orbital_particle).is_some());
         }
 
         #[test]
@@ -283,6 +331,10 @@ mod tests {
             assert!(materials.get(&game_materials.weapon_rocket).is_some());
             assert!(materials.get(&game_materials.powerup).is_some());
             assert!(materials.get(&game_materials.rock).is_some());
+            assert!(materials.get(&game_materials.whisper_core).is_some());
+            assert!(materials.get(&game_materials.whisper_drop).is_some());
+            assert!(materials.get(&game_materials.lightning).is_some());
+            assert!(materials.get(&game_materials.orbital_particle).is_some());
         }
 
         #[test]
@@ -361,6 +413,26 @@ mod tests {
             // Verify rock is grey
             let rock_mat = materials.get(&game_materials.rock).unwrap();
             assert_eq!(rock_mat.base_color, Color::srgb(0.5, 0.5, 0.5));
+
+            // Verify whisper_core is red-orange with emissive glow
+            let whisper_core_mat = materials.get(&game_materials.whisper_core).unwrap();
+            assert_eq!(whisper_core_mat.base_color, Color::srgb(1.0, 0.3, 0.2));
+            assert!(whisper_core_mat.unlit);
+
+            // Verify whisper_drop is dimmer red-orange
+            let whisper_drop_mat = materials.get(&game_materials.whisper_drop).unwrap();
+            assert_eq!(whisper_drop_mat.base_color, Color::srgb(1.0, 0.3, 0.2));
+            assert!(whisper_drop_mat.unlit);
+
+            // Verify lightning is red-orange with HDR emissive
+            let lightning_mat = materials.get(&game_materials.lightning).unwrap();
+            assert_eq!(lightning_mat.base_color, Color::srgb(1.0, 0.5, 0.3));
+            assert!(lightning_mat.unlit);
+
+            // Verify orbital_particle is red-orange
+            let orbital_mat = materials.get(&game_materials.orbital_particle).unwrap();
+            assert_eq!(orbital_mat.base_color, Color::srgb(1.0, 0.5, 0.3));
+            assert!(orbital_mat.unlit);
         }
 
         #[test]
