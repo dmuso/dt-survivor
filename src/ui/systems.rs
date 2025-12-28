@@ -654,3 +654,61 @@ pub fn update_debug_hud(
         **text = format!("Enemies: {}", enemy_count);
     }
 }
+
+/// Check if debug HUD is visible (for run conditions)
+pub fn debug_hud_enabled(debug_visible: Res<DebugHudVisible>) -> bool {
+    debug_visible.0
+}
+
+/// Draw XYZ axis gizmos on all game entities when debug mode is on
+pub fn draw_debug_axis_gizmos(
+    mut gizmos: Gizmos,
+    player_query: Query<&Transform, With<Player>>,
+    enemy_query: Query<&Transform, With<Enemy>>,
+    camera_query: Query<&Transform, With<Camera>>,
+) {
+    let axis_length = 1.0; // Double the previous length for visibility
+
+    // Draw axes for player (slightly longer)
+    for transform in player_query.iter() {
+        draw_axes(&mut gizmos, transform.translation, axis_length * 1.5);
+    }
+
+    // Draw axes for enemies
+    for transform in enemy_query.iter() {
+        draw_axes(&mut gizmos, transform.translation, axis_length);
+    }
+
+    // Draw axes for camera
+    for transform in camera_query.iter() {
+        draw_axes(&mut gizmos, transform.translation, axis_length * 2.0);
+    }
+}
+
+/// Configure gizmo line width on startup
+pub fn configure_gizmos(mut config_store: ResMut<bevy::gizmos::config::GizmoConfigStore>) {
+    let (config, _) = config_store.config_mut::<bevy::gizmos::config::DefaultGizmoConfigGroup>();
+    config.line.width = 5.0; // 5 pixels wide
+}
+
+/// Helper to draw RGB XYZ axes at a position
+fn draw_axes(gizmos: &mut Gizmos, position: Vec3, length: f32) {
+    // X axis - Red
+    gizmos.line(
+        position,
+        position + Vec3::X * length,
+        Color::srgb(1.0, 0.0, 0.0),
+    );
+    // Y axis - Green
+    gizmos.line(
+        position,
+        position + Vec3::Y * length,
+        Color::srgb(0.0, 1.0, 0.0),
+    );
+    // Z axis - Blue
+    gizmos.line(
+        position,
+        position + Vec3::Z * length,
+        Color::srgb(0.0, 0.0, 1.0),
+    );
+}

@@ -5,6 +5,7 @@ use crate::score::*;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<DebugHudVisible>()
+        .add_systems(Startup, configure_gizmos)
         .add_systems(OnEnter(GameState::Intro), setup_intro)
         .add_systems(Update, button_interactions.run_if(in_state(GameState::Intro)))
         .add_systems(OnExit(GameState::Intro), cleanup_intro)
@@ -18,6 +19,11 @@ pub fn plugin(app: &mut App) {
             toggle_debug_hud,
             update_debug_hud,
         ).run_if(in_state(GameState::InGame)))
+        .add_systems(Update,
+            draw_debug_axis_gizmos
+                .run_if(in_state(GameState::InGame))
+                .run_if(debug_hud_enabled)
+        )
         .add_systems(PostUpdate, update_weapon_slots.run_if(in_state(GameState::InGame)))
         .add_systems(OnEnter(GameState::GameOver), setup_game_over_ui)
         .add_systems(Update, game_over_input.run_if(in_state(GameState::GameOver)))

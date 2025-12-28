@@ -150,6 +150,7 @@ mod tests {
             bevy::asset::AssetPlugin::default(),
             bevy::mesh::MeshPlugin,
             bevy::image::ImagePlugin::default(),
+            bevy::gizmos::GizmoPlugin,
         ));
 
         // Initialize asset types needed for 3D rendering
@@ -237,6 +238,7 @@ mod tests {
             bevy::asset::AssetPlugin::default(),
             bevy::mesh::MeshPlugin,
             bevy::image::ImagePlugin::default(),
+            bevy::gizmos::GizmoPlugin,
         ));
 
         // Initialize asset types needed for 3D rendering
@@ -448,6 +450,7 @@ mod tests {
             bevy::asset::AssetPlugin::default(),
             bevy::mesh::MeshPlugin,
             bevy::image::ImagePlugin::default(),
+            bevy::gizmos::GizmoPlugin,
         ));
 
         // Initialize asset types needed for 3D rendering
