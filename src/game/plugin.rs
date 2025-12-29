@@ -5,8 +5,9 @@ use crate::camera::plugin as camera_plugin;
 use crate::enemies::systems::*;
 use crate::game::systems::{
     cleanup_game, game_input, player_death_system, player_enemy_collision_detection,
-    player_enemy_damage_system, player_enemy_effect_system, reset_survival_time, setup_game,
-    setup_game_assets, update_screen_tint_timer, update_survival_time,
+    player_enemy_damage_system, player_enemy_effect_system, reset_game_level, reset_survival_time,
+    setup_game, setup_game_assets, track_enemy_kills_system, update_screen_tint_timer,
+    update_survival_time,
 };
 use crate::game::sets::GameSet;
 use crate::inventory::systems::inventory_initialization_system;
@@ -14,15 +15,16 @@ use crate::enemy_death::plugin as enemy_death_plugin;
 use crate::laser::plugin as laser_plugin;
 use crate::loot::plugin as loot_plugin;
 use crate::movement::plugin as movement_plugin;
+use crate::player::plugin as player_plugin;
 use crate::powerup::plugin as powerup_plugin;
 use crate::rocket_launcher::plugin as rocket_launcher_plugin;
 use crate::weapon::plugin as weapon_plugin;
 use crate::whisper::plugin as whisper_plugin;
 use crate::player::systems::{camera_follow_player, update_slow_modifiers, player_health_regeneration_system};
 use crate::whisper::systems::spawn_whisper_drop;
-use crate::game::resources::{PlayerPosition, EnemySpawnState, PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
+use crate::game::resources::{GameLevel, PlayerPosition, EnemySpawnState, PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
 use crate::score::*;
-use crate::game::events::{PlayerEnemyCollisionEvent, BulletEnemyCollisionEvent, GameOverEvent};
+use crate::game::events::{PlayerEnemyCollisionEvent, BulletEnemyCollisionEvent, GameOverEvent, GameLevelUpEvent};
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<PlayerPosition>()
@@ -31,10 +33,12 @@ pub fn plugin(app: &mut App) {
         .init_resource::<PlayerDamageTimer>()
         .init_resource::<ScreenTintEffect>()
         .init_resource::<SurvivalTime>()
+        .init_resource::<GameLevel>()
         .add_message::<PlayerEnemyCollisionEvent>()
         .add_message::<GameOverEvent>()
         .add_message::<BulletEnemyCollisionEvent>()
-        .add_plugins((camera_plugin, enemy_death_plugin, laser_plugin, loot_plugin, movement_plugin, powerup_plugin, rocket_launcher_plugin, weapon_plugin, whisper_plugin))
+        .add_message::<GameLevelUpEvent>()
+        .add_plugins((camera_plugin, enemy_death_plugin, laser_plugin, loot_plugin, movement_plugin, player_plugin, powerup_plugin, rocket_launcher_plugin, weapon_plugin, whisper_plugin))
         // Configure GameSet ordering: Input -> Movement -> Combat -> Spawning -> Effects -> Cleanup
         .configure_sets(
             Update,
@@ -55,6 +59,7 @@ pub fn plugin(app: &mut App) {
             spawn_whisper_drop,
             inventory_initialization_system,
             reset_survival_time,
+            reset_game_level,
         ).chain())
         // Input systems
         .add_systems(
@@ -103,6 +108,7 @@ pub fn plugin(app: &mut App) {
                 update_slow_modifiers,
                 player_health_regeneration_system,
                 update_survival_time,
+                track_enemy_kills_system,
             )
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),

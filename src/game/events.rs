@@ -34,6 +34,12 @@ pub struct GameOverEvent {
     pub survival_time: f32,
 }
 
+/// Fired when the game advances to a new level
+#[derive(Message, Debug)]
+pub struct GameLevelUpEvent {
+    pub new_level: u32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -53,6 +59,20 @@ mod tests {
     fn test_game_over_event_can_be_registered() {
         let mut app = App::new();
         app.add_message::<GameOverEvent>();
+        // Should not panic
+        app.update();
+    }
+
+    #[test]
+    fn test_game_level_up_event_creation() {
+        let event = GameLevelUpEvent { new_level: 5 };
+        assert_eq!(event.new_level, 5);
+    }
+
+    #[test]
+    fn test_game_level_up_event_can_be_registered() {
+        let mut app = App::new();
+        app.add_message::<GameLevelUpEvent>();
         // Should not panic
         app.update();
     }

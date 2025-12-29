@@ -10,7 +10,7 @@ use rand::Rng;
 use crate::combat::components::Health;
 use crate::enemies::components::*;
 use crate::game::components::*;
-use crate::game::resources::{GameMaterials, GameMeshes, PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
+use crate::game::resources::{GameLevel, GameMaterials, GameMeshes, PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
 use crate::game::events::*;
 use crate::movement::components::from_xz;
 use crate::player::components::*;
@@ -48,7 +48,7 @@ pub fn setup_game(
         // Add directional light (sun)
         commands.spawn((
             DirectionalLight {
-                illuminance: 10000.0,
+                illuminance: 250.0,
                 shadows_enabled: true,
                 ..default()
             },
@@ -58,7 +58,7 @@ pub fn setup_game(
         // Add ambient light resource
         commands.insert_resource(AmbientLight {
             color: Color::WHITE,
-            brightness: 200.0,
+            brightness: 5.0,
             affects_lightmapped_meshes: false,
         });
 
@@ -87,11 +87,11 @@ pub fn setup_game(
     }
     // If camera exists, we reuse it (no action needed)
 
-    // Spawn player in the center of the screen (on XZ plane, Y=0.5 to sit on ground)
+    // Spawn player in the center of the screen (on XZ plane, Y=0 since model has its own height)
+    // The 3D model will be attached as a child by the player plugin
     commands.spawn((
-        Mesh3d(game_meshes.player.clone()),
-        MeshMaterial3d(game_materials.player.clone()),
-        Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+        Visibility::default(),
         Player {
             speed: 7.0, // 3D world units/sec (was 200 pixels/sec in 2D)
             regen_rate: 1.0, // 1 health per second
@@ -142,7 +142,7 @@ pub fn game_input(
 #[allow(clippy::type_complexity)]
 pub fn cleanup_game(
     mut commands: Commands,
-    query: Query<Entity, Or<(With<Player>, With<Rock>, With<Enemy>, With<crate::loot::components::DroppedItem>, With<crate::weapon::components::Weapon>, With<crate::laser::components::LaserBeam>, With<crate::experience::components::ExperienceOrb>, With<WhisperCompanion>, With<WhisperArc>)>>,
+    query: Query<Entity, Or<(With<Player>, With<Rock>, With<Enemy>, With<crate::loot::components::DroppedItem>, With<crate::weapon::components::Weapon>, With<crate::laser::components::LaserBeam>, With<crate::experience::components::ExperienceOrb>, With<WhisperCompanion>, With<WhisperArc>, With<crate::player::components::PlayerModel>)>>,
 ) {
     // Don't despawn the camera - let the UI system reuse it
     // Collect entities first to avoid iterator invalidation issues
@@ -306,7 +306,28 @@ pub fn update_screen_tint_timer(
     }
 }
 
+/// Tracks enemy kills, advances game level, and triggers level complete state
+pub fn track_enemy_kills_system(
+    mut death_events: MessageReader<EnemyDeathEvent>,
+    mut game_level: ResMut<GameLevel>,
+    mut level_up_writer: MessageWriter<GameLevelUpEvent>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    for _ in death_events.read() {
+        if game_level.register_kill() {
+            level_up_writer.write(GameLevelUpEvent {
+                new_level: game_level.level,
+            });
+            // Transition to level complete screen
+            next_state.set(GameState::LevelComplete);
+        }
+    }
+}
 
+/// Reset game level on game start
+pub fn reset_game_level(mut game_level: ResMut<GameLevel>) {
+    *game_level = GameLevel::new();
+}
 
 #[cfg(test)]
 mod tests {
@@ -784,5 +805,159 @@ mod tests {
         // Collision should happen on Z axis
         let health = app.world().get::<Health>(player_entity).unwrap();
         assert_eq!(health.current, 90.0, "Should take damage from enemy on Z axis");
+    }
+
+    mod track_enemy_kills_tests {
+        use super::*;
+        use crate::game::resources::GameLevel;
+
+        #[test]
+        fn track_enemy_kills_increments_game_level_kills() {
+            let mut app = App::new();
+            app.add_plugins(bevy::state::app::StatesPlugin);
+            app.init_state::<GameState>();
+            app.init_resource::<GameLevel>();
+            app.add_message::<EnemyDeathEvent>();
+            app.add_message::<GameLevelUpEvent>();
+            app.add_systems(Update, track_enemy_kills_system);
+
+            // Write a death event
+            app.world_mut().write_message(EnemyDeathEvent {
+                enemy_entity: Entity::PLACEHOLDER,
+                position: Vec3::ZERO,
+            });
+
+            app.update();
+
+            let game_level = app.world().resource::<GameLevel>();
+            assert_eq!(game_level.kills_this_level, 1);
+            assert_eq!(game_level.total_kills, 1);
+            assert_eq!(game_level.level, 1);
+        }
+
+        #[test]
+        fn track_enemy_kills_advances_level_at_threshold() {
+            use std::sync::{Arc, atomic::{AtomicBool, AtomicU32, Ordering}};
+
+            let mut app = App::new();
+            app.add_plugins(bevy::state::app::StatesPlugin);
+            app.init_state::<GameState>();
+            app.init_resource::<GameLevel>();
+            app.add_message::<EnemyDeathEvent>();
+            app.add_message::<GameLevelUpEvent>();
+
+            let event_received = Arc::new(AtomicBool::new(false));
+            let new_level = Arc::new(AtomicU32::new(0));
+            let event_received_clone = event_received.clone();
+            let new_level_clone = new_level.clone();
+
+            let event_reader = move |mut events: MessageReader<GameLevelUpEvent>| {
+                for event in events.read() {
+                    event_received_clone.store(true, Ordering::SeqCst);
+                    new_level_clone.store(event.new_level, Ordering::SeqCst);
+                }
+            };
+
+            app.add_systems(Update, (track_enemy_kills_system, event_reader).chain());
+
+            // Get the kills needed to advance (default is 10)
+            let kills_to_advance = {
+                let level = app.world().resource::<GameLevel>();
+                level.kills_to_advance()
+            };
+
+            // Write enough death events to advance level
+            for _ in 0..kills_to_advance {
+                app.world_mut().write_message(EnemyDeathEvent {
+                    enemy_entity: Entity::PLACEHOLDER,
+                    position: Vec3::ZERO,
+                });
+                app.update();
+            }
+
+            assert!(event_received.load(Ordering::SeqCst), "Should have received GameLevelUpEvent");
+            assert_eq!(new_level.load(Ordering::SeqCst), 2);
+
+            let game_level = app.world().resource::<GameLevel>();
+            assert_eq!(game_level.level, 2);
+            assert_eq!(game_level.kills_this_level, 0);
+        }
+
+        #[test]
+        fn track_enemy_kills_transitions_to_level_complete() {
+            let mut app = App::new();
+            app.add_plugins(bevy::state::app::StatesPlugin);
+            app.init_state::<GameState>();
+            app.init_resource::<GameLevel>();
+            app.add_message::<EnemyDeathEvent>();
+            app.add_message::<GameLevelUpEvent>();
+            app.add_systems(Update, track_enemy_kills_system);
+
+            // Set game to InGame state
+            app.world_mut()
+                .resource_mut::<bevy::state::state::NextState<GameState>>()
+                .set(GameState::InGame);
+            app.update();
+
+            // Get kills needed and set kills_this_level to one less
+            {
+                let mut game_level = app.world_mut().resource_mut::<GameLevel>();
+                let threshold = game_level.kills_to_advance();
+                game_level.kills_this_level = threshold - 1;
+                game_level.total_kills = threshold - 1;
+            }
+
+            // Write the final death event to trigger level up
+            app.world_mut().write_message(EnemyDeathEvent {
+                enemy_entity: Entity::PLACEHOLDER,
+                position: Vec3::ZERO,
+            });
+
+            app.update();
+            app.update(); // Extra update to let state transition process
+
+            // Check we've transitioned to LevelComplete state
+            let current_state = app.world().resource::<bevy::state::state::State<GameState>>();
+            assert_eq!(*current_state.get(), GameState::LevelComplete);
+        }
+
+        #[test]
+        fn reset_game_level_resets_to_initial_state() {
+            let mut app = App::new();
+            app.init_resource::<GameLevel>();
+
+            // Modify game level
+            {
+                let mut game_level = app.world_mut().resource_mut::<GameLevel>();
+                game_level.level = 5;
+                game_level.kills_this_level = 15;
+                game_level.total_kills = 100;
+            }
+
+            app.add_systems(Update, reset_game_level);
+            app.update();
+
+            let game_level = app.world().resource::<GameLevel>();
+            assert_eq!(game_level.level, 1);
+            assert_eq!(game_level.kills_this_level, 0);
+            assert_eq!(game_level.total_kills, 0);
+        }
+
+        #[test]
+        fn track_enemy_kills_no_level_up_without_events() {
+            let mut app = App::new();
+            app.add_plugins(bevy::state::app::StatesPlugin);
+            app.init_state::<GameState>();
+            app.init_resource::<GameLevel>();
+            app.add_message::<EnemyDeathEvent>();
+            app.add_message::<GameLevelUpEvent>();
+            app.add_systems(Update, track_enemy_kills_system);
+
+            app.update();
+
+            let game_level = app.world().resource::<GameLevel>();
+            assert_eq!(game_level.kills_this_level, 0);
+            assert_eq!(game_level.level, 1);
+        }
     }
 }

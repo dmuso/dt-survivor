@@ -1,5 +1,78 @@
 use bevy::prelude::*;
 
+/// Configuration for game level progression
+#[derive(Debug, Clone)]
+pub struct LevelConfig {
+    /// Base number of kills needed to advance from level 1
+    pub base_kills: u32,
+    /// Multiplier applied each level (kills_needed = base_kills * multiplier^(level-1))
+    pub kill_multiplier: f32,
+}
+
+impl Default for LevelConfig {
+    fn default() -> Self {
+        Self {
+            base_kills: 10,
+            kill_multiplier: 1.5,
+        }
+    }
+}
+
+/// Tracks game level progression
+#[derive(Resource, Debug)]
+pub struct GameLevel {
+    /// Current game level (starts at 1)
+    pub level: u32,
+    /// Number of enemies killed in current level
+    pub kills_this_level: u32,
+    /// Total enemies killed this game
+    pub total_kills: u32,
+    /// Configuration for progression
+    pub config: LevelConfig,
+}
+
+impl Default for GameLevel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GameLevel {
+    pub fn new() -> Self {
+        Self {
+            level: 1,
+            kills_this_level: 0,
+            total_kills: 0,
+            config: LevelConfig::default(),
+        }
+    }
+
+    /// Calculate kills needed to advance from current level
+    pub fn kills_to_advance(&self) -> u32 {
+        let multiplier = self.config.kill_multiplier.powi(self.level as i32 - 1);
+        (self.config.base_kills as f32 * multiplier).ceil() as u32
+    }
+
+    /// Register a kill and return true if level advanced
+    pub fn register_kill(&mut self) -> bool {
+        self.kills_this_level += 1;
+        self.total_kills += 1;
+
+        if self.kills_this_level >= self.kills_to_advance() {
+            self.level += 1;
+            self.kills_this_level = 0;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Progress percentage toward next level (0.0 - 1.0)
+    pub fn progress(&self) -> f32 {
+        self.kills_this_level as f32 / self.kills_to_advance() as f32
+    }
+}
+
 #[derive(Resource, Default)]
 pub struct PlayerPosition(pub Vec2);
 
@@ -280,6 +353,148 @@ impl GameMaterials {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod game_level_tests {
+        use super::*;
+
+        #[test]
+        fn game_level_starts_at_one() {
+            let level = GameLevel::new();
+            assert_eq!(level.level, 1);
+            assert_eq!(level.kills_this_level, 0);
+            assert_eq!(level.total_kills, 0);
+        }
+
+        #[test]
+        fn game_level_default_matches_new() {
+            let level_new = GameLevel::new();
+            let level_default = GameLevel::default();
+            assert_eq!(level_new.level, level_default.level);
+            assert_eq!(level_new.kills_this_level, level_default.kills_this_level);
+            assert_eq!(level_new.total_kills, level_default.total_kills);
+        }
+
+        #[test]
+        fn kills_to_advance_level_1() {
+            let level = GameLevel::new();
+            // Level 1: base_kills * 1.5^0 = 10 * 1 = 10
+            assert_eq!(level.kills_to_advance(), 10);
+        }
+
+        #[test]
+        fn kills_to_advance_increases_with_level() {
+            let mut level = GameLevel::new();
+            let kills_1 = level.kills_to_advance();
+            level.level = 2;
+            let kills_2 = level.kills_to_advance();
+            level.level = 3;
+            let kills_3 = level.kills_to_advance();
+            assert!(kills_2 > kills_1);
+            assert!(kills_3 > kills_2);
+        }
+
+        #[test]
+        fn kills_to_advance_formula_is_correct() {
+            let mut level = GameLevel::new();
+            // Level 1: 10 * 1.5^0 = 10
+            assert_eq!(level.kills_to_advance(), 10);
+            // Level 2: 10 * 1.5^1 = 15
+            level.level = 2;
+            assert_eq!(level.kills_to_advance(), 15);
+            // Level 3: 10 * 1.5^2 = 22.5 -> ceil = 23
+            level.level = 3;
+            assert_eq!(level.kills_to_advance(), 23);
+            // Level 4: 10 * 1.5^3 = 33.75 -> ceil = 34
+            level.level = 4;
+            assert_eq!(level.kills_to_advance(), 34);
+        }
+
+        #[test]
+        fn register_kill_increments_counters() {
+            let mut level = GameLevel::new();
+            level.register_kill();
+            assert_eq!(level.kills_this_level, 1);
+            assert_eq!(level.total_kills, 1);
+        }
+
+        #[test]
+        fn register_kill_returns_false_before_threshold() {
+            let mut level = GameLevel::new();
+            for _ in 0..9 {
+                assert!(!level.register_kill());
+            }
+            assert_eq!(level.kills_this_level, 9);
+            assert_eq!(level.level, 1);
+        }
+
+        #[test]
+        fn register_kill_advances_level_at_threshold() {
+            let mut level = GameLevel::new();
+            let threshold = level.kills_to_advance();
+            for _ in 0..threshold - 1 {
+                assert!(!level.register_kill());
+            }
+            // This should be the 10th kill, advancing the level
+            assert!(level.register_kill());
+            assert_eq!(level.level, 2);
+            assert_eq!(level.kills_this_level, 0);
+            assert_eq!(level.total_kills, 10);
+        }
+
+        #[test]
+        fn register_kill_tracks_total_across_levels() {
+            let mut level = GameLevel::new();
+            // Advance to level 2 (10 kills)
+            for _ in 0..10 {
+                level.register_kill();
+            }
+            assert_eq!(level.level, 2);
+            assert_eq!(level.total_kills, 10);
+
+            // Add 5 more kills at level 2
+            for _ in 0..5 {
+                level.register_kill();
+            }
+            assert_eq!(level.total_kills, 15);
+            assert_eq!(level.kills_this_level, 5);
+        }
+
+        #[test]
+        fn progress_returns_correct_percentage() {
+            let mut level = GameLevel::new();
+            // 0/10 = 0.0
+            assert!((level.progress() - 0.0).abs() < 0.01);
+
+            level.kills_this_level = 5;
+            // 5/10 = 0.5
+            assert!((level.progress() - 0.5).abs() < 0.01);
+
+            level.kills_this_level = 10;
+            // 10/10 = 1.0
+            assert!((level.progress() - 1.0).abs() < 0.01);
+        }
+
+        #[test]
+        fn level_config_default_values() {
+            let config = LevelConfig::default();
+            assert_eq!(config.base_kills, 10);
+            assert!((config.kill_multiplier - 1.5).abs() < 0.01);
+        }
+
+        #[test]
+        fn custom_level_config() {
+            let mut level = GameLevel::new();
+            level.config = LevelConfig {
+                base_kills: 20,
+                kill_multiplier: 2.0,
+            };
+            // Level 1: 20 * 2^0 = 20
+            assert_eq!(level.kills_to_advance(), 20);
+            level.level = 2;
+            // Level 2: 20 * 2^1 = 40
+            assert_eq!(level.kills_to_advance(), 40);
+        }
+    }
 
     #[test]
     fn test_survival_time_default() {
