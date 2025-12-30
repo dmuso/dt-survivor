@@ -445,7 +445,7 @@ pub fn weapon_firing_system(
 
     // Fire weapons that are ready
     for mut weapon in weapon_query.iter_mut() {
-        if current_time - weapon.last_fired >= weapon.fire_rate {
+        if current_time - weapon.last_fired >= weapon.effective_fire_rate() {
             // Select random target from 5 closest
             let mut rng = rand::thread_rng();
             let target_index = rng.gen_range(0..closest_enemies.len());
@@ -470,9 +470,9 @@ pub fn weapon_firing_system(
                     );
                 }
                  WeaponType::Laser => {
-                     // Create a laser beam entity
+                     // Create a laser beam entity at Whisper's height
                      use crate::laser::components::LaserBeam;
-                      commands.spawn(LaserBeam::new(origin_xz, base_direction, weapon.damage()));
+                     commands.spawn(LaserBeam::with_height(origin_xz, base_direction, weapon.damage(), origin_pos.y));
 
                      // Play laser sound effect
                      if let (Some(asset_server), Some(weapon_channel), Some(sound_limiter)) =
