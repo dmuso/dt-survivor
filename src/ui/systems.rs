@@ -833,6 +833,222 @@ fn draw_axes(gizmos: &mut Gizmos, position: Vec3, length: f32) {
     );
 }
 
+/// Setup the level complete screen UI
+pub fn setup_level_complete_screen(
+    mut commands: Commands,
+    game_level: Res<crate::game::resources::GameLevel>,
+    level_stats: Res<crate::game::resources::LevelStats>,
+) {
+    // Root container for entire level complete UI
+    commands.spawn((
+        Node {
+            width: Val::Percent(100.0),
+            height: Val::Percent(100.0),
+            position_type: PositionType::Absolute,
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+        LevelCompleteScreen,
+    )).with_children(|parent| {
+        // Black overlay background (animates opacity)
+        parent.spawn((
+            Node {
+                width: Val::Percent(100.0),
+                height: Val::Percent(100.0),
+                position_type: PositionType::Absolute,
+                ..default()
+            },
+            BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+            LevelCompleteOverlay::default(),
+        ));
+
+        // Content container (centered)
+        parent.spawn((
+            Node {
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                row_gap: Val::Px(20.0),
+                padding: UiRect::all(Val::Px(40.0)),
+                ..default()
+            },
+            ZIndex(1), // Above overlay
+        )).with_children(|content| {
+            // "Level X Complete" title - show level that was just completed (current - 1)
+            let completed_level = if game_level.level > 1 { game_level.level - 1 } else { 1 };
+            content.spawn((
+                Text::new(format!("Level {} Complete!", completed_level)),
+                TextFont {
+                    font_size: 48.0,
+                    ..default()
+                },
+                TextColor(Color::srgb(1.0, 0.84, 0.0)), // Gold
+            ));
+
+            // Stats container
+            content.spawn((
+                Node {
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Start,
+                    row_gap: Val::Px(10.0),
+                    margin: UiRect::vertical(Val::Px(20.0)),
+                    ..default()
+                },
+            )).with_children(|stats| {
+                // Time taken
+                stats.spawn((
+                    Text::new(format!("Time: {}", level_stats.formatted_time())),
+                    TextFont {
+                        font_size: 24.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                ));
+
+                // Enemies killed
+                stats.spawn((
+                    Text::new(format!("Enemies Killed: {}", level_stats.enemies_killed)),
+                    TextFont {
+                        font_size: 24.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                ));
+
+                // XP gained
+                stats.spawn((
+                    Text::new(format!("XP Gained: {}", level_stats.xp_gained)),
+                    TextFont {
+                        font_size: 24.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                ));
+            });
+
+            // Continue button
+            content.spawn((
+                Node {
+                    padding: UiRect::axes(Val::Px(40.0), Val::Px(15.0)),
+                    margin: UiRect::top(Val::Px(20.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgb(0.2, 0.6, 0.2)),
+                Button,
+                ContinueButton,
+            )).with_children(|btn| {
+                btn.spawn((
+                    Text::new("Continue"),
+                    TextFont {
+                        font_size: 28.0,
+                        ..default()
+                    },
+                    TextColor(Color::WHITE),
+                ));
+            });
+        });
+    });
+}
+
+/// Animate the level complete overlay (fade in)
+pub fn animate_level_complete_overlay(
+    time: Res<Time>,
+    mut query: Query<(&mut LevelCompleteOverlay, &mut BackgroundColor)>,
+) {
+    for (mut overlay, mut bg_color) in query.iter_mut() {
+        if overlay.current_opacity < overlay.target_opacity {
+            overlay.current_opacity += time.delta_secs() * overlay.animation_speed;
+            overlay.current_opacity = overlay.current_opacity.min(overlay.target_opacity);
+            bg_color.0 = Color::srgba(0.0, 0.0, 0.0, overlay.current_opacity);
+        }
+    }
+}
+
+/// Handle continue button interaction
+#[allow(clippy::type_complexity)]
+pub fn handle_continue_button(
+    mut interaction_query: Query<
+        (&Interaction, &mut BackgroundColor),
+        (Changed<Interaction>, With<ContinueButton>),
+    >,
+    mut next_state: ResMut<NextState<GameState>>,
+    mut commands: Commands,
+    enemies_query: Query<Entity, With<Enemy>>,
+    loot_query: Query<Entity, With<crate::loot::components::DroppedItem>>,
+    mut level_stats: ResMut<crate::game::resources::LevelStats>,
+    mut player_query: Query<&mut Transform, With<Player>>,
+) {
+    for (interaction, mut bg_color) in interaction_query.iter_mut() {
+        match *interaction {
+            Interaction::Pressed => {
+                // Despawn all enemies
+                let enemies: Vec<Entity> = enemies_query.iter().collect();
+                for entity in enemies {
+                    commands.queue(move |world: &mut World| {
+                        if world.get_entity(entity).is_ok() {
+                            let _ = world.despawn(entity);
+                        }
+                    });
+                }
+
+                // Despawn all loot
+                let loot: Vec<Entity> = loot_query.iter().collect();
+                for entity in loot {
+                    commands.queue(move |world: &mut World| {
+                        if world.get_entity(entity).is_ok() {
+                            let _ = world.despawn(entity);
+                        }
+                    });
+                }
+
+                // Reset player position to center
+                for mut transform in player_query.iter_mut() {
+                    transform.translation = Vec3::ZERO;
+                }
+
+                // Reset level stats for new level
+                level_stats.reset();
+
+                // Return to game
+                next_state.set(GameState::InGame);
+            }
+            Interaction::Hovered => {
+                bg_color.0 = Color::srgb(0.3, 0.7, 0.3);
+            }
+            Interaction::None => {
+                bg_color.0 = Color::srgb(0.2, 0.6, 0.2);
+            }
+        }
+    }
+}
+
+/// Play level complete sound when entering LevelComplete state
+pub fn play_level_complete_sound(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+) {
+    commands.spawn((
+        AudioPlayer::new(asset_server.load("sounds/790472__organizedlaziness__level-completed.wav")),
+        PlaybackSettings::DESPAWN,
+    ));
+}
+
+/// Cleanup the level complete screen when exiting the state
+pub fn cleanup_level_complete_screen(
+    mut commands: Commands,
+    query: Query<Entity, With<LevelCompleteScreen>>,
+) {
+    let entities: Vec<Entity> = query.iter().collect();
+    for entity in entities {
+        commands.queue(move |world: &mut World| {
+            if world.get_entity(entity).is_ok() {
+                let _ = world.despawn(entity);
+            }
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -994,6 +1210,180 @@ mod tests {
         fn xp_progress_bar_fill_is_component() {
             fn assert_component<T: Component>() {}
             assert_component::<XpProgressBarFill>();
+        }
+    }
+
+    mod level_complete_tests {
+        use super::*;
+        use crate::game::resources::LevelStats;
+        use bevy::ecs::system::RunSystemOnce;
+
+        fn setup_test_app() -> App {
+            let mut app = App::new();
+            app.add_plugins(bevy::state::app::StatesPlugin);
+            app.init_state::<GameState>();
+            app.insert_resource(GameLevel::new());
+            app.insert_resource(LevelStats::new());
+            app
+        }
+
+        #[test]
+        fn animate_overlay_increases_opacity() {
+            use std::time::Duration;
+
+            let mut app = App::new();
+            app.init_resource::<Time>();
+
+            // Spawn overlay with default values
+            app.world_mut().spawn((
+                LevelCompleteOverlay::default(),
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+            ));
+
+            // Advance time
+            {
+                let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+                time.advance_by(Duration::from_secs_f32(0.25));
+            }
+
+            // Run the animation system
+            let _ = app.world_mut().run_system_once(animate_level_complete_overlay);
+
+            // Check opacity increased
+            let (overlay, bg) = app.world_mut()
+                .query::<(&LevelCompleteOverlay, &BackgroundColor)>()
+                .iter(app.world())
+                .next()
+                .unwrap();
+
+            assert!(overlay.current_opacity > 0.0, "Opacity should have increased");
+            // BackgroundColor alpha should match
+            if let Color::Srgba(color) = bg.0 {
+                assert!(color.alpha > 0.0, "Background alpha should have increased");
+            }
+        }
+
+        #[test]
+        fn animate_overlay_caps_at_target() {
+            use std::time::Duration;
+
+            let mut app = App::new();
+            app.init_resource::<Time>();
+
+            // Spawn overlay already at 80% opacity
+            app.world_mut().spawn((
+                LevelCompleteOverlay {
+                    target_opacity: 0.85,
+                    current_opacity: 0.8,
+                    animation_speed: 2.0,
+                },
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.8)),
+            ));
+
+            // Advance time by 1 second (way more than needed)
+            {
+                let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+                time.advance_by(Duration::from_secs_f32(1.0));
+            }
+
+            // Run the animation system
+            let _ = app.world_mut().run_system_once(animate_level_complete_overlay);
+
+            // Check opacity capped at target
+            let overlay = app.world_mut()
+                .query::<&LevelCompleteOverlay>()
+                .iter(app.world())
+                .next()
+                .unwrap();
+
+            assert_eq!(overlay.current_opacity, 0.85, "Opacity should cap at target");
+        }
+
+        #[test]
+        fn cleanup_level_complete_screen_removes_screen_entity() {
+            let mut app = App::new();
+
+            // Spawn level complete screen
+            let screen = app.world_mut().spawn((
+                Node::default(),
+                LevelCompleteScreen,
+            )).id();
+
+            // Verify it exists
+            assert!(app.world().get_entity(screen).is_ok());
+
+            // Run cleanup system
+            app.add_systems(Update, cleanup_level_complete_screen);
+            app.update();
+
+            // Screen should be despawned
+            assert!(app.world().get_entity(screen).is_err(), "Screen should be despawned");
+        }
+
+        #[test]
+        fn setup_level_complete_screen_spawns_ui() {
+            let mut app = setup_test_app();
+
+            // Set some stats
+            {
+                let mut stats = app.world_mut().resource_mut::<LevelStats>();
+                stats.time_elapsed = 65.0; // 1:05
+                stats.enemies_killed = 25;
+                stats.xp_gained = 500;
+            }
+            {
+                let mut level = app.world_mut().resource_mut::<GameLevel>();
+                level.level = 2; // Just advanced to level 2
+            }
+
+            // Run setup system
+            app.add_systems(Update, setup_level_complete_screen);
+            app.update();
+
+            // Check that LevelCompleteScreen was spawned
+            let screen_count = app.world_mut()
+                .query::<&LevelCompleteScreen>()
+                .iter(app.world())
+                .count();
+            assert_eq!(screen_count, 1, "Should spawn exactly one LevelCompleteScreen");
+
+            // Check that overlay was spawned
+            let overlay_count = app.world_mut()
+                .query::<&LevelCompleteOverlay>()
+                .iter(app.world())
+                .count();
+            assert_eq!(overlay_count, 1, "Should spawn exactly one LevelCompleteOverlay");
+
+            // Check that continue button was spawned
+            let button_count = app.world_mut()
+                .query::<&ContinueButton>()
+                .iter(app.world())
+                .count();
+            assert_eq!(button_count, 1, "Should spawn exactly one ContinueButton");
+        }
+
+        #[test]
+        fn level_complete_shows_correct_level() {
+            let mut app = setup_test_app();
+
+            // Set level to 3 (just advanced from 2)
+            {
+                let mut level = app.world_mut().resource_mut::<GameLevel>();
+                level.level = 3;
+            }
+
+            // Run setup
+            app.add_systems(Update, setup_level_complete_screen);
+            app.update();
+
+            // Find text that contains "Level 2 Complete"
+            let texts: Vec<_> = app.world_mut()
+                .query::<&Text>()
+                .iter(app.world())
+                .collect();
+
+            let has_correct_text = texts.iter().any(|t| t.0.contains("Level 2 Complete"));
+            assert!(has_correct_text, "Should show 'Level 2 Complete!' for completing level 2");
         }
     }
 }

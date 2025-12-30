@@ -28,6 +28,17 @@ pub fn plugin(app: &mut App) {
                 .run_if(debug_hud_enabled)
         )
         .add_systems(PostUpdate, update_weapon_slots.run_if(in_state(GameState::InGame)))
+        // Level Complete state systems
+        .add_systems(OnEnter(GameState::LevelComplete), (
+            setup_level_complete_screen,
+            play_level_complete_sound,
+        ))
+        .add_systems(Update, (
+            animate_level_complete_overlay,
+            handle_continue_button,
+        ).run_if(in_state(GameState::LevelComplete)))
+        .add_systems(OnExit(GameState::LevelComplete), cleanup_level_complete_screen)
+        // Game Over state systems
         .add_systems(OnEnter(GameState::GameOver), setup_game_over_ui)
         .add_systems(Update, game_over_input.run_if(in_state(GameState::GameOver)))
         .add_systems(OnExit(GameState::GameOver), cleanup_game_over);
