@@ -6,7 +6,10 @@ use crate::player::components::*;
 use crate::weapon::components::*;
 use crate::game::events::EnemyDeathEvent;
 use crate::game::resources::{GameMeshes, GameMaterials};
-use crate::loot::components::{DroppedItem, ItemData, PickupState};
+use crate::loot::components::{
+    DroppedItem, ItemData, PickupState,
+    POWERUP_LIGHT_INTENSITY, POWERUP_LIGHT_RADIUS, POWERUP_LIGHT_COLOR,
+};
 use crate::loot::systems::LOOT_LARGE_Y_HEIGHT;
 
 /// System to spawn powerups when enemies die (2% drop rate)
@@ -56,6 +59,13 @@ pub fn powerup_spawning_system(
                     amplitude: 0.3,
                     frequency: 3.0,
                     time: 0.0,
+                },
+                PointLight {
+                    color: POWERUP_LIGHT_COLOR,
+                    intensity: POWERUP_LIGHT_INTENSITY,
+                    radius: POWERUP_LIGHT_RADIUS,
+                    shadows_enabled: false,
+                    ..default()
                 },
             ));
         }

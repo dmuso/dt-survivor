@@ -7,6 +7,7 @@ use bevy_hanabi::prelude::{
 };
 use crate::rocket_launcher::components::*;
 use crate::prelude::*;
+use crate::game::components::Level;
 use crate::game::events::EnemyDeathEvent;
 use crate::game::resources::{GameMeshes, GameMaterials};
 use crate::movement::components::{from_xz, to_xz};
@@ -255,7 +256,7 @@ pub fn explosion_system(
 pub fn area_damage_system(
     mut commands: Commands,
     explosion_query: Query<&Explosion>,
-    enemy_query: Query<(Entity, &Transform), With<Enemy>>,
+    enemy_query: Query<(Entity, &Transform, Option<&Level>), With<Enemy>>,
     mut score: ResMut<crate::score::Score>,
     mut enemy_death_events: MessageWriter<EnemyDeathEvent>,
 ) {
@@ -263,7 +264,7 @@ pub fn area_damage_system(
         if explosion.current_radius > 0.0 {
             let mut enemies_to_kill = Vec::new();
 
-            for (enemy_entity, enemy_transform) in enemy_query.iter() {
+            for (enemy_entity, enemy_transform, _) in enemy_query.iter() {
                 // Extract XZ position for distance calculation
                 let enemy_pos = from_xz(enemy_transform.translation);
                 let distance = explosion.center.distance(enemy_pos);
@@ -275,13 +276,17 @@ pub fn area_damage_system(
 
             // Kill enemies in explosion radius
             for enemy_entity in enemies_to_kill {
-                // Get enemy position for event
-                let enemy_pos = enemy_query.get(enemy_entity).map(|(_, transform)| transform.translation).unwrap_or(Vec3::ZERO);
+                // Get enemy position and level for event
+                let (enemy_pos, enemy_level) = enemy_query
+                    .get(enemy_entity)
+                    .map(|(_, transform, level)| (transform.translation, level.map(|l| l.value()).unwrap_or(1)))
+                    .unwrap_or((Vec3::ZERO, 1));
 
                 // Send enemy death event for centralized loot/experience handling
                 enemy_death_events.write(EnemyDeathEvent {
                     enemy_entity,
                     position: enemy_pos,
+                    enemy_level,
                 });
 
                  commands.entity(enemy_entity).try_despawn();

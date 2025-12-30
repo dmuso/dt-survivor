@@ -244,6 +244,68 @@ mod tests {
     }
 
     #[test]
+    fn test_laser_collision_uses_fixed_distance_not_thickness() {
+        use crate::combat::{CheckDeath, DamageEvent, Health};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let mut app = App::new();
+
+        #[derive(Resource, Clone)]
+        struct DamageEventCounter(Arc<AtomicUsize>);
+
+        fn count_damage_events(
+            mut events: MessageReader<DamageEvent>,
+            counter: Res<DamageEventCounter>,
+        ) {
+            for _ in events.read() {
+                counter.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let counter = DamageEventCounter(Arc::new(AtomicUsize::new(0)));
+        app.insert_resource(counter.clone());
+
+        app.add_message::<DamageEvent>();
+        app.add_systems(Update, (laser_beam_collision_system, count_damage_events).chain());
+
+        // Create laser beam along X axis
+        app.world_mut().spawn(LaserBeam {
+            start_pos: Vec2::ZERO,
+            end_pos: Vec2::new(800.0, 0.0),
+            direction: Vec2::X,
+            lifetime: Timer::from_seconds(0.25, TimerMode::Once),
+            max_lifetime: 0.5,
+            damage: 15.0,
+        });
+
+        // Enemy at 0.9 units from laser line (within 1.0 threshold) - should be hit
+        app.world_mut().spawn((
+            Enemy { speed: 50.0, strength: 10.0 },
+            Transform::from_translation(Vec3::new(100.0, 0.375, 0.9)),
+            Health::new(15.0),
+            CheckDeath,
+        ));
+
+        // Enemy at 1.1 units from laser line (outside 1.0 threshold) - should NOT be hit
+        app.world_mut().spawn((
+            Enemy { speed: 50.0, strength: 10.0 },
+            Transform::from_translation(Vec3::new(200.0, 0.375, 1.1)),
+            Health::new(15.0),
+            CheckDeath,
+        ));
+
+        app.update();
+
+        // Only the close enemy should be hit
+        assert_eq!(
+            counter.0.load(Ordering::SeqCst),
+            1,
+            "Only enemy within 1.0 unit of laser line should be hit"
+        );
+    }
+
+    #[test]
     fn test_laser_y_height_constant() {
         // Laser beam should render at a height above ground
         assert!(LASER_Y_HEIGHT > 0.0, "Laser should be above ground");
@@ -507,8 +569,8 @@ pub fn laser_beam_collision_system(
                 let distance_to_line = (enemy_pos - projection_point).length();
 
                 // If enemy is close enough to the laser beam
-                // (tolerance scaled for 3D world units)
-                if distance_to_line < laser.get_thickness() / 2.0 + 1.0 {
+                // Fixed 1.0 unit collision radius on either side of laser line
+                if distance_to_line < 1.0 {
                     // Send damage event to enemy (combat system handles death)
                     damage_events.write(DamageEvent::new(enemy_entity, laser.damage));
                 }

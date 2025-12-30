@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use bevy_hanabi::EffectAsset;
 use bevy_kira_audio::AudioInstance;
-use crate::movement::components::to_xz;
 
 /// Component storing the audio handle for the rocket's hiss sound.
 /// Used to stop the sound when the rocket explodes.
@@ -11,9 +10,6 @@ pub struct RocketHissSound(pub Handle<AudioInstance>);
 /// Resource storing the handle to the rocket exhaust particle effect.
 #[derive(Resource)]
 pub struct RocketExhaustEffect(pub Handle<EffectAsset>);
-
-/// Height at which rockets fly above the ground plane.
-pub const ROCKET_Y_HEIGHT: f32 = 0.5;
 
 #[derive(Component)]
 pub struct RocketProjectile {
@@ -38,17 +34,17 @@ pub enum RocketState {
 
 impl RocketProjectile {
     /// Create a new rocket projectile.
-    /// `position` is the XZ ground position (Vec2 where x=X, y=Z).
+    /// `position` is the full 3D position (from Whisper).
     /// `initial_direction` is the direction on the XZ plane.
-    pub fn new(position: Vec2, initial_direction: Vec2, damage: f32) -> (Self, Transform) {
+    pub fn new(position: Vec3, initial_direction: Vec2, damage: f32) -> (Self, Transform) {
         // Calculate rotation to face the initial direction
         let angle = initial_direction.y.atan2(initial_direction.x);
         let rotation = Quat::from_rotation_y(-angle + std::f32::consts::FRAC_PI_2);
 
         (
             Self {
-                velocity: initial_direction.normalize() * 5.0, // Initial speed (3D units/sec)
-                speed: 8.0, // Homing speed (3D units/sec)
+                velocity: initial_direction.normalize() * 10.0, // Initial speed (3D units/sec)
+                speed: 16.0, // Homing speed (3D units/sec)
                 damage,
                 target_position: None,
                 homing_strength: 2.0, // How quickly it turns toward target
@@ -56,7 +52,7 @@ impl RocketProjectile {
                 pause_timer: Timer::from_seconds(0.5, TimerMode::Once),
             },
             Transform {
-                translation: to_xz(position) + Vec3::new(0.0, ROCKET_Y_HEIGHT, 0.0),
+                translation: position, // Use Whisper's full 3D position
                 rotation,
                 ..default()
             },
@@ -104,18 +100,18 @@ mod tests {
 
     #[test]
     fn test_rocket_projectile_creation() {
-        // Position on XZ plane: x=100, z=50 (Vec2 where x=X, y=Z)
-        let (rocket, transform) = RocketProjectile::new(Vec2::new(100.0, 50.0), Vec2::new(1.0, 0.0), 30.0);
+        // Full 3D position: x=100, y=3 (Whisper height), z=50
+        let (rocket, transform) = RocketProjectile::new(Vec3::new(100.0, 3.0, 50.0), Vec2::new(1.0, 0.0), 30.0);
 
         assert_eq!(rocket.damage, 30.0);
-        assert_eq!(rocket.speed, 8.0); // 3D world units/sec
+        assert_eq!(rocket.speed, 16.0); // 3D world units/sec
         assert_eq!(rocket.homing_strength, 2.0);
         assert!(matches!(rocket.state, RocketState::Pausing));
         assert_eq!(rocket.pause_timer.duration(), std::time::Duration::from_secs_f32(0.5));
 
-        // Transform should be at (100, ROCKET_Y_HEIGHT, 50) - XZ ground plane with Y height
+        // Transform should be at Whisper's full 3D position
         assert_eq!(transform.translation.x, 100.0);
-        assert_eq!(transform.translation.y, ROCKET_Y_HEIGHT);
+        assert_eq!(transform.translation.y, 3.0); // Whisper height
         assert_eq!(transform.translation.z, 50.0);
     }
 

@@ -50,6 +50,7 @@ mod tests {
         app.world_mut().write_message(EnemyDeathEvent {
             enemy_entity: Entity::PLACEHOLDER,
             position: bevy::math::Vec3::new(100.0, 0.0, 200.0),
+            enemy_level: 1,
         });
 
         // Run the system

@@ -39,6 +39,7 @@ pub fn enemy_death_system(
         // Send loot drop event to notify loot system
         loot_drop_events.write(LootDropEvent {
             position: event.position,
+            enemy_level: event.enemy_level,
         });
     }
 

@@ -6,16 +6,15 @@ use bevy_kira_audio::prelude::*;
 use crate::pistol::components::PistolConfig;
 use crate::game::resources::{GameMeshes, GameMaterials};
 
-/// Height at which bullets fly (slightly above ground)
-const BULLET_Y_HEIGHT: f32 = 0.5;
+use crate::movement::components::from_xz;
 
 /// Fire pistol weapon
-/// `spawn_position` and `target_pos` are on the XZ plane (x, z as Vec2)
+/// `spawn_position` is Whisper's full 3D position, `target_pos` is enemy position on XZ plane
 #[allow(clippy::too_many_arguments)]
 pub fn fire_pistol(
     commands: &mut Commands,
     weapon: &Weapon,
-    spawn_position: Vec2,
+    spawn_position: Vec3,
     target_pos: Vec2,
     asset_server: Option<&Res<AssetServer>>,
     weapon_channel: Option<&mut ResMut<AudioChannel<WeaponSoundChannel>>>,
@@ -25,7 +24,9 @@ pub fn fire_pistol(
 ) {
     if let crate::weapon::components::WeaponType::Pistol { .. } = &weapon.weapon_type {
         let config = PistolConfig::default();
-        let base_direction = (target_pos - spawn_position).normalize();
+        // Extract XZ position from spawn_position for direction calculation
+        let spawn_xz = from_xz(spawn_position);
+        let base_direction = (target_pos - spawn_xz).normalize();
 
         // Calculate spread pattern for 5 bullets
         let spread_angle_rad = config.spread_angle.to_radians();
@@ -42,16 +43,12 @@ pub fn fire_pistol(
                 base_direction.x * sin_offset + base_direction.y * cos_offset,
             );
 
-            // Spawn bullet as 3D mesh on XZ plane
+            // Spawn bullet at Whisper's full 3D position
             if let (Some(meshes), Some(materials)) = (game_meshes, game_materials) {
                 commands.spawn((
                     Mesh3d(meshes.bullet.clone()),
                     MeshMaterial3d(materials.bullet.clone()),
-                    Transform::from_translation(Vec3::new(
-                        spawn_position.x,
-                        BULLET_Y_HEIGHT,
-                        spawn_position.y, // spawn_position.y is the Z coordinate
-                    )),
+                    Transform::from_translation(spawn_position),
                     Bullet {
                         direction,
                         speed: config.bullet_speed,
@@ -61,11 +58,7 @@ pub fn fire_pistol(
             } else {
                 // Fallback for tests without mesh resources - just spawn the component
                 commands.spawn((
-                    Transform::from_translation(Vec3::new(
-                        spawn_position.x,
-                        BULLET_Y_HEIGHT,
-                        spawn_position.y,
-                    )),
+                    Transform::from_translation(spawn_position),
                     Bullet {
                         direction,
                         speed: config.bullet_speed,
@@ -98,7 +91,7 @@ mod tests {
         let config = PistolConfig::default();
         assert_eq!(config.bullet_count, 5);
         assert_eq!(config.spread_angle, 15.0);
-        assert_eq!(config.bullet_speed, 10.0); // 3D world units/sec
+        assert_eq!(config.bullet_speed, 20.0); // 3D world units/sec
         assert_eq!(config.bullet_lifetime, 5.0);
         assert_eq!(config.bullet_color, Color::srgb(1.0, 1.0, 0.0));
         assert_eq!(config.bullet_size, Vec2::new(0.3, 0.3)); // 3D world units

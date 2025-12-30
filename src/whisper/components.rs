@@ -15,7 +15,7 @@ pub struct WhisperCompanion {
 impl Default for WhisperCompanion {
     fn default() -> Self {
         Self {
-            follow_offset: Vec3::new(0.0, 1.0, 0.0), // 3D world units above player
+            follow_offset: Vec3::new(0.0, 4.0, 0.0), // 3D world units above player
             bob_phase: 0.0,
             bob_amplitude: 0.15, // 3D world units (was 5 pixels)
         }
@@ -497,7 +497,7 @@ mod tests {
     #[test]
     fn test_whisper_companion_default() {
         let companion = WhisperCompanion::default();
-        assert_eq!(companion.follow_offset, Vec3::new(0.0, 1.0, 0.0)); // 3D world units
+        assert_eq!(companion.follow_offset, Vec3::new(0.0, 4.0, 0.0)); // 3D world units above player
         assert_eq!(companion.bob_phase, 0.0);
         assert_eq!(companion.bob_amplitude, 0.15); // 3D world units
     }

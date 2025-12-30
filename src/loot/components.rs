@@ -6,6 +6,39 @@ pub const BASE_ROTATION_SPEED: f32 = 2.0;
 /// Maximum rotation speed multiplier during attraction (10x base)
 pub const MAX_ROTATION_MULTIPLIER: f32 = 10.0;
 
+// Light constants for loot drops (3D PointLight)
+/// Light intensity for XP orb drops (lumens)
+pub const XP_ORB_LIGHT_INTENSITY: f32 = 2000.0;
+/// Light radius for XP orb drops
+pub const XP_ORB_LIGHT_RADIUS: f32 = 5.0;
+/// Light color for XP orb drops (cyan-ish to match the experience feel)
+pub const XP_ORB_LIGHT_COLOR: Color = Color::srgb(0.6, 0.9, 1.0);
+
+/// Light intensity for health pack drops (lumens)
+pub const HEALTH_PACK_LIGHT_INTENSITY: f32 = 3000.0;
+/// Light radius for health pack drops
+pub const HEALTH_PACK_LIGHT_RADIUS: f32 = 8.0;
+/// Light color for health pack drops (green)
+pub const HEALTH_PACK_LIGHT_COLOR: Color = Color::srgb(0.0, 1.0, 0.2);
+
+/// Light intensity for weapon drops (lumens)
+pub const WEAPON_LIGHT_INTENSITY: f32 = 4000.0;
+/// Light radius for weapon drops
+pub const WEAPON_LIGHT_RADIUS: f32 = 10.0;
+/// Light color for pistol drops (yellow)
+pub const WEAPON_PISTOL_LIGHT_COLOR: Color = Color::srgb(1.0, 1.0, 0.4);
+/// Light color for laser drops (blue)
+pub const WEAPON_LASER_LIGHT_COLOR: Color = Color::srgb(0.3, 0.5, 1.0);
+/// Light color for rocket launcher drops (orange)
+pub const WEAPON_ROCKET_LIGHT_COLOR: Color = Color::srgb(1.0, 0.6, 0.2);
+
+/// Light intensity for powerup drops (lumens)
+pub const POWERUP_LIGHT_INTENSITY: f32 = 5000.0;
+/// Light radius for powerup drops
+pub const POWERUP_LIGHT_RADIUS: f32 = 12.0;
+/// Light color for powerup drops (magenta)
+pub const POWERUP_LIGHT_COLOR: Color = Color::srgb(1.0, 0.4, 1.0);
+
 #[derive(Component)]
 pub struct DroppedItem {
     pub pickup_state: PickupState,

@@ -2,7 +2,14 @@ use bevy::prelude::*;
 use bevy_hanabi::prelude::ParticleEffect;
 use rand::Rng;
 use crate::combat::components::Health;
-use crate::loot::components::{DroppedItem, ItemData, PickupState, PopUpAnimation};
+use crate::loot::components::{
+    DroppedItem, ItemData, PickupState, PopUpAnimation,
+    XP_ORB_LIGHT_INTENSITY, XP_ORB_LIGHT_RADIUS, XP_ORB_LIGHT_COLOR,
+    HEALTH_PACK_LIGHT_INTENSITY, HEALTH_PACK_LIGHT_RADIUS, HEALTH_PACK_LIGHT_COLOR,
+    WEAPON_LIGHT_INTENSITY, WEAPON_LIGHT_RADIUS,
+    WEAPON_PISTOL_LIGHT_COLOR, WEAPON_LASER_LIGHT_COLOR, WEAPON_ROCKET_LIGHT_COLOR,
+    POWERUP_LIGHT_INTENSITY, POWERUP_LIGHT_RADIUS, POWERUP_LIGHT_COLOR,
+};
 use crate::loot::events::*;
 use crate::weapon::components::{Weapon, WeaponType};
 use crate::player::components::*;
@@ -10,7 +17,8 @@ use crate::inventory::resources::*;
 use crate::inventory::components::*;
 use bevy_kira_audio::prelude::*;
 use crate::audio::plugin::*;
-use crate::game::resources::{GameMaterials, GameMeshes, ScreenTintEffect};
+use crate::game::components::Level;
+use crate::game::resources::{GameMaterials, GameMeshes, ScreenTintEffect, XpOrbMaterials};
 use crate::game::events::LootDropEvent;
 use crate::whisper::components::{
     ArcBurstTimer, LightningSpawnTimer, OrbitalParticleSpawnTimer,
@@ -24,28 +32,68 @@ pub const LOOT_SMALL_Y_HEIGHT: f32 = 0.2;
 /// Height of large loot cube center above ground (weapons, health packs)
 pub const LOOT_LARGE_Y_HEIGHT: f32 = 0.3;
 
+/// XP value scaling by level
+/// Higher level orbs give exponentially more XP
+pub fn xp_value_for_level(level: u8) -> u32 {
+    match level {
+        1 => 5,    // Common: 5 XP
+        2 => 15,   // Uncommon: 15 XP
+        3 => 35,   // Rare: 35 XP
+        4 => 75,   // Epic: 75 XP
+        _ => 150,  // Legendary: 150 XP
+    }
+}
+
+/// Determine XP orb level based on enemy level
+/// Higher enemy levels have better chance of dropping higher level orbs
+/// Enemy level acts as minimum possible orb level with 20% chance per level above base
+pub fn select_xp_level(enemy_level: u8, rng: &mut impl Rng) -> u8 {
+    let base_level = enemy_level.clamp(1, 5);
+
+    // Roll for potential upgrade (20% chance per level above base, up to level 5)
+    let mut orb_level = base_level;
+    while orb_level < 5 && rng.gen_bool(0.2) {
+        orb_level += 1;
+    }
+    orb_level
+}
+
 pub fn loot_drop_system(
     mut commands: Commands,
     mut loot_drop_events: MessageReader<LootDropEvent>,
     game_meshes: Res<GameMeshes>,
     game_materials: Res<GameMaterials>,
+    xp_materials: Res<XpOrbMaterials>,
 ) {
     for event in loot_drop_events.read() {
         let enemy_pos = event.position;
+        let enemy_level = event.enemy_level;
 
         // Spawn experience orbs for each enemy killed
         let mut rng = rand::thread_rng();
         let orb_count = rng.gen_range(1..=3);
 
         for _ in 0..orb_count {
-            let value = rng.gen_range(5..=15); // 5-15 experience per orb
+            // Determine orb level based on enemy level (with upgrade chance)
+            let orb_level = select_xp_level(enemy_level, &mut rng);
+            let xp_value = xp_value_for_level(orb_level);
+
             // Offsets scaled for 3D world units (smaller than 2D pixel values)
             let offset_x = rng.gen_range(-1.0..=1.0);
             let offset_z = rng.gen_range(-1.0..=1.0);
 
+            // Get material based on orb level (using rarity colors)
+            let orb_material = xp_materials.for_level(orb_level);
+
+            // Get light color from the orb's level color
+            let light_color = Level::new(orb_level).color();
+
+            // Scale light intensity based on level (legendary orbs glow brighter)
+            let light_intensity = XP_ORB_LIGHT_INTENSITY * (1.0 + (orb_level as f32 - 1.0) * 0.5);
+
             commands.spawn((
                 Mesh3d(game_meshes.loot_small.clone()),
-                MeshMaterial3d(game_materials.xp_orb.clone()),
+                MeshMaterial3d(orb_material),
                 Transform::from_translation(Vec3::new(
                     enemy_pos.x + offset_x,
                     LOOT_SMALL_Y_HEIGHT,
@@ -53,10 +101,18 @@ pub fn loot_drop_system(
                 )),
                 DroppedItem {
                     pickup_state: PickupState::Idle,
-                    item_data: ItemData::Experience { amount: value },
+                    item_data: ItemData::Experience { amount: xp_value },
                     velocity: Vec3::ZERO,
                     rotation_speed: 0.0,
                     rotation_direction: 1.0,
+                },
+                Level::new(orb_level),
+                PointLight {
+                    color: light_color,
+                    intensity: light_intensity,
+                    radius: XP_ORB_LIGHT_RADIUS,
+                    shadows_enabled: false,
+                    ..default()
                 },
             ));
         }
@@ -112,36 +168,48 @@ pub fn loot_drop_system(
             let offset_x = angle.cos() * spacing;
             let offset_z = angle.sin() * spacing;
 
-            // Select mesh and material based on item type
-            let (mesh, material, y_height) = match &item_data {
+            // Select mesh, material, and light properties based on item type
+            let (mesh, material, y_height, light_color, light_intensity, light_radius) = match &item_data {
                 ItemData::Weapon(weapon) => {
-                    let material = match weapon.weapon_type {
-                        WeaponType::Pistol { .. } => game_materials.weapon_pistol.clone(),
-                        WeaponType::Laser => game_materials.weapon_laser.clone(),
-                        WeaponType::RocketLauncher => game_materials.weapon_rocket.clone(),
-                        _ => game_materials.xp_orb.clone(), // Default fallback
+                    let (material, light_color) = match weapon.weapon_type {
+                        WeaponType::Pistol { .. } => (game_materials.weapon_pistol.clone(), WEAPON_PISTOL_LIGHT_COLOR),
+                        WeaponType::Laser => (game_materials.weapon_laser.clone(), WEAPON_LASER_LIGHT_COLOR),
+                        WeaponType::RocketLauncher => (game_materials.weapon_rocket.clone(), WEAPON_ROCKET_LIGHT_COLOR),
+                        _ => (game_materials.xp_orb.clone(), WEAPON_PISTOL_LIGHT_COLOR), // Default fallback
                     };
-                    (game_meshes.loot_large.clone(), material, LOOT_LARGE_Y_HEIGHT)
+                    (game_meshes.loot_large.clone(), material, LOOT_LARGE_Y_HEIGHT, light_color, WEAPON_LIGHT_INTENSITY, WEAPON_LIGHT_RADIUS)
                 }
                 ItemData::HealthPack { .. } => (
                     game_meshes.loot_medium.clone(),
                     game_materials.health_pack.clone(),
                     LOOT_LARGE_Y_HEIGHT,
+                    HEALTH_PACK_LIGHT_COLOR,
+                    HEALTH_PACK_LIGHT_INTENSITY,
+                    HEALTH_PACK_LIGHT_RADIUS,
                 ),
                 ItemData::Experience { .. } => (
                     game_meshes.loot_small.clone(),
                     game_materials.xp_orb.clone(),
                     LOOT_SMALL_Y_HEIGHT,
+                    XP_ORB_LIGHT_COLOR,
+                    XP_ORB_LIGHT_INTENSITY,
+                    XP_ORB_LIGHT_RADIUS,
                 ),
                 ItemData::Powerup(_) => (
                     game_meshes.loot_medium.clone(),
                     game_materials.powerup.clone(),
                     LOOT_LARGE_Y_HEIGHT,
+                    POWERUP_LIGHT_COLOR,
+                    POWERUP_LIGHT_INTENSITY,
+                    POWERUP_LIGHT_RADIUS,
                 ),
                 ItemData::Whisper => (
                     game_meshes.whisper_core.clone(),
                     game_materials.whisper_drop.clone(),
                     1.0, // Whisper floats higher
+                    WHISPER_LIGHT_COLOR,
+                    WHISPER_LIGHT_INTENSITY,
+                    WHISPER_LIGHT_RADIUS,
                 ),
             };
 
@@ -159,6 +227,13 @@ pub fn loot_drop_system(
                     velocity: Vec3::ZERO,
                     rotation_speed: 0.0,
                     rotation_direction: 1.0,
+                },
+                PointLight {
+                    color: light_color,
+                    intensity: light_intensity,
+                    radius: light_radius,
+                    shadows_enabled: false,
+                    ..default()
                 },
             ));
         }
@@ -647,6 +722,111 @@ mod tests {
 
     use crate::weapon::components::{Weapon, WeaponType};
     use crate::player::components::Player;
+
+    mod xp_value_tests {
+        use super::*;
+
+        #[test]
+        fn xp_value_for_level_returns_correct_values() {
+            assert_eq!(xp_value_for_level(1), 5);
+            assert_eq!(xp_value_for_level(2), 15);
+            assert_eq!(xp_value_for_level(3), 35);
+            assert_eq!(xp_value_for_level(4), 75);
+            assert_eq!(xp_value_for_level(5), 150);
+        }
+
+        #[test]
+        fn xp_value_increases_with_level() {
+            let mut prev_value = 0;
+            for level in 1..=5 {
+                let value = xp_value_for_level(level);
+                assert!(value > prev_value, "XP value should increase with level");
+                prev_value = value;
+            }
+        }
+
+        #[test]
+        fn xp_value_for_level_above_5_returns_legendary() {
+            // Any level above 5 should return legendary value (150)
+            assert_eq!(xp_value_for_level(6), 150);
+            assert_eq!(xp_value_for_level(10), 150);
+            assert_eq!(xp_value_for_level(255), 150);
+        }
+
+        #[test]
+        fn xp_value_for_level_0_returns_legendary() {
+            // Level 0 is invalid, falls through match to default (150)
+            assert_eq!(xp_value_for_level(0), 150);
+        }
+    }
+
+    mod select_xp_level_tests {
+        use super::*;
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        #[test]
+        fn select_xp_level_respects_enemy_level_minimum() {
+            let mut rng = StdRng::seed_from_u64(12345);
+            for enemy_level in 1..=5 {
+                for _ in 0..50 {
+                    let orb_level = select_xp_level(enemy_level, &mut rng);
+                    assert!(
+                        orb_level >= enemy_level,
+                        "Orb level {} should be >= enemy level {}",
+                        orb_level,
+                        enemy_level
+                    );
+                }
+            }
+        }
+
+        #[test]
+        fn select_xp_level_never_exceeds_5() {
+            let mut rng = StdRng::seed_from_u64(54321);
+            for enemy_level in 1..=5 {
+                for _ in 0..100 {
+                    let orb_level = select_xp_level(enemy_level, &mut rng);
+                    assert!(orb_level <= 5, "Orb level {} should be <= 5", orb_level);
+                }
+            }
+        }
+
+        #[test]
+        fn select_xp_level_clamps_high_enemy_level() {
+            let mut rng = StdRng::seed_from_u64(98765);
+            // Enemy level 10 (invalid) should be clamped to 5
+            for _ in 0..50 {
+                let orb_level = select_xp_level(10, &mut rng);
+                assert_eq!(orb_level, 5, "Clamped enemy level should produce level 5 orbs");
+            }
+        }
+
+        #[test]
+        fn select_xp_level_can_upgrade() {
+            // With many trials, we should see at least some upgrades
+            let mut rng = StdRng::seed_from_u64(11111);
+            let mut saw_upgrade = false;
+            for _ in 0..100 {
+                let orb_level = select_xp_level(1, &mut rng);
+                if orb_level > 1 {
+                    saw_upgrade = true;
+                    break;
+                }
+            }
+            assert!(saw_upgrade, "Should see at least one upgrade with 20% chance");
+        }
+
+        #[test]
+        fn select_xp_level_level_5_enemy_always_drops_level_5() {
+            // Level 5 enemies always drop level 5 (can't upgrade further)
+            let mut rng = StdRng::seed_from_u64(22222);
+            for _ in 0..50 {
+                let orb_level = select_xp_level(5, &mut rng);
+                assert_eq!(orb_level, 5, "Level 5 enemy should always drop level 5 orbs");
+            }
+        }
+    }
 
     /// Helper resource to count pickup events and store last event data
     #[derive(Resource, Clone)]
@@ -1477,6 +1657,57 @@ mod tests {
             // Tick past maximum possible cooldown (250ms)
             cooldown.timer.tick(Duration::from_millis(300));
             assert!(cooldown.timer.is_finished(), "Timer should be finished after 300ms");
+        }
+    }
+
+    mod loot_light_tests {
+        use crate::loot::components::{
+            XP_ORB_LIGHT_INTENSITY, XP_ORB_LIGHT_RADIUS, XP_ORB_LIGHT_COLOR,
+            HEALTH_PACK_LIGHT_INTENSITY, HEALTH_PACK_LIGHT_RADIUS, HEALTH_PACK_LIGHT_COLOR,
+            WEAPON_LIGHT_INTENSITY, WEAPON_LIGHT_RADIUS,
+            WEAPON_PISTOL_LIGHT_COLOR, WEAPON_LASER_LIGHT_COLOR, WEAPON_ROCKET_LIGHT_COLOR,
+            POWERUP_LIGHT_INTENSITY, POWERUP_LIGHT_RADIUS, POWERUP_LIGHT_COLOR,
+        };
+
+        #[test]
+        fn test_xp_orb_light_constants_are_reasonable() {
+            // XP orbs should have modest lighting
+            assert!(XP_ORB_LIGHT_INTENSITY > 0.0);
+            assert!(XP_ORB_LIGHT_INTENSITY <= 5000.0);
+            assert!(XP_ORB_LIGHT_RADIUS > 0.0);
+            assert!(XP_ORB_LIGHT_RADIUS <= 20.0);
+        }
+
+        #[test]
+        fn test_health_pack_light_constants_are_reasonable() {
+            // Health packs should be more visible than XP
+            assert!(HEALTH_PACK_LIGHT_INTENSITY >= XP_ORB_LIGHT_INTENSITY);
+            assert!(HEALTH_PACK_LIGHT_RADIUS >= XP_ORB_LIGHT_RADIUS);
+        }
+
+        #[test]
+        fn test_weapon_light_constants_are_reasonable() {
+            // Weapons should be very visible
+            assert!(WEAPON_LIGHT_INTENSITY >= HEALTH_PACK_LIGHT_INTENSITY);
+            assert!(WEAPON_LIGHT_RADIUS >= HEALTH_PACK_LIGHT_RADIUS);
+        }
+
+        #[test]
+        fn test_powerup_light_constants_are_brightest() {
+            // Powerups should be the brightest
+            assert!(POWERUP_LIGHT_INTENSITY >= WEAPON_LIGHT_INTENSITY);
+            assert!(POWERUP_LIGHT_RADIUS >= WEAPON_LIGHT_RADIUS);
+        }
+
+        #[test]
+        fn test_light_colors_are_distinct() {
+            // Each item type should have a distinct light color
+            assert_ne!(XP_ORB_LIGHT_COLOR, HEALTH_PACK_LIGHT_COLOR);
+            assert_ne!(XP_ORB_LIGHT_COLOR, WEAPON_PISTOL_LIGHT_COLOR);
+            assert_ne!(HEALTH_PACK_LIGHT_COLOR, WEAPON_PISTOL_LIGHT_COLOR);
+            assert_ne!(WEAPON_PISTOL_LIGHT_COLOR, WEAPON_LASER_LIGHT_COLOR);
+            assert_ne!(WEAPON_LASER_LIGHT_COLOR, WEAPON_ROCKET_LIGHT_COLOR);
+            assert_ne!(POWERUP_LIGHT_COLOR, WEAPON_PISTOL_LIGHT_COLOR);
         }
     }
 }

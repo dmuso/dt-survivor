@@ -5,12 +5,16 @@ use bevy::prelude::*;
 pub struct EnemyDeathEvent {
     pub enemy_entity: Entity,
     pub position: Vec3,
+    /// Level of the enemy that died (1-5)
+    pub enemy_level: u8,
 }
 
 /// Message fired when loot should be dropped (typically when an enemy dies)
 #[derive(Message)]
 pub struct LootDropEvent {
     pub position: Vec3,
+    /// Level of the enemy that died (1-5), determines XP orb quality
+    pub enemy_level: u8,
 }
 
 /// Event fired when player collides with an enemy

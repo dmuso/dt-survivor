@@ -375,8 +375,8 @@ mod tests {
         app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
         app.update();
 
-        // Simulate Whisper collection by setting WeaponOrigin position
-        app.world_mut().resource_mut::<WeaponOrigin>().position = Some(Vec2::new(0.0, 0.0));
+        // Simulate Whisper collection by setting WeaponOrigin position (full 3D)
+        app.world_mut().resource_mut::<WeaponOrigin>().position = Some(Vec3::new(0.0, 3.0, 0.0));
 
         // Add pistol to inventory (simulating Whisper collection)
         {
@@ -728,12 +728,12 @@ mod tests {
         let game_materials = world.get_resource::<GameMaterials>();
         assert!(game_materials.is_some(), "GameMaterials resource should be initialized");
 
-        // Verify player has Mesh3d component
+        // Verify player entity exists with Transform (3D model loaded as child scene)
         let world = app.world_mut();
-        let player_with_mesh: Vec<Entity> = world.query_filtered::<Entity, (With<Player>, With<Mesh3d>)>()
+        let player_entities: Vec<Entity> = world.query_filtered::<Entity, (With<Player>, With<Transform>)>()
             .iter(world)
             .collect();
-        assert_eq!(player_with_mesh.len(), 1, "Player should have Mesh3d component");
+        assert_eq!(player_entities.len(), 1, "Player should exist with Transform component");
 
         // Verify Camera3d exists
         let camera_3d_count = world.query_filtered::<Entity, With<Camera3d>>()

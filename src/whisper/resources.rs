@@ -7,11 +7,11 @@ pub struct WhisperSparkEffect(pub Handle<EffectAsset>);
 
 /// Resource tracking the weapon origin position.
 /// When Whisper is not collected, weapons are disabled.
-/// When Whisper is collected, this contains Whisper's position.
+/// When Whisper is collected, this contains Whisper's 3D position.
 #[derive(Resource, Default)]
 pub struct WeaponOrigin {
-    /// None = weapons disabled, Some(pos) = fire from this position
-    pub position: Option<Vec2>,
+    /// None = weapons disabled, Some(pos) = fire from this 3D position
+    pub position: Option<Vec3>,
 }
 
 impl WeaponOrigin {
@@ -40,10 +40,10 @@ mod tests {
     #[test]
     fn test_weapon_origin_active() {
         let origin = WeaponOrigin {
-            position: Some(Vec2::new(10.0, 20.0)),
+            position: Some(Vec3::new(10.0, 3.0, 20.0)),
         };
         assert!(origin.is_active());
-        assert_eq!(origin.position.unwrap(), Vec2::new(10.0, 20.0));
+        assert_eq!(origin.position.unwrap(), Vec3::new(10.0, 3.0, 20.0));
     }
 
     #[test]

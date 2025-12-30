@@ -8,7 +8,6 @@ use rand::Rng;
 
 use crate::game::resources::{GameMaterials, GameMeshes};
 use crate::loot::components::{DroppedItem, ItemData, PickupState};
-use crate::movement::components::from_xz;
 use crate::player::components::Player;
 use crate::whisper::components::{
     ArcBurstTimer, LightningBolt, LightningSegment, LightningSpawnTimer, OrbitalParticle,
@@ -19,10 +18,10 @@ use crate::whisper::resources::*;
 
 /// Color constants for Whisper visual effects (white mode)
 pub const WHISPER_LIGHT_COLOR: Color = Color::srgb(1.0, 1.0, 1.0); // White
-/// 3D PointLight intensity (lumens)
-pub const WHISPER_LIGHT_INTENSITY: f32 = 2000.0;
+/// 3D PointLight intensity (lumens) - very bright to stand out in dark world
+pub const WHISPER_LIGHT_INTENSITY: f32 = 10000.0;
 /// 3D PointLight radius
-pub const WHISPER_LIGHT_RADIUS: f32 = 5.0;
+pub const WHISPER_LIGHT_RADIUS: f32 = 50.0;
 
 /// Particle effect constants for 3D space
 const SPARK_SPAWN_RATE: f32 = 80.0; // particles per second
@@ -200,16 +199,16 @@ pub fn whisper_follow_player(
     }
 }
 
-/// Updates WeaponOrigin resource with Whisper's current position.
-/// Uses XZ plane for 3D position (ignores Y height).
+/// Updates WeaponOrigin resource with Whisper's current 3D position.
+/// Weapons fire from Whisper's full 3D position.
 /// Runs in GameSet::Movement (after whisper_follow_player)
 pub fn update_weapon_origin(
     whisper_query: Query<&Transform, With<WhisperCompanion>>,
     mut weapon_origin: ResMut<WeaponOrigin>,
 ) {
     if let Ok(whisper_transform) = whisper_query.single() {
-        // Use XZ plane (from_xz extracts X and Z as Vec2)
-        weapon_origin.position = Some(from_xz(whisper_transform.translation));
+        // Store full 3D position so weapons fire from Whisper's height
+        weapon_origin.position = Some(whisper_transform.translation);
     } else {
         weapon_origin.position = None;
     }
@@ -770,7 +769,7 @@ mod tests {
 
         // Set initial state
         app.world_mut().resource_mut::<WhisperState>().collected = true;
-        app.world_mut().resource_mut::<WeaponOrigin>().position = Some(Vec2::new(10.0, 20.0));
+        app.world_mut().resource_mut::<WeaponOrigin>().position = Some(Vec3::new(10.0, 3.0, 20.0));
 
         app.add_systems(Update, reset_whisper_state);
         app.update();
@@ -835,18 +834,18 @@ mod tests {
         app.init_resource::<WeaponOrigin>();
         app.add_systems(Update, update_weapon_origin);
 
-        // Create WhisperCompanion at (50, 1.5, 60) on XZ plane (Y is height)
+        // Create WhisperCompanion at (50, 3.0, 60) (Y is height)
         app.world_mut().spawn((
             WhisperCompanion::default(),
-            Transform::from_translation(Vec3::new(50.0, 1.5, 60.0)),
+            Transform::from_translation(Vec3::new(50.0, 3.0, 60.0)),
         ));
 
         app.update();
 
-        // Verify WeaponOrigin was updated - should use XZ plane (X and Z)
+        // Verify WeaponOrigin was updated with full 3D position
         let weapon_origin = app.world().resource::<WeaponOrigin>();
         assert!(weapon_origin.position.is_some());
-        assert_eq!(weapon_origin.position.unwrap(), Vec2::new(50.0, 60.0));
+        assert_eq!(weapon_origin.position.unwrap(), Vec3::new(50.0, 3.0, 60.0));
     }
 
     #[test]
@@ -856,7 +855,7 @@ mod tests {
         app.add_systems(Update, update_weapon_origin);
 
         // Set initial position
-        app.world_mut().resource_mut::<WeaponOrigin>().position = Some(Vec2::new(10.0, 20.0));
+        app.world_mut().resource_mut::<WeaponOrigin>().position = Some(Vec3::new(10.0, 3.0, 20.0));
 
         app.update();
 
