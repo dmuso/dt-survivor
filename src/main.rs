@@ -423,10 +423,10 @@ mod tests {
         // Run weapon firing system
         let _ = app.world_mut().run_system_once(weapon_firing_system);
 
-        // Check that bullets were spawned
+        // Check that bullets were spawned (level 1 pistol fires 1 bullet)
         let world = app.world_mut();
         let bullet_count = world.query::<&Bullet>().iter(world).count();
-        assert_eq!(bullet_count, 5, "Weapon firing should spawn 5 bullets");
+        assert_eq!(bullet_count, 1, "Level 1 weapon firing should spawn 1 bullet");
 
         // Check that weapon last_fired was updated
         let mut weapon_query = world.query::<&Weapon>();
@@ -475,9 +475,9 @@ mod tests {
         let icon_count = world.query::<&WeaponIcon>().iter(world).count();
         assert_eq!(icon_count, 3, "Should have 3 weapon icons for all slots");
 
-        // Check that weapon timer fill exists
+        // Check that weapon timer fill exists for all weapon types
         let timer_fill_count = world.query::<&WeaponTimerFill>().iter(world).count();
-        assert_eq!(timer_fill_count, 1, "Should have 1 weapon timer fill element");
+        assert_eq!(timer_fill_count, 3, "Should have 3 weapon timer fill elements (one for each weapon type)");
     }
 
     #[test]

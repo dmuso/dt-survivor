@@ -1,5 +1,17 @@
 use bevy::prelude::*;
 
+/// Tracks whether the next InGame entry should reset game state.
+/// Set to true when starting a fresh game (from Intro/GameOver).
+/// Set to false when continuing from LevelComplete.
+#[derive(Resource, Default)]
+pub struct FreshGameStart(pub bool);
+
+impl FreshGameStart {
+    pub fn new() -> Self {
+        Self(true) // Default to fresh start
+    }
+}
+
 /// Configuration for game level progression
 #[derive(Debug, Clone)]
 pub struct LevelConfig {
@@ -79,19 +91,21 @@ pub struct PlayerPosition(pub Vec2);
 #[derive(Resource)]
 pub struct EnemySpawnState {
     pub time_since_last_spawn: f32,
-    pub spawn_rate_per_second: f32,
-    pub time_since_last_rate_increase: f32,
-    pub rate_level: u32,
 }
 
 impl Default for EnemySpawnState {
     fn default() -> Self {
         Self {
             time_since_last_spawn: 0.0,
-            spawn_rate_per_second: 1.25, // Start with 1.25 enemies per second
-            time_since_last_rate_increase: 0.0,
-            rate_level: 0,
         }
+    }
+}
+
+impl EnemySpawnState {
+    /// Calculate spawn rate based on game level.
+    /// Level 1: 0.6 enemies/second, then 1.5x per level.
+    pub fn spawn_rate_for_level(game_level: u32) -> f32 {
+        0.6 * 1.5_f32.powi(game_level.saturating_sub(1) as i32)
     }
 }
 
@@ -138,7 +152,7 @@ impl FreeCameraState {
 pub struct GameMeshes {
     /// Player mesh (1.0 x 1.0 x 1.0 cube)
     pub player: Handle<Mesh>,
-    /// Enemy mesh (0.75 x 0.75 x 0.75 cube)
+    /// Enemy mesh (0.75 x 1.5 x 0.75 rectangular prism - double height)
     pub enemy: Handle<Mesh>,
     /// Bullet mesh (0.3 x 0.3 x 0.3 cube)
     pub bullet: Handle<Mesh>,
@@ -174,7 +188,7 @@ impl GameMeshes {
     pub fn new(meshes: &mut Assets<Mesh>) -> Self {
         Self {
             player: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
-            enemy: meshes.add(Cuboid::new(0.75, 0.75, 0.75)),
+            enemy: meshes.add(Cuboid::new(0.75, 1.5, 0.75)),
             bullet: meshes.add(Cuboid::new(0.3, 0.3, 0.3)),
             laser: meshes.add(Cuboid::new(0.1, 0.1, 1.0)),
             rocket: meshes.add(Cuboid::new(0.25, 0.25, 0.6)),
@@ -273,30 +287,31 @@ pub struct XpOrbMaterials {
 
 impl XpOrbMaterials {
     pub fn new(materials: &mut Assets<StandardMaterial>) -> Self {
+        // Emissive values provide glow via bloom (no PointLights on loot)
         Self {
             common: materials.add(StandardMaterial {
                 base_color: Color::srgb(0.6, 0.6, 0.6),
-                emissive: bevy::color::LinearRgba::rgb(0.3, 0.3, 0.3),
+                emissive: bevy::color::LinearRgba::rgb(0.75, 0.75, 0.75),
                 ..default()
             }),
             uncommon: materials.add(StandardMaterial {
                 base_color: Color::srgb(0.0, 0.8, 0.2),
-                emissive: bevy::color::LinearRgba::rgb(0.0, 0.4, 0.1),
+                emissive: bevy::color::LinearRgba::rgb(0.0, 1.0, 0.25),
                 ..default()
             }),
             rare: materials.add(StandardMaterial {
                 base_color: Color::srgb(0.2, 0.4, 1.0),
-                emissive: bevy::color::LinearRgba::rgb(0.2, 0.4, 1.0),
+                emissive: bevy::color::LinearRgba::rgb(0.25, 0.5, 1.5),
                 ..default()
             }),
             epic: materials.add(StandardMaterial {
                 base_color: Color::srgb(0.6, 0.2, 0.8),
-                emissive: bevy::color::LinearRgba::rgb(0.9, 0.3, 1.2),
+                emissive: bevy::color::LinearRgba::rgb(1.0, 0.35, 1.25),
                 ..default()
             }),
             legendary: materials.add(StandardMaterial {
                 base_color: Color::srgb(1.0, 0.84, 0.0),
-                emissive: bevy::color::LinearRgba::rgb(3.0, 2.52, 0.0),
+                emissive: bevy::color::LinearRgba::rgb(2.5, 2.1, 0.0),
                 ..default()
             }),
         }
@@ -468,22 +483,27 @@ impl GameMaterials {
             }),
             health_pack: materials.add(StandardMaterial {
                 base_color: Color::srgb(0.0, 1.0, 0.0),
+                emissive: bevy::color::LinearRgba::rgb(0.0, 3.0, 0.5),
                 ..default()
             }),
             weapon_pistol: materials.add(StandardMaterial {
                 base_color: Color::srgb(1.0, 1.0, 0.0),
+                emissive: bevy::color::LinearRgba::rgb(3.0, 3.0, 0.5),
                 ..default()
             }),
             weapon_laser: materials.add(StandardMaterial {
                 base_color: Color::srgb(0.0, 0.0, 1.0),
+                emissive: bevy::color::LinearRgba::rgb(0.5, 1.0, 4.0),
                 ..default()
             }),
             weapon_rocket: materials.add(StandardMaterial {
                 base_color: Color::srgb(1.0, 0.5, 0.0),
+                emissive: bevy::color::LinearRgba::rgb(3.0, 1.5, 0.0),
                 ..default()
             }),
             powerup: materials.add(StandardMaterial {
                 base_color: Color::srgb(1.0, 0.0, 1.0),
+                emissive: bevy::color::LinearRgba::rgb(3.0, 0.0, 3.0),
                 ..default()
             }),
             rock: materials.add(StandardMaterial {
@@ -675,6 +695,57 @@ mod tests {
         let mut time = SurvivalTime::default();
         time.0 += 1.5;
         assert_eq!(time.0, 1.5);
+    }
+
+    mod spawn_rate_tests {
+        use super::*;
+
+        #[test]
+        fn spawn_rate_at_level_1() {
+            let rate = EnemySpawnState::spawn_rate_for_level(1);
+            assert!((rate - 0.6).abs() < 0.001, "Level 1 should have 0.6 enemies/sec, got {}", rate);
+        }
+
+        #[test]
+        fn spawn_rate_at_level_2() {
+            let rate = EnemySpawnState::spawn_rate_for_level(2);
+            // 0.6 * 1.5 = 0.9
+            assert!((rate - 0.9).abs() < 0.001, "Level 2 should have 0.9 enemies/sec, got {}", rate);
+        }
+
+        #[test]
+        fn spawn_rate_at_level_5() {
+            let rate = EnemySpawnState::spawn_rate_for_level(5);
+            // 0.6 * 1.5^4 = 0.6 * 5.0625 = 3.0375
+            let expected = 0.6 * 1.5_f32.powi(4);
+            assert!((rate - expected).abs() < 0.001, "Level 5 should have {} enemies/sec, got {}", expected, rate);
+        }
+
+        #[test]
+        fn spawn_rate_at_level_10() {
+            let rate = EnemySpawnState::spawn_rate_for_level(10);
+            // 0.6 * 1.5^9 = ~23.1 enemies/sec
+            let expected = 0.6 * 1.5_f32.powi(9);
+            assert!((rate - expected).abs() < 0.001, "Level 10 should have {} enemies/sec, got {}", expected, rate);
+        }
+
+        #[test]
+        fn spawn_rate_increases_with_level() {
+            let rate_1 = EnemySpawnState::spawn_rate_for_level(1);
+            let rate_5 = EnemySpawnState::spawn_rate_for_level(5);
+            let rate_10 = EnemySpawnState::spawn_rate_for_level(10);
+
+            assert!(rate_5 > rate_1, "Level 5 should have higher rate than level 1");
+            assert!(rate_10 > rate_5, "Level 10 should have higher rate than level 5");
+        }
+
+        #[test]
+        fn spawn_rate_at_level_0_equals_level_1() {
+            // Edge case: level 0 should behave like level 1
+            let rate_0 = EnemySpawnState::spawn_rate_for_level(0);
+            let rate_1 = EnemySpawnState::spawn_rate_for_level(1);
+            assert!((rate_0 - rate_1).abs() < 0.001, "Level 0 should equal level 1");
+        }
     }
 
     #[test]
