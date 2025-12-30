@@ -104,12 +104,19 @@ pub fn setup_whisper_particle_effect(
 /// Spawns Whisper drop close to player (2.5-3.5 units) but outside pickup radius.
 /// Uses polar coordinates to ensure uniform distribution in a ring around the player.
 /// Runs on OnEnter(GameState::InGame)
+/// Only spawns on a fresh game start (not when continuing from LevelComplete)
 pub fn spawn_whisper_drop(
     mut commands: Commands,
     game_meshes: Option<Res<GameMeshes>>,
     game_materials: Option<Res<GameMaterials>>,
     player_query: Query<&Transform, With<Player>>,
+    fresh_start: Res<crate::game::resources::FreshGameStart>,
 ) {
+    // Only spawn Whisper on a fresh game start
+    if !fresh_start.0 {
+        return;
+    }
+
     let Some(game_meshes) = game_meshes else { return };
     let Some(game_materials) = game_materials else { return };
 
@@ -165,12 +172,17 @@ pub fn spawn_whisper_drop(
 
 /// Resets whisper state when entering game.
 /// Runs on OnEnter(GameState::InGame)
+/// Only resets on a fresh game start (not when continuing from LevelComplete)
 pub fn reset_whisper_state(
     mut whisper_state: ResMut<WhisperState>,
     mut weapon_origin: ResMut<WeaponOrigin>,
+    fresh_start: Res<crate::game::resources::FreshGameStart>,
 ) {
-    whisper_state.collected = false;
-    weapon_origin.position = None;
+    // Only reset on a fresh game start
+    if fresh_start.0 {
+        whisper_state.collected = false;
+        weapon_origin.position = None;
+    }
 }
 
 /// Makes Whisper companion follow the player with bobbing motion.
@@ -671,10 +683,13 @@ mod tests {
     use std::time::Duration;
 
     fn setup_test_app_with_game_resources() -> App {
+        use crate::game::resources::FreshGameStart;
+
         let mut app = App::new();
         app.add_plugins(bevy::asset::AssetPlugin::default());
         app.init_asset::<Mesh>();
         app.init_asset::<StandardMaterial>();
+        app.insert_resource(FreshGameStart(true)); // Fresh start = should spawn
 
         // Set up game meshes and materials
         {
@@ -763,9 +778,12 @@ mod tests {
 
     #[test]
     fn test_reset_whisper_state() {
+        use crate::game::resources::FreshGameStart;
+
         let mut app = App::new();
         app.init_resource::<WhisperState>();
         app.init_resource::<WeaponOrigin>();
+        app.insert_resource(FreshGameStart(true)); // Fresh start = should reset
 
         // Set initial state
         app.world_mut().resource_mut::<WhisperState>().collected = true;
@@ -777,6 +795,27 @@ mod tests {
         // Verify state was reset
         assert!(!app.world().resource::<WhisperState>().collected);
         assert!(app.world().resource::<WeaponOrigin>().position.is_none());
+    }
+
+    #[test]
+    fn test_reset_whisper_state_skips_when_not_fresh() {
+        use crate::game::resources::FreshGameStart;
+
+        let mut app = App::new();
+        app.init_resource::<WhisperState>();
+        app.init_resource::<WeaponOrigin>();
+        app.insert_resource(FreshGameStart(false)); // Not fresh = should NOT reset
+
+        // Set initial state
+        app.world_mut().resource_mut::<WhisperState>().collected = true;
+        app.world_mut().resource_mut::<WeaponOrigin>().position = Some(Vec3::new(10.0, 3.0, 20.0));
+
+        app.add_systems(Update, reset_whisper_state);
+        app.update();
+
+        // Verify state was NOT reset
+        assert!(app.world().resource::<WhisperState>().collected);
+        assert!(app.world().resource::<WeaponOrigin>().position.is_some());
     }
 
     #[test]

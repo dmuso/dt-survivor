@@ -18,14 +18,17 @@ use crate::states::*;
 use crate::whisper::components::{WhisperCompanion, WhisperArc};
 
 
+#[allow(clippy::too_many_arguments)]
 pub fn setup_game(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
     camera_query: Query<Entity, With<Camera>>,
+    player_query: Query<Entity, With<Player>>,
     game_meshes: Res<GameMeshes>,
     game_materials: Res<GameMaterials>,
+    fresh_start: Res<crate::game::resources::FreshGameStart>,
 ) {
     // Reuse existing camera if available, otherwise spawn new one
     if camera_query.is_empty() {
@@ -87,32 +90,35 @@ pub fn setup_game(
     }
     // If camera exists, we reuse it (no action needed)
 
-    // Spawn player in the center of the screen (on XZ plane, Y=0 since model has its own height)
-    // The 3D model will be attached as a child by the player plugin
-    commands.spawn((
-        Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
-        Visibility::default(),
-        Player {
-            speed: 7.0, // 3D world units/sec (was 200 pixels/sec in 2D)
-            regen_rate: 1.0, // 1 health per second
-            pickup_radius: 2.0, // 3D world units (was 50 pixels in 2D)
-            last_movement_direction: Vec3::ZERO,
-        },
-        Health::new(100.0), // Player health as separate component
-        crate::experience::components::PlayerExperience::new(),
-    ));
-
-    // Spawn random rocks scattered throughout the scene (on XZ plane)
-    let mut rng = rand::thread_rng();
-    for _ in 0..15 {
-        let x = rng.gen_range(-40.0..40.0);
-        let z = rng.gen_range(-30.0..30.0);
+    // Only spawn player and rocks on a fresh game start (not when continuing from level complete)
+    if fresh_start.0 && player_query.is_empty() {
+        // Spawn player in the center of the screen (on XZ plane, Y=0 since model has its own height)
+        // The 3D model will be attached as a child by the player plugin
         commands.spawn((
-            Mesh3d(game_meshes.rock.clone()),
-            MeshMaterial3d(game_materials.rock.clone()),
-            Transform::from_translation(Vec3::new(x, 0.25, z)),
-            Rock,
+            Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
+            Visibility::default(),
+            Player {
+                speed: 7.0, // 3D world units/sec (was 200 pixels/sec in 2D)
+                regen_rate: 1.0, // 1 health per second
+                pickup_radius: 2.0, // 3D world units (was 50 pixels in 2D)
+                last_movement_direction: Vec3::ZERO,
+            },
+            Health::new(100.0), // Player health as separate component
+            crate::experience::components::PlayerExperience::new(),
         ));
+
+        // Spawn random rocks scattered throughout the scene (on XZ plane)
+        let mut rng = rand::thread_rng();
+        for _ in 0..15 {
+            let x = rng.gen_range(-40.0..40.0);
+            let z = rng.gen_range(-30.0..30.0);
+            commands.spawn((
+                Mesh3d(game_meshes.rock.clone()),
+                MeshMaterial3d(game_materials.rock.clone()),
+                Transform::from_translation(Vec3::new(x, 0.25, z)),
+                Rock,
+            ));
+        }
     }
 }
 
@@ -268,7 +274,7 @@ pub fn player_enemy_effect_system(
 
         // Apply red screen tint for 0.1 seconds
         screen_tint.remaining_duration = 0.1;
-        screen_tint.color = Color::srgba(1.0, 0.0, 0.0, 0.15); // Red with 15% opacity
+        screen_tint.color = Color::srgba(0.5, 0.0, 0.0, 0.05); // Dark red with 5% opacity
     }
 }
 
@@ -314,27 +320,37 @@ pub fn update_screen_tint_timer(
     }
 }
 
-/// Tracks enemy kills, advances game level, and triggers level complete state
+/// Tracks enemy kills and advances game level internally.
+/// Game level affects spawn rate and enemy difficulty but doesn't interrupt gameplay.
 pub fn track_enemy_kills_system(
     mut death_events: MessageReader<EnemyDeathEvent>,
     mut game_level: ResMut<GameLevel>,
     mut level_up_writer: MessageWriter<GameLevelUpEvent>,
-    mut next_state: ResMut<NextState<GameState>>,
 ) {
     for _ in death_events.read() {
         if game_level.register_kill() {
             level_up_writer.write(GameLevelUpEvent {
                 new_level: game_level.level,
             });
-            // Transition to level complete screen
-            next_state.set(GameState::LevelComplete);
+            // Game level advances silently - no screen transition
         }
     }
 }
 
-/// Reset game level on game start
-pub fn reset_game_level(mut game_level: ResMut<GameLevel>) {
-    *game_level = GameLevel::new();
+/// Reset game level on game start (only if it's a fresh game, not continuing from LevelComplete)
+pub fn reset_game_level(
+    mut game_level: ResMut<GameLevel>,
+    mut fresh_start: ResMut<crate::game::resources::FreshGameStart>,
+) {
+    if fresh_start.0 {
+        *game_level = GameLevel::new();
+        fresh_start.0 = false; // Mark as no longer fresh
+    }
+}
+
+/// Mark the next game start as fresh (called when entering Intro or GameOver)
+pub fn mark_fresh_game_start(mut fresh_start: ResMut<crate::game::resources::FreshGameStart>) {
+    fresh_start.0 = true;
 }
 
 /// Update level time tracking (increments time_elapsed each frame)
@@ -929,7 +945,7 @@ mod tests {
         }
 
         #[test]
-        fn track_enemy_kills_transitions_to_level_complete() {
+        fn track_enemy_kills_advances_level_without_state_change() {
             let mut app = App::new();
             app.add_plugins(bevy::state::app::StatesPlugin);
             app.init_state::<GameState>();
@@ -960,17 +976,24 @@ mod tests {
             });
 
             app.update();
-            app.update(); // Extra update to let state transition process
+            app.update();
 
-            // Check we've transitioned to LevelComplete state
+            // Game level should have advanced
+            let game_level = app.world().resource::<GameLevel>();
+            assert_eq!(game_level.level, 2, "Game level should advance to 2");
+
+            // State should remain InGame (no transition to LevelComplete)
             let current_state = app.world().resource::<bevy::state::state::State<GameState>>();
-            assert_eq!(*current_state.get(), GameState::LevelComplete);
+            assert_eq!(*current_state.get(), GameState::InGame, "Should stay in InGame state");
         }
 
         #[test]
         fn reset_game_level_resets_to_initial_state() {
+            use crate::game::resources::FreshGameStart;
+
             let mut app = App::new();
             app.init_resource::<GameLevel>();
+            app.insert_resource(FreshGameStart(true)); // Fresh start = should reset
 
             // Modify game level
             {
@@ -987,6 +1010,36 @@ mod tests {
             assert_eq!(game_level.level, 1);
             assert_eq!(game_level.kills_this_level, 0);
             assert_eq!(game_level.total_kills, 0);
+
+            // FreshGameStart should be false after reset
+            let fresh_start = app.world().resource::<FreshGameStart>();
+            assert!(!fresh_start.0, "FreshGameStart should be false after reset");
+        }
+
+        #[test]
+        fn reset_game_level_skips_reset_when_not_fresh() {
+            use crate::game::resources::FreshGameStart;
+
+            let mut app = App::new();
+            app.init_resource::<GameLevel>();
+            app.insert_resource(FreshGameStart(false)); // Not a fresh start = should NOT reset
+
+            // Modify game level
+            {
+                let mut game_level = app.world_mut().resource_mut::<GameLevel>();
+                game_level.level = 5;
+                game_level.kills_this_level = 15;
+                game_level.total_kills = 100;
+            }
+
+            app.add_systems(Update, reset_game_level);
+            app.update();
+
+            // Level should NOT be reset since FreshGameStart is false
+            let game_level = app.world().resource::<GameLevel>();
+            assert_eq!(game_level.level, 5, "Level should not reset when FreshGameStart is false");
+            assert_eq!(game_level.kills_this_level, 15);
+            assert_eq!(game_level.total_kills, 100);
         }
 
         #[test]

@@ -4,7 +4,7 @@ use crate::bullets::systems::*;
 use crate::camera::plugin as camera_plugin;
 use crate::enemies::systems::*;
 use crate::game::systems::{
-    cleanup_game, game_input, player_death_system, player_enemy_collision_detection,
+    cleanup_game, game_input, mark_fresh_game_start, player_death_system, player_enemy_collision_detection,
     player_enemy_damage_system, player_enemy_effect_system, reset_game_level, reset_level_stats_system,
     reset_survival_time, setup_game, setup_game_assets, track_enemy_kills_system,
     track_level_kills_system, track_level_xp_system, update_level_time_system,
@@ -23,7 +23,7 @@ use crate::weapon::plugin as weapon_plugin;
 use crate::whisper::plugin as whisper_plugin;
 use crate::player::systems::{camera_follow_player, update_slow_modifiers, player_health_regeneration_system};
 use crate::whisper::systems::spawn_whisper_drop;
-use crate::game::resources::{GameLevel, LevelStats, PlayerPosition, EnemySpawnState, PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
+use crate::game::resources::{FreshGameStart, GameLevel, LevelStats, PlayerPosition, EnemySpawnState, PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
 use crate::score::*;
 use crate::game::events::{PlayerEnemyCollisionEvent, BulletEnemyCollisionEvent, GameOverEvent, GameLevelUpEvent};
 
@@ -36,6 +36,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<SurvivalTime>()
         .init_resource::<GameLevel>()
         .init_resource::<LevelStats>()
+        .insert_resource(FreshGameStart::new())
         .add_message::<PlayerEnemyCollisionEvent>()
         .add_message::<GameOverEvent>()
         .add_message::<BulletEnemyCollisionEvent>()
@@ -127,7 +128,9 @@ pub fn plugin(app: &mut App) {
                 .run_if(in_state(GameState::InGame)),
         )
         // weapon_firing_system is now in weapon_plugin
-        .add_systems(OnExit(GameState::InGame), cleanup_game);
+        // Cleanup game entities only when going to Intro or GameOver (not LevelComplete)
+        .add_systems(OnEnter(GameState::Intro), (mark_fresh_game_start, cleanup_game).chain())
+        .add_systems(OnEnter(GameState::GameOver), (mark_fresh_game_start, cleanup_game).chain());
 }
 
 #[cfg(test)]
