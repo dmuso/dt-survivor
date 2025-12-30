@@ -53,9 +53,48 @@ pub struct DebugCameraPosition;
 #[derive(Component)]
 pub struct DebugEnemyCount;
 
+#[derive(Component)]
+pub struct DebugFpsDisplay;
+
+#[derive(Component)]
+pub struct GameLevelDisplay;
+
+#[derive(Component)]
+pub struct KillProgressDisplay;
+
+#[derive(Component)]
+pub struct XpProgressBar;
+
+#[derive(Component)]
+pub struct XpProgressBarFill;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn game_level_display_is_a_component() {
+        fn assert_component<T: Component>() {}
+        assert_component::<GameLevelDisplay>();
+    }
+
+    #[test]
+    fn kill_progress_display_is_a_component() {
+        fn assert_component<T: Component>() {}
+        assert_component::<KillProgressDisplay>();
+    }
+
+    #[test]
+    fn xp_progress_bar_is_a_component() {
+        fn assert_component<T: Component>() {}
+        assert_component::<XpProgressBar>();
+    }
+
+    #[test]
+    fn xp_progress_bar_fill_is_a_component() {
+        fn assert_component<T: Component>() {}
+        assert_component::<XpProgressBarFill>();
+    }
 
     #[test]
     fn weapon_icon_uses_weapon_type_enum() {
@@ -92,5 +131,12 @@ mod tests {
         };
         // WeaponType equality is based on id(), so these should be equal
         assert_eq!(icon1.weapon_type, icon2.weapon_type);
+    }
+
+    #[test]
+    fn debug_fps_display_is_a_component() {
+        // Verify DebugFpsDisplay can be used as a component marker
+        fn assert_component<T: Component>() {}
+        assert_component::<DebugFpsDisplay>();
     }
 }

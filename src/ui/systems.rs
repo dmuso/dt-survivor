@@ -254,6 +254,69 @@ pub fn setup_game_ui(
                 },
                 crate::experience::components::PlayerLevelDisplay,
             ));
+
+            // XP Progress Bar Container
+            health_container.spawn((
+                Node {
+                    width: Val::Px(150.0),
+                    height: Val::Px(8.0),
+                    margin: UiRect::top(Val::Px(5.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.2, 0.2, 0.2, 0.8)),
+                XpProgressBar,
+            ))
+            .with_children(|bar_container| {
+                // XP Progress Bar Fill
+                bar_container.spawn((
+                    Node {
+                        width: Val::Percent(0.0),
+                        height: Val::Percent(100.0),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.4, 0.8, 1.0)), // Light blue for XP
+                    XpProgressBarFill,
+                ));
+            });
+        });
+
+        // Game Level display (top center)
+        parent.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                top: Val::Px(20.0),
+                left: Val::Percent(50.0),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+        ))
+        .with_children(|game_level_container| {
+            // Game level text
+            game_level_container.spawn((
+                Text::new("Game Level: 1"),
+                TextFont {
+                    font_size: 24.0,
+                    ..default()
+                },
+                TextColor(Color::WHITE),
+                GameLevelDisplay,
+            ));
+
+            // Kill progress text
+            game_level_container.spawn((
+                Text::new("Kills: 0/10"),
+                TextFont {
+                    font_size: 16.0,
+                    ..default()
+                },
+                TextColor(Color::srgba(1.0, 1.0, 1.0, 0.7)),
+                Node {
+                    margin: UiRect::top(Val::Px(5.0)),
+                    ..default()
+                },
+                KillProgressDisplay,
+            ));
         });
     });
 }
@@ -291,6 +354,43 @@ pub fn update_health_display(
         for (mut node, mut background_color) in &mut health_bar_query {
             node.width = Val::Percent(health_percentage * 100.0);
             *background_color = BackgroundColor(bar_color);
+        }
+    }
+}
+
+pub fn update_game_level_display(
+    game_level: Res<crate::game::resources::GameLevel>,
+    mut query: Query<&mut Text, With<GameLevelDisplay>>,
+) {
+    if game_level.is_changed() {
+        for mut text in query.iter_mut() {
+            **text = format!("Game Level: {}", game_level.level);
+        }
+    }
+}
+
+pub fn update_kill_progress_display(
+    game_level: Res<crate::game::resources::GameLevel>,
+    mut query: Query<&mut Text, With<KillProgressDisplay>>,
+) {
+    if game_level.is_changed() {
+        for mut text in query.iter_mut() {
+            **text = format!(
+                "Kills: {}/{}",
+                game_level.kills_this_level,
+                game_level.kills_to_advance()
+            );
+        }
+    }
+}
+
+pub fn update_xp_progress_bar(
+    player_query: Query<&crate::experience::components::PlayerExperience, With<Player>>,
+    mut bar_query: Query<&mut Node, With<XpProgressBarFill>>,
+) {
+    if let Ok(exp) = player_query.single() {
+        for mut node in bar_query.iter_mut() {
+            node.width = Val::Percent(exp.progress() * 100.0);
         }
     }
 }
@@ -601,6 +701,17 @@ pub fn setup_debug_hud(mut commands: Commands) {
             TextColor(Color::srgb(0.8, 0.8, 0.8)),
             DebugEnemyCount,
         ));
+
+        // FPS display
+        parent.spawn((
+            Text::new("FPS: 0"),
+            TextFont {
+                font_size: 14.0,
+                ..default()
+            },
+            TextColor(Color::srgb(0.8, 0.8, 0.8)),
+            DebugFpsDisplay,
+        ));
     });
 }
 
@@ -623,14 +734,16 @@ pub fn toggle_debug_hud(
 }
 
 /// Update debug HUD with current values
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub fn update_debug_hud(
+    time: Res<Time>,
     player_query: Query<&Transform, With<Player>>,
     camera_query: Query<&Transform, With<Camera>>,
     enemy_query: Query<&Enemy>,
-    mut player_text: Query<&mut Text, (With<DebugPlayerPosition>, Without<DebugCameraPosition>, Without<DebugEnemyCount>)>,
-    mut camera_text: Query<&mut Text, (With<DebugCameraPosition>, Without<DebugPlayerPosition>, Without<DebugEnemyCount>)>,
-    mut enemy_text: Query<&mut Text, (With<DebugEnemyCount>, Without<DebugPlayerPosition>, Without<DebugCameraPosition>)>,
+    mut player_text: Query<&mut Text, (With<DebugPlayerPosition>, Without<DebugCameraPosition>, Without<DebugEnemyCount>, Without<DebugFpsDisplay>)>,
+    mut camera_text: Query<&mut Text, (With<DebugCameraPosition>, Without<DebugPlayerPosition>, Without<DebugEnemyCount>, Without<DebugFpsDisplay>)>,
+    mut enemy_text: Query<&mut Text, (With<DebugEnemyCount>, Without<DebugPlayerPosition>, Without<DebugCameraPosition>, Without<DebugFpsDisplay>)>,
+    mut fps_text: Query<&mut Text, (With<DebugFpsDisplay>, Without<DebugPlayerPosition>, Without<DebugCameraPosition>, Without<DebugEnemyCount>)>,
 ) {
     // Update player position
     if let Ok(player_transform) = player_query.single() {
@@ -652,6 +765,13 @@ pub fn update_debug_hud(
     let enemy_count = enemy_query.iter().count();
     for mut text in enemy_text.iter_mut() {
         **text = format!("Enemies: {}", enemy_count);
+    }
+
+    // Update FPS
+    let delta = time.delta_secs();
+    let fps = if delta > 0.0 { 1.0 / delta } else { 0.0 };
+    for mut text in fps_text.iter_mut() {
+        **text = format!("FPS: {:.0}", fps);
     }
 }
 
@@ -711,4 +831,169 @@ fn draw_axes(gizmos: &mut Gizmos, position: Vec3, length: f32) {
         position + Vec3::Z * length,
         Color::srgb(0.0, 0.0, 1.0),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::resources::GameLevel;
+    use crate::experience::components::PlayerExperience;
+
+    mod update_game_level_display_tests {
+        use super::*;
+
+        fn setup_test_app() -> App {
+            let mut app = App::new();
+            app.add_plugins(bevy::state::app::StatesPlugin);
+            app.insert_resource(GameLevel::new());
+            app
+        }
+
+        #[test]
+        fn updates_text_when_game_level_changes() {
+            let mut app = setup_test_app();
+
+            // Spawn a text entity with GameLevelDisplay marker
+            app.world_mut().spawn((
+                Text::new("Game Level: 1"),
+                GameLevelDisplay,
+            ));
+
+            // Change game level
+            app.world_mut().resource_mut::<GameLevel>().level = 5;
+
+            // Run the system
+            app.add_systems(Update, update_game_level_display);
+            app.update();
+
+            // Verify text updated
+            let text = app.world_mut()
+                .query::<&Text>()
+                .iter(app.world())
+                .next()
+                .unwrap();
+            assert!(text.0.contains("5"), "Text should contain level 5, got: {}", text.0);
+        }
+    }
+
+    mod update_kill_progress_display_tests {
+        use super::*;
+
+        fn setup_test_app() -> App {
+            let mut app = App::new();
+            app.add_plugins(bevy::state::app::StatesPlugin);
+            app.insert_resource(GameLevel::new());
+            app
+        }
+
+        #[test]
+        fn updates_text_with_kill_count() {
+            let mut app = setup_test_app();
+
+            // Spawn a text entity with KillProgressDisplay marker
+            app.world_mut().spawn((
+                Text::new("Kills: 0/10"),
+                KillProgressDisplay,
+            ));
+
+            // Add some kills
+            {
+                let mut game_level = app.world_mut().resource_mut::<GameLevel>();
+                game_level.kills_this_level = 5;
+            }
+
+            // Run the system
+            app.add_systems(Update, update_kill_progress_display);
+            app.update();
+
+            // Verify text updated
+            let text = app.world_mut()
+                .query::<&Text>()
+                .iter(app.world())
+                .next()
+                .unwrap();
+            assert!(text.0.contains("5/10"), "Text should contain 5/10, got: {}", text.0);
+        }
+    }
+
+    mod update_xp_progress_bar_tests {
+        use super::*;
+
+        fn setup_test_app() -> App {
+            let mut app = App::new();
+            app.add_plugins(bevy::state::app::StatesPlugin);
+            app
+        }
+
+        #[test]
+        fn updates_bar_width_based_on_progress() {
+            let mut app = setup_test_app();
+
+            // Spawn a player with experience at 50% progress
+            let mut exp = PlayerExperience::new();
+            exp.current = 50; // 50 out of 100 for level 1
+            app.world_mut().spawn((
+                Player {
+                    speed: 200.0,
+                    regen_rate: 0.0,
+                    pickup_radius: 0.0,
+                    last_movement_direction: Vec3::ZERO,
+                },
+                exp,
+            ));
+
+            // Spawn XP progress bar fill
+            app.world_mut().spawn((
+                Node {
+                    width: Val::Percent(0.0),
+                    ..default()
+                },
+                XpProgressBarFill,
+            ));
+
+            // Run the system
+            app.add_systems(Update, update_xp_progress_bar);
+            app.update();
+
+            // Verify bar width updated to 50%
+            let node = app.world_mut()
+                .query::<&Node>()
+                .iter(app.world())
+                .next()
+                .unwrap();
+            if let Val::Percent(width) = node.width {
+                assert!((width - 50.0).abs() < 0.1, "Width should be ~50%, got: {}", width);
+            } else {
+                panic!("Width should be a percentage");
+            }
+        }
+    }
+
+    mod progression_ui_components_tests {
+        use super::*;
+
+        #[test]
+        fn game_level_display_is_component() {
+            fn assert_component<T: Component>() {}
+            assert_component::<GameLevelDisplay>();
+        }
+
+        #[test]
+        fn kill_progress_display_is_component() {
+            fn assert_component<T: Component>() {}
+            assert_component::<KillProgressDisplay>();
+        }
+
+        #[test]
+        fn xp_progress_bar_is_component() {
+            fn assert_component<T: Component>() {}
+            assert_component::<XpProgressBar>();
+        }
+
+        #[test]
+        fn xp_progress_bar_fill_is_component() {
+            fn assert_component<T: Component>() {}
+            assert_component::<XpProgressBarFill>();
+        }
+    }
 }

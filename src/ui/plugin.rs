@@ -16,6 +16,9 @@ pub fn plugin(app: &mut App) {
             update_screen_tint,
             update_weapon_icons,
             update_weapon_level_displays,
+            update_game_level_display,
+            update_kill_progress_display,
+            update_xp_progress_bar,
             toggle_debug_hud,
             update_debug_hud,
         ).run_if(in_state(GameState::InGame)))
