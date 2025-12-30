@@ -193,6 +193,68 @@ impl GameMeshes {
     }
 }
 
+/// Calculate enemy scale based on level
+/// Base scale is 0.75, increases by 15% per level above 1
+pub fn enemy_scale_for_level(level: u8) -> f32 {
+    let base_scale = 0.75;
+    let scale_per_level = 0.15;
+    base_scale + (level.saturating_sub(1) as f32 * scale_per_level)
+}
+
+/// Materials for each enemy rarity level (1-5)
+#[derive(Resource)]
+pub struct EnemyLevelMaterials {
+    /// Level 1 - Common (Grey)
+    pub common: Handle<StandardMaterial>,
+    /// Level 2 - Uncommon (Green)
+    pub uncommon: Handle<StandardMaterial>,
+    /// Level 3 - Rare (Blue)
+    pub rare: Handle<StandardMaterial>,
+    /// Level 4 - Epic (Purple)
+    pub epic: Handle<StandardMaterial>,
+    /// Level 5 - Legendary (Gold with emissive glow)
+    pub legendary: Handle<StandardMaterial>,
+}
+
+impl EnemyLevelMaterials {
+    pub fn new(materials: &mut Assets<StandardMaterial>) -> Self {
+        Self {
+            common: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.6, 0.6, 0.6),
+                ..default()
+            }),
+            uncommon: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.0, 0.8, 0.2),
+                ..default()
+            }),
+            rare: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.2, 0.4, 1.0),
+                ..default()
+            }),
+            epic: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.6, 0.2, 0.8),
+                ..default()
+            }),
+            legendary: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 0.84, 0.0),
+                emissive: bevy::color::LinearRgba::rgb(2.0, 1.68, 0.0),
+                ..default()
+            }),
+        }
+    }
+
+    /// Get material handle for a given enemy level (1-5)
+    pub fn for_level(&self, level: u8) -> Handle<StandardMaterial> {
+        match level {
+            1 => self.common.clone(),
+            2 => self.uncommon.clone(),
+            3 => self.rare.clone(),
+            4 => self.epic.clone(),
+            _ => self.legendary.clone(),
+        }
+    }
+}
+
 /// Shared material handles for all game entities
 #[derive(Resource)]
 pub struct GameMaterials {
@@ -724,6 +786,152 @@ mod tests {
             // Verify resources were inserted
             assert!(app.world().get_resource::<GameMeshes>().is_some());
             assert!(app.world().get_resource::<GameMaterials>().is_some());
+        }
+    }
+
+    mod enemy_scale_tests {
+        use super::*;
+
+        #[test]
+        fn enemy_scale_level_1_is_base_scale() {
+            let scale = enemy_scale_for_level(1);
+            assert!((scale - 0.75).abs() < 0.001);
+        }
+
+        #[test]
+        fn enemy_scale_increases_with_level() {
+            let scale_1 = enemy_scale_for_level(1);
+            let scale_5 = enemy_scale_for_level(5);
+            assert!(scale_5 > scale_1);
+        }
+
+        #[test]
+        fn enemy_scale_values_are_correct() {
+            // Level 1: 0.75 (base)
+            assert!((enemy_scale_for_level(1) - 0.75).abs() < 0.001);
+            // Level 2: 0.75 + 0.15 = 0.90
+            assert!((enemy_scale_for_level(2) - 0.90).abs() < 0.001);
+            // Level 3: 0.75 + 0.30 = 1.05
+            assert!((enemy_scale_for_level(3) - 1.05).abs() < 0.001);
+            // Level 4: 0.75 + 0.45 = 1.20
+            assert!((enemy_scale_for_level(4) - 1.20).abs() < 0.001);
+            // Level 5: 0.75 + 0.60 = 1.35
+            assert!((enemy_scale_for_level(5) - 1.35).abs() < 0.001);
+        }
+
+        #[test]
+        fn enemy_scale_is_reasonable_for_all_levels() {
+            for level in 1..=5 {
+                let scale = enemy_scale_for_level(level);
+                assert!(scale >= 0.75 && scale <= 1.5,
+                    "Scale {} for level {} should be between 0.75 and 1.5", scale, level);
+            }
+        }
+
+        #[test]
+        fn enemy_scale_level_0_same_as_level_1() {
+            // Level 0 (invalid) should have same scale as level 1 due to saturating_sub
+            let scale_0 = enemy_scale_for_level(0);
+            let scale_1 = enemy_scale_for_level(1);
+            assert!((scale_0 - scale_1).abs() < 0.001);
+        }
+    }
+
+    mod enemy_level_materials_tests {
+        use super::*;
+        use bevy::asset::Assets;
+        use bevy::pbr::StandardMaterial;
+
+        fn setup_test_app() -> App {
+            let mut app = App::new();
+            app.add_plugins(bevy::asset::AssetPlugin::default());
+            app.init_asset::<StandardMaterial>();
+            app
+        }
+
+        #[test]
+        fn enemy_level_materials_has_all_handles() {
+            let mut app = setup_test_app();
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+
+            let enemy_materials = EnemyLevelMaterials::new(&mut materials);
+
+            // Verify all handles can retrieve their assets
+            assert!(materials.get(&enemy_materials.common).is_some());
+            assert!(materials.get(&enemy_materials.uncommon).is_some());
+            assert!(materials.get(&enemy_materials.rare).is_some());
+            assert!(materials.get(&enemy_materials.epic).is_some());
+            assert!(materials.get(&enemy_materials.legendary).is_some());
+        }
+
+        #[test]
+        fn enemy_level_materials_colors_are_correct() {
+            let mut app = setup_test_app();
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+
+            let enemy_materials = EnemyLevelMaterials::new(&mut materials);
+
+            // Level 1 - Grey
+            let common_mat = materials.get(&enemy_materials.common).unwrap();
+            assert_eq!(common_mat.base_color, Color::srgb(0.6, 0.6, 0.6));
+
+            // Level 2 - Green
+            let uncommon_mat = materials.get(&enemy_materials.uncommon).unwrap();
+            assert_eq!(uncommon_mat.base_color, Color::srgb(0.0, 0.8, 0.2));
+
+            // Level 3 - Blue
+            let rare_mat = materials.get(&enemy_materials.rare).unwrap();
+            assert_eq!(rare_mat.base_color, Color::srgb(0.2, 0.4, 1.0));
+
+            // Level 4 - Purple
+            let epic_mat = materials.get(&enemy_materials.epic).unwrap();
+            assert_eq!(epic_mat.base_color, Color::srgb(0.6, 0.2, 0.8));
+
+            // Level 5 - Gold
+            let legendary_mat = materials.get(&enemy_materials.legendary).unwrap();
+            assert_eq!(legendary_mat.base_color, Color::srgb(1.0, 0.84, 0.0));
+        }
+
+        #[test]
+        fn enemy_level_materials_legendary_has_emissive() {
+            let mut app = setup_test_app();
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+
+            let enemy_materials = EnemyLevelMaterials::new(&mut materials);
+
+            let legendary_mat = materials.get(&enemy_materials.legendary).unwrap();
+            // Verify emissive is set (non-zero)
+            let emissive = legendary_mat.emissive;
+            assert!(emissive.red > 0.0 || emissive.green > 0.0 || emissive.blue > 0.0,
+                "Legendary material should have emissive glow");
+        }
+
+        #[test]
+        fn for_level_returns_correct_material() {
+            let mut app = setup_test_app();
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+
+            let enemy_materials = EnemyLevelMaterials::new(&mut materials);
+
+            // Test each level returns expected material
+            assert_eq!(enemy_materials.for_level(1), enemy_materials.common);
+            assert_eq!(enemy_materials.for_level(2), enemy_materials.uncommon);
+            assert_eq!(enemy_materials.for_level(3), enemy_materials.rare);
+            assert_eq!(enemy_materials.for_level(4), enemy_materials.epic);
+            assert_eq!(enemy_materials.for_level(5), enemy_materials.legendary);
+        }
+
+        #[test]
+        fn for_level_handles_out_of_range() {
+            let mut app = setup_test_app();
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+
+            let enemy_materials = EnemyLevelMaterials::new(&mut materials);
+
+            // Levels > 5 should return legendary
+            assert_eq!(enemy_materials.for_level(6), enemy_materials.legendary);
+            assert_eq!(enemy_materials.for_level(10), enemy_materials.legendary);
+            assert_eq!(enemy_materials.for_level(255), enemy_materials.legendary);
         }
     }
 }

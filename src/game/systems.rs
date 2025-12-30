@@ -10,7 +10,7 @@ use rand::Rng;
 use crate::combat::components::Health;
 use crate::enemies::components::*;
 use crate::game::components::*;
-use crate::game::resources::{GameLevel, GameMaterials, GameMeshes, PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
+use crate::game::resources::{EnemyLevelMaterials, GameLevel, GameMaterials, GameMeshes, PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
 use crate::game::events::*;
 use crate::movement::components::from_xz;
 use crate::player::components::*;
@@ -127,6 +127,7 @@ pub fn setup_game_assets(
 ) {
     commands.insert_resource(GameMeshes::new(&mut meshes));
     commands.insert_resource(GameMaterials::new(&mut materials));
+    commands.insert_resource(EnemyLevelMaterials::new(&mut materials));
 }
 
 pub fn game_input(

@@ -49,7 +49,7 @@ pub fn enemy_spawning_system(
     mut spawn_state: ResMut<EnemySpawnState>,
     time: Res<Time>,
     game_meshes: Res<GameMeshes>,
-    game_materials: Res<GameMaterials>,
+    enemy_materials: Res<EnemyLevelMaterials>,
     game_level: Res<GameLevel>,
 ) {
     let Ok(player_transform) = player_query.single() else {
@@ -94,11 +94,17 @@ pub fn enemy_spawning_system(
             // Determine enemy level based on current game level
             let enemy_level = select_enemy_level(game_level.level, &mut rng);
 
-            // Spawn enemy as 3D mesh on XZ plane with Y height for cube center
+            // Calculate scale based on enemy level (higher level = larger)
+            let scale = enemy_scale_for_level(enemy_level);
+
+            // Spawn enemy as 3D mesh on XZ plane with Y height scaled for cube center
+            // Y position needs to account for scaled cube height
+            let y_height = ENEMY_Y_HEIGHT * scale;
             commands.spawn((
                 Mesh3d(game_meshes.enemy.clone()),
-                MeshMaterial3d(game_materials.enemy.clone()),
-                Transform::from_translation(Vec3::new(spawn_xz.x, ENEMY_Y_HEIGHT, spawn_xz.y)),
+                MeshMaterial3d(enemy_materials.for_level(enemy_level)),
+                Transform::from_translation(Vec3::new(spawn_xz.x, y_height, spawn_xz.y))
+                    .with_scale(Vec3::splat(scale)),
                 Enemy {
                     speed: 1.7, // 3D world units/sec (was 50 pixels/sec in 2D)
                     strength: scaling.damage_for_level(enemy_level),
@@ -145,8 +151,8 @@ mod tests {
         app.world_mut().insert_resource(game_meshes);
 
         let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
-        let game_materials = GameMaterials::new(&mut materials);
-        app.world_mut().insert_resource(game_materials);
+        let enemy_materials = EnemyLevelMaterials::new(&mut materials);
+        app.world_mut().insert_resource(enemy_materials);
     }
 
     mod select_enemy_level_tests {
@@ -398,7 +404,7 @@ mod tests {
     }
 
     #[test]
-    fn test_enemy_transform_y_position_is_correct_height() {
+    fn test_enemy_transform_y_position_is_scaled_height() {
         let mut app = setup_test_app();
         setup_game_resources(&mut app);
 
@@ -432,14 +438,17 @@ mod tests {
 
         let _ = app.world_mut().run_system_once(enemy_spawning_system);
 
-        // Verify enemy Y position matches ENEMY_Y_HEIGHT
-        let mut query = app.world_mut().query::<(&Transform, &Enemy)>();
-        for (transform, _) in query.iter(app.world()) {
+        // Verify enemy Y position is scaled (ENEMY_Y_HEIGHT * scale)
+        // Level 1 scale = 0.75, so Y = 0.375 * 0.75 = 0.28125
+        // Level 5 scale = 1.35, so Y = 0.375 * 1.35 = 0.50625
+        let mut query = app.world_mut().query::<(&Transform, &Enemy, &Level)>();
+        for (transform, _, level) in query.iter(app.world()) {
+            let scale = enemy_scale_for_level(level.value());
+            let expected_y = ENEMY_Y_HEIGHT * scale;
             assert!(
-                (transform.translation.y - ENEMY_Y_HEIGHT).abs() < 0.001,
-                "Enemy Y position should be {} (half cube height), got {}",
-                ENEMY_Y_HEIGHT,
-                transform.translation.y
+                (transform.translation.y - expected_y).abs() < 0.01,
+                "Enemy level {} Y position should be {} (scaled height), got {}",
+                level.value(), expected_y, transform.translation.y
             );
         }
     }
@@ -693,6 +702,117 @@ mod tests {
                 (enemy.strength - expected_damage).abs() < 0.01,
                 "Enemy level {} should have strength {}, got {}",
                 level.value(), expected_damage, enemy.strength
+            );
+        }
+    }
+
+    #[test]
+    fn test_enemy_spawns_with_correct_scale() {
+        let mut app = setup_test_app();
+        setup_game_resources(&mut app);
+
+        // Spawn a player
+        app.world_mut().spawn((
+            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+            Player {
+                speed: 200.0,
+                regen_rate: 1.0,
+                pickup_radius: 50.0,
+                last_movement_direction: Vec3::ZERO,
+            },
+            Health::new(100.0),
+        ));
+
+        // Spawn a 3D camera
+        app.world_mut().spawn((
+            Camera3d::default(),
+            GlobalTransform::from_translation(Vec3::new(0.0, 20.0, 15.0)),
+        ));
+
+        // Force many spawns to get variety of levels
+        {
+            let mut spawn_state = app
+                .world_mut()
+                .get_resource_mut::<EnemySpawnState>()
+                .unwrap();
+            spawn_state.spawn_rate_per_second = 1000.0;
+            spawn_state.time_since_last_spawn = 1.0;
+        }
+
+        let _ = app.world_mut().run_system_once(enemy_spawning_system);
+
+        // Verify enemy scale matches their level
+        let mut query = app.world_mut().query::<(&Transform, &Enemy, &Level)>();
+        for (transform, _, level) in query.iter(app.world()) {
+            let expected_scale = enemy_scale_for_level(level.value());
+            assert!(
+                (transform.scale.x - expected_scale).abs() < 0.01,
+                "Enemy level {} should have scale {}, got {}",
+                level.value(), expected_scale, transform.scale.x
+            );
+            // Scale should be uniform
+            assert!(
+                (transform.scale.x - transform.scale.y).abs() < 0.001,
+                "Enemy scale should be uniform"
+            );
+            assert!(
+                (transform.scale.y - transform.scale.z).abs() < 0.001,
+                "Enemy scale should be uniform"
+            );
+        }
+    }
+
+    #[test]
+    fn test_enemy_spawns_with_level_based_material() {
+        let mut app = setup_test_app();
+        setup_game_resources(&mut app);
+
+        // Spawn a player
+        app.world_mut().spawn((
+            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+            Player {
+                speed: 200.0,
+                regen_rate: 1.0,
+                pickup_radius: 50.0,
+                last_movement_direction: Vec3::ZERO,
+            },
+            Health::new(100.0),
+        ));
+
+        // Spawn a 3D camera
+        app.world_mut().spawn((
+            Camera3d::default(),
+            GlobalTransform::from_translation(Vec3::new(0.0, 20.0, 15.0)),
+        ));
+
+        // Force spawns
+        {
+            let mut spawn_state = app
+                .world_mut()
+                .get_resource_mut::<EnemySpawnState>()
+                .unwrap();
+            spawn_state.spawn_rate_per_second = 100.0;
+            spawn_state.time_since_last_spawn = 1.0;
+        }
+
+        let _ = app.world_mut().run_system_once(enemy_spawning_system);
+
+        // Collect enemy data first to avoid borrow issues
+        let enemy_data: Vec<(Handle<StandardMaterial>, u8)> = {
+            let mut query = app.world_mut().query::<(&MeshMaterial3d<StandardMaterial>, &Level)>();
+            query.iter(app.world())
+                .map(|(mat, level)| (mat.0.clone(), level.value()))
+                .collect()
+        };
+
+        // Verify enemies have material handles that match their level
+        let enemy_materials = app.world().resource::<EnemyLevelMaterials>();
+        for (material, level) in enemy_data {
+            let expected_material = enemy_materials.for_level(level);
+            assert_eq!(
+                material, expected_material,
+                "Enemy level {} should have correct material",
+                level
             );
         }
     }
