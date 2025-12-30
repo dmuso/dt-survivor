@@ -2,14 +2,7 @@ use bevy::prelude::*;
 use bevy_hanabi::prelude::ParticleEffect;
 use rand::Rng;
 use crate::combat::components::Health;
-use crate::loot::components::{
-    DroppedItem, ItemData, PickupState, PopUpAnimation,
-    XP_ORB_LIGHT_INTENSITY, XP_ORB_LIGHT_RADIUS, XP_ORB_LIGHT_COLOR,
-    HEALTH_PACK_LIGHT_INTENSITY, HEALTH_PACK_LIGHT_RADIUS, HEALTH_PACK_LIGHT_COLOR,
-    WEAPON_LIGHT_INTENSITY, WEAPON_LIGHT_RADIUS,
-    WEAPON_PISTOL_LIGHT_COLOR, WEAPON_LASER_LIGHT_COLOR, WEAPON_ROCKET_LIGHT_COLOR,
-    POWERUP_LIGHT_INTENSITY, POWERUP_LIGHT_RADIUS, POWERUP_LIGHT_COLOR,
-};
+use crate::loot::components::{DroppedItem, ItemData, PickupState, PopUpAnimation};
 use crate::loot::events::*;
 use crate::weapon::components::{Weapon, WeaponType};
 use crate::player::components::*;
@@ -26,6 +19,7 @@ use crate::whisper::components::{
 };
 use crate::whisper::resources::{WhisperSparkEffect, WhisperState};
 use crate::whisper::systems::{WHISPER_LIGHT_COLOR, WHISPER_LIGHT_INTENSITY, WHISPER_LIGHT_RADIUS};
+// Note: WHISPER_LIGHT_* constants are still used for the WhisperCompanion entity (not drops)
 
 /// Height of small loot cube center above ground (XP orbs)
 pub const LOOT_SMALL_Y_HEIGHT: f32 = 0.2;
@@ -82,14 +76,8 @@ pub fn loot_drop_system(
             let offset_x = rng.gen_range(-1.0..=1.0);
             let offset_z = rng.gen_range(-1.0..=1.0);
 
-            // Get material based on orb level (using rarity colors)
+            // Get material based on orb level (using rarity colors with emissive glow)
             let orb_material = xp_materials.for_level(orb_level);
-
-            // Get light color from the orb's level color
-            let light_color = Level::new(orb_level).color();
-
-            // Scale light intensity based on level (legendary orbs glow brighter)
-            let light_intensity = XP_ORB_LIGHT_INTENSITY * (1.0 + (orb_level as f32 - 1.0) * 0.5);
 
             commands.spawn((
                 Mesh3d(game_meshes.loot_small.clone()),
@@ -107,13 +95,6 @@ pub fn loot_drop_system(
                     rotation_direction: 1.0,
                 },
                 Level::new(orb_level),
-                PointLight {
-                    color: light_color,
-                    intensity: light_intensity,
-                    radius: XP_ORB_LIGHT_RADIUS,
-                    shadows_enabled: false,
-                    ..default()
-                },
             ));
         }
 
@@ -125,7 +106,7 @@ pub fn loot_drop_system(
             loot_drops.push(ItemData::Weapon(Weapon {
                 weapon_type: WeaponType::RocketLauncher,
                 level: 1,
-                fire_rate: 1.0,
+                fire_rate: 5.0,
                 base_damage: 50.0,
                 last_fired: 0.0,
             }));
@@ -168,48 +149,36 @@ pub fn loot_drop_system(
             let offset_x = angle.cos() * spacing;
             let offset_z = angle.sin() * spacing;
 
-            // Select mesh, material, and light properties based on item type
-            let (mesh, material, y_height, light_color, light_intensity, light_radius) = match &item_data {
+            // Select mesh and material based on item type (emissive materials handle glow via bloom)
+            let (mesh, material, y_height) = match &item_data {
                 ItemData::Weapon(weapon) => {
-                    let (material, light_color) = match weapon.weapon_type {
-                        WeaponType::Pistol { .. } => (game_materials.weapon_pistol.clone(), WEAPON_PISTOL_LIGHT_COLOR),
-                        WeaponType::Laser => (game_materials.weapon_laser.clone(), WEAPON_LASER_LIGHT_COLOR),
-                        WeaponType::RocketLauncher => (game_materials.weapon_rocket.clone(), WEAPON_ROCKET_LIGHT_COLOR),
-                        _ => (game_materials.xp_orb.clone(), WEAPON_PISTOL_LIGHT_COLOR), // Default fallback
+                    let material = match weapon.weapon_type {
+                        WeaponType::Pistol { .. } => game_materials.weapon_pistol.clone(),
+                        WeaponType::Laser => game_materials.weapon_laser.clone(),
+                        WeaponType::RocketLauncher => game_materials.weapon_rocket.clone(),
+                        _ => game_materials.xp_orb.clone(), // Default fallback
                     };
-                    (game_meshes.loot_large.clone(), material, LOOT_LARGE_Y_HEIGHT, light_color, WEAPON_LIGHT_INTENSITY, WEAPON_LIGHT_RADIUS)
+                    (game_meshes.loot_large.clone(), material, LOOT_LARGE_Y_HEIGHT)
                 }
                 ItemData::HealthPack { .. } => (
                     game_meshes.loot_medium.clone(),
                     game_materials.health_pack.clone(),
                     LOOT_LARGE_Y_HEIGHT,
-                    HEALTH_PACK_LIGHT_COLOR,
-                    HEALTH_PACK_LIGHT_INTENSITY,
-                    HEALTH_PACK_LIGHT_RADIUS,
                 ),
                 ItemData::Experience { .. } => (
                     game_meshes.loot_small.clone(),
                     game_materials.xp_orb.clone(),
                     LOOT_SMALL_Y_HEIGHT,
-                    XP_ORB_LIGHT_COLOR,
-                    XP_ORB_LIGHT_INTENSITY,
-                    XP_ORB_LIGHT_RADIUS,
                 ),
                 ItemData::Powerup(_) => (
                     game_meshes.loot_medium.clone(),
                     game_materials.powerup.clone(),
                     LOOT_LARGE_Y_HEIGHT,
-                    POWERUP_LIGHT_COLOR,
-                    POWERUP_LIGHT_INTENSITY,
-                    POWERUP_LIGHT_RADIUS,
                 ),
                 ItemData::Whisper => (
                     game_meshes.whisper_core.clone(),
                     game_materials.whisper_drop.clone(),
                     1.0, // Whisper floats higher
-                    WHISPER_LIGHT_COLOR,
-                    WHISPER_LIGHT_INTENSITY,
-                    WHISPER_LIGHT_RADIUS,
                 ),
             };
 
@@ -227,13 +196,6 @@ pub fn loot_drop_system(
                     velocity: Vec3::ZERO,
                     rotation_speed: 0.0,
                     rotation_direction: 1.0,
-                },
-                PointLight {
-                    color: light_color,
-                    intensity: light_intensity,
-                    radius: light_radius,
-                    shadows_enabled: false,
-                    ..default()
                 },
             ));
         }
@@ -530,15 +492,15 @@ pub fn apply_item_effects(
                 if let Ok((_, _, mut health)) = player_query.get_mut(event.player_entity) {
                     health.heal(*heal_amount);
                     screen_tint.remaining_duration = 0.2;
-                    screen_tint.color = Color::srgba(0.0, 1.0, 0.0, 0.2);
+                    screen_tint.color = Color::srgba(0.0, 0.5, 0.0, 0.05); // Dark green with 5% opacity
                 }
                 play_pickup_sound(&asset_server, &mut audio_channel, &mut sound_limiter, &mut loot_cooldown);
             }
             ItemData::Experience { amount } => {
-                // Add experience
+                // Add experience and handle level-ups
                 if let Ok(mut player_exp) = player_exp_query.get_mut(event.player_entity) {
-                    player_exp.current += amount;
-                    // Level up logic would go here
+                    let _levels_gained = player_exp.add_xp(*amount);
+                    // TODO: Fire PlayerLevelUpEvent if levels_gained > 0
                 }
                 play_pickup_sound(&asset_server, &mut audio_channel, &mut sound_limiter, &mut loot_cooldown);
             }
@@ -1660,54 +1622,4 @@ mod tests {
         }
     }
 
-    mod loot_light_tests {
-        use crate::loot::components::{
-            XP_ORB_LIGHT_INTENSITY, XP_ORB_LIGHT_RADIUS, XP_ORB_LIGHT_COLOR,
-            HEALTH_PACK_LIGHT_INTENSITY, HEALTH_PACK_LIGHT_RADIUS, HEALTH_PACK_LIGHT_COLOR,
-            WEAPON_LIGHT_INTENSITY, WEAPON_LIGHT_RADIUS,
-            WEAPON_PISTOL_LIGHT_COLOR, WEAPON_LASER_LIGHT_COLOR, WEAPON_ROCKET_LIGHT_COLOR,
-            POWERUP_LIGHT_INTENSITY, POWERUP_LIGHT_RADIUS, POWERUP_LIGHT_COLOR,
-        };
-
-        #[test]
-        fn test_xp_orb_light_constants_are_reasonable() {
-            // XP orbs should have modest lighting
-            assert!(XP_ORB_LIGHT_INTENSITY > 0.0);
-            assert!(XP_ORB_LIGHT_INTENSITY <= 5000.0);
-            assert!(XP_ORB_LIGHT_RADIUS > 0.0);
-            assert!(XP_ORB_LIGHT_RADIUS <= 20.0);
-        }
-
-        #[test]
-        fn test_health_pack_light_constants_are_reasonable() {
-            // Health packs should be more visible than XP
-            assert!(HEALTH_PACK_LIGHT_INTENSITY >= XP_ORB_LIGHT_INTENSITY);
-            assert!(HEALTH_PACK_LIGHT_RADIUS >= XP_ORB_LIGHT_RADIUS);
-        }
-
-        #[test]
-        fn test_weapon_light_constants_are_reasonable() {
-            // Weapons should be very visible
-            assert!(WEAPON_LIGHT_INTENSITY >= HEALTH_PACK_LIGHT_INTENSITY);
-            assert!(WEAPON_LIGHT_RADIUS >= HEALTH_PACK_LIGHT_RADIUS);
-        }
-
-        #[test]
-        fn test_powerup_light_constants_are_brightest() {
-            // Powerups should be the brightest
-            assert!(POWERUP_LIGHT_INTENSITY >= WEAPON_LIGHT_INTENSITY);
-            assert!(POWERUP_LIGHT_RADIUS >= WEAPON_LIGHT_RADIUS);
-        }
-
-        #[test]
-        fn test_light_colors_are_distinct() {
-            // Each item type should have a distinct light color
-            assert_ne!(XP_ORB_LIGHT_COLOR, HEALTH_PACK_LIGHT_COLOR);
-            assert_ne!(XP_ORB_LIGHT_COLOR, WEAPON_PISTOL_LIGHT_COLOR);
-            assert_ne!(HEALTH_PACK_LIGHT_COLOR, WEAPON_PISTOL_LIGHT_COLOR);
-            assert_ne!(WEAPON_PISTOL_LIGHT_COLOR, WEAPON_LASER_LIGHT_COLOR);
-            assert_ne!(WEAPON_LASER_LIGHT_COLOR, WEAPON_ROCKET_LIGHT_COLOR);
-            assert_ne!(POWERUP_LIGHT_COLOR, WEAPON_PISTOL_LIGHT_COLOR);
-        }
-    }
 }

@@ -6,10 +6,7 @@ use crate::player::components::*;
 use crate::weapon::components::*;
 use crate::game::events::EnemyDeathEvent;
 use crate::game::resources::{GameMeshes, GameMaterials};
-use crate::loot::components::{
-    DroppedItem, ItemData, PickupState,
-    POWERUP_LIGHT_INTENSITY, POWERUP_LIGHT_RADIUS, POWERUP_LIGHT_COLOR,
-};
+use crate::loot::components::{DroppedItem, ItemData, PickupState};
 use crate::loot::systems::LOOT_LARGE_Y_HEIGHT;
 
 /// System to spawn powerups when enemies die (2% drop rate)
@@ -42,7 +39,7 @@ pub fn powerup_spawning_system(
             let selected_type = powerup_types[rand::thread_rng().gen_range(0..powerup_types.len())].clone();
 
             // Spawn the powerup as a DroppedItem so it uses the loot pickup system
-            // with popup animation and magnetic attraction
+            // with popup animation and magnetic attraction (emissive material provides glow via bloom)
             commands.spawn((
                 Mesh3d(game_meshes.powerup.clone()),
                 MeshMaterial3d(game_materials.powerup.clone()),
@@ -59,13 +56,6 @@ pub fn powerup_spawning_system(
                     amplitude: 0.3,
                     frequency: 3.0,
                     time: 0.0,
-                },
-                PointLight {
-                    color: POWERUP_LIGHT_COLOR,
-                    intensity: POWERUP_LIGHT_INTENSITY,
-                    radius: POWERUP_LIGHT_RADIUS,
-                    shadows_enabled: false,
-                    ..default()
                 },
             ));
         }
@@ -139,7 +129,7 @@ pub fn apply_weapon_powerup_effects(
         let base_fire_rate = match weapon.weapon_type {
             WeaponType::Pistol { .. } => 2.0,
             WeaponType::Laser => 3.0,
-            WeaponType::RocketLauncher => 1.0,
+            WeaponType::RocketLauncher => 5.0,
             WeaponType::Bomb => 0.5,
             WeaponType::BouncingLaser => 2.5,
         };
