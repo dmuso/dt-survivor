@@ -11,23 +11,26 @@ use crate::player::components::*;
 /// With orthographic camera viewport of ~20x35 units, spawn just outside view
 pub const ENEMY_SPAWN_DISTANCE: f32 = 18.0;
 
-/// Height of enemy cube center above ground (half of 0.75 cube height)
-pub const ENEMY_Y_HEIGHT: f32 = 0.375;
+/// Height of enemy rectangular prism center above ground (half of 1.5 height)
+pub const ENEMY_Y_HEIGHT: f32 = 0.75;
 
 /// Determine enemy level based on game level with weighted random selection.
 /// Higher game levels increase the chance of spawning higher-tier enemies.
+/// At game level 1, legendary (level 5) has 0.1% chance.
 pub fn select_enemy_level(game_level: u32, rng: &mut impl Rng) -> u8 {
-    // Level bonus increases with game level, capped at 40%
-    let level_bonus = ((game_level.saturating_sub(1) as f32) * 5.0).min(40.0);
+    // Level bonus increases with game level: +5 per level, capped at 50 (game level 11)
+    let level_bonus = ((game_level.saturating_sub(1) as f32) * 5.0).min(50.0);
 
-    // Base spawn chances (weights, not percentages)
-    // Game level increases chances of higher-tier enemies
+    // Base spawn chances at game level 1 (percentages that sum to ~100):
+    // L1: 90.4%, L2: 7%, L3: 2%, L4: 0.5%, L5: 0.1%
+    // At max bonus (game level 11+):
+    // L1: 40.4%, L2: 25%, L3: 20%, L4: 10%, L5: 5%
     let chances = [
-        (1u8, 100.0 - level_bonus),       // Level 1: starts at 100%, decreases
-        (2u8, 15.0 + level_bonus * 0.5),  // Level 2: starts at 15%
-        (3u8, 8.0 + level_bonus * 0.3),   // Level 3: starts at 8%
-        (4u8, 4.0 + level_bonus * 0.15),  // Level 4: starts at 4%
-        (5u8, 2.0 + level_bonus * 0.05),  // Level 5: starts at 2%
+        (1u8, 90.4 - level_bonus),              // Level 1 (Common): 90.4% -> 40.4%
+        (2u8, 7.0 + level_bonus * 0.36),        // Level 2 (Uncommon): 7% -> 25%
+        (3u8, 2.0 + level_bonus * 0.36),        // Level 3 (Rare): 2% -> 20%
+        (4u8, 0.5 + level_bonus * 0.19),        // Level 4 (Epic): 0.5% -> 10%
+        (5u8, 0.1 + level_bonus * 0.098),       // Level 5 (Legendary): 0.1% -> 5%
     ];
 
     let total: f32 = chances.iter().map(|(_, c)| c).sum();
@@ -56,19 +59,12 @@ pub fn enemy_spawning_system(
         return;
     };
 
-    // Update timers
+    // Update spawn timer
     spawn_state.time_since_last_spawn += time.delta_secs();
-    spawn_state.time_since_last_rate_increase += time.delta_secs();
 
-    // Check if we should increase the spawn rate (every 20 seconds)
-    if spawn_state.time_since_last_rate_increase >= 20.0 {
-        spawn_state.spawn_rate_per_second *= 2.0;
-        spawn_state.rate_level += 1;
-        spawn_state.time_since_last_rate_increase = 0.0;
-    }
-
-    // Calculate how many enemies should spawn this frame
-    let spawn_interval = 1.0 / spawn_state.spawn_rate_per_second;
+    // Calculate spawn rate based on game level (0.25 * 1.25^(level-1))
+    let spawn_rate = EnemySpawnState::spawn_rate_for_level(game_level.level);
+    let spawn_interval = 1.0 / spawn_rate;
     let enemies_to_spawn = (spawn_state.time_since_last_spawn / spawn_interval) as usize;
 
     if enemies_to_spawn > 0 {
@@ -236,25 +232,25 @@ mod tests {
         }
 
         #[test]
-        fn level_bonus_caps_at_40_percent() {
-            // At game level 9+, level_bonus should be capped at 40.0
-            // This means: (9-1) * 5.0 = 40.0 (capped)
-            // Level 10 would be: (10-1) * 5.0 = 45.0 but capped to 40.0
+        fn level_bonus_caps_at_50_percent() {
+            // At game level 11+, level_bonus should be capped at 50.0
+            // This means: (11-1) * 5.0 = 50.0 (capped)
+            // Level 12 would be: (12-1) * 5.0 = 55.0 but capped to 50.0
             let mut rng1 = StdRng::seed_from_u64(42);
             let mut rng2 = StdRng::seed_from_u64(42);
 
             // Same seed should produce same results if capping works
-            let mut results_level_9 = Vec::new();
+            let mut results_level_11 = Vec::new();
             let mut results_level_20 = Vec::new();
 
             for _ in 0..100 {
-                results_level_9.push(select_enemy_level(9, &mut rng1));
+                results_level_11.push(select_enemy_level(11, &mut rng1));
                 results_level_20.push(select_enemy_level(20, &mut rng2));
             }
 
             // Should be identical due to cap
-            assert_eq!(results_level_9, results_level_20,
-                "Game levels 9 and 20 should produce same distribution due to cap");
+            assert_eq!(results_level_11, results_level_20,
+                "Game levels 11 and 20 should produce same distribution due to cap");
         }
     }
 
@@ -281,13 +277,13 @@ mod tests {
             GlobalTransform::from_translation(Vec3::new(0.0, 20.0, 15.0)),
         ));
 
-        // Force a spawn by setting high spawn rate and time
+        // Force a spawn by setting high game level (for fast spawn rate) and time
         {
-            let mut spawn_state = app
-                .world_mut()
-                .get_resource_mut::<EnemySpawnState>()
-                .unwrap();
-            spawn_state.spawn_rate_per_second = 100.0;
+            let mut game_level = app.world_mut().resource_mut::<GameLevel>();
+            game_level.level = 20; // High level = fast spawn rate (~22/sec)
+        }
+        {
+            let mut spawn_state = app.world_mut().resource_mut::<EnemySpawnState>();
             spawn_state.time_since_last_spawn = 1.0;
         }
 
@@ -334,13 +330,13 @@ mod tests {
             GlobalTransform::from_translation(Vec3::new(0.0, 20.0, 15.0)),
         ));
 
-        // Force a spawn
+        // Force a spawn by setting high game level (for fast spawn rate)
         {
-            let mut spawn_state = app
-                .world_mut()
-                .get_resource_mut::<EnemySpawnState>()
-                .unwrap();
-            spawn_state.spawn_rate_per_second = 100.0;
+            let mut game_level = app.world_mut().resource_mut::<GameLevel>();
+            game_level.level = 20; // High level = fast spawn rate (~22/sec)
+        }
+        {
+            let mut spawn_state = app.world_mut().resource_mut::<EnemySpawnState>();
             spawn_state.time_since_last_spawn = 1.0;
         }
 
@@ -379,13 +375,13 @@ mod tests {
             GlobalTransform::from_translation(Vec3::new(0.0, 20.0, 15.0)),
         ));
 
-        // Force a spawn
+        // Force a spawn by setting high game level (for fast spawn rate)
         {
-            let mut spawn_state = app
-                .world_mut()
-                .get_resource_mut::<EnemySpawnState>()
-                .unwrap();
-            spawn_state.spawn_rate_per_second = 100.0;
+            let mut game_level = app.world_mut().resource_mut::<GameLevel>();
+            game_level.level = 20; // High level = fast spawn rate (~22/sec)
+        }
+        {
+            let mut spawn_state = app.world_mut().resource_mut::<EnemySpawnState>();
             spawn_state.time_since_last_spawn = 1.0;
         }
 
@@ -426,21 +422,21 @@ mod tests {
             GlobalTransform::from_translation(Vec3::new(0.0, 20.0, 15.0)),
         ));
 
-        // Force a spawn
+        // Force a spawn by setting high game level (for fast spawn rate)
         {
-            let mut spawn_state = app
-                .world_mut()
-                .get_resource_mut::<EnemySpawnState>()
-                .unwrap();
-            spawn_state.spawn_rate_per_second = 100.0;
+            let mut game_level = app.world_mut().resource_mut::<GameLevel>();
+            game_level.level = 20; // High level = fast spawn rate (~22/sec)
+        }
+        {
+            let mut spawn_state = app.world_mut().resource_mut::<EnemySpawnState>();
             spawn_state.time_since_last_spawn = 1.0;
         }
 
         let _ = app.world_mut().run_system_once(enemy_spawning_system);
 
         // Verify enemy Y position is scaled (ENEMY_Y_HEIGHT * scale)
-        // Level 1 scale = 0.75, so Y = 0.375 * 0.75 = 0.28125
-        // Level 5 scale = 1.35, so Y = 0.375 * 1.35 = 0.50625
+        // Level 1 scale = 0.75, so Y = 0.75 * 0.75 = 0.5625
+        // Level 5 scale = 1.35, so Y = 0.75 * 1.35 = 1.0125
         let mut query = app.world_mut().query::<(&Transform, &Enemy, &Level)>();
         for (transform, _, level) in query.iter(app.world()) {
             let scale = enemy_scale_for_level(level.value());
@@ -478,13 +474,13 @@ mod tests {
             GlobalTransform::from_translation(Vec3::new(5.0, 20.0, 25.0)),
         ));
 
-        // Force a spawn
+        // Force a spawn by setting high game level (for fast spawn rate)
         {
-            let mut spawn_state = app
-                .world_mut()
-                .get_resource_mut::<EnemySpawnState>()
-                .unwrap();
-            spawn_state.spawn_rate_per_second = 100.0;
+            let mut game_level = app.world_mut().resource_mut::<GameLevel>();
+            game_level.level = 20; // High level = fast spawn rate (~22/sec)
+        }
+        {
+            let mut spawn_state = app.world_mut().resource_mut::<EnemySpawnState>();
             spawn_state.time_since_last_spawn = 1.0;
         }
 
@@ -529,13 +525,13 @@ mod tests {
             GlobalTransform::from_translation(Vec3::new(0.0, 20.0, 15.0)),
         ));
 
-        // Force many spawns to check distribution
+        // Force many spawns by setting high game level (for fast spawn rate)
         {
-            let mut spawn_state = app
-                .world_mut()
-                .get_resource_mut::<EnemySpawnState>()
-                .unwrap();
-            spawn_state.spawn_rate_per_second = 1000.0;
+            let mut game_level = app.world_mut().resource_mut::<GameLevel>();
+            game_level.level = 25; // Very high level = very fast spawn rate (~65/sec)
+        }
+        {
+            let mut spawn_state = app.world_mut().resource_mut::<EnemySpawnState>();
             spawn_state.time_since_last_spawn = 1.0;
         }
 
@@ -580,13 +576,13 @@ mod tests {
             GlobalTransform::from_translation(Vec3::new(0.0, 20.0, 15.0)),
         ));
 
-        // Force a spawn
+        // Force a spawn by setting high game level (for fast spawn rate)
         {
-            let mut spawn_state = app
-                .world_mut()
-                .get_resource_mut::<EnemySpawnState>()
-                .unwrap();
-            spawn_state.spawn_rate_per_second = 100.0;
+            let mut game_level = app.world_mut().resource_mut::<GameLevel>();
+            game_level.level = 20; // High level = fast spawn rate (~22/sec)
+        }
+        {
+            let mut spawn_state = app.world_mut().resource_mut::<EnemySpawnState>();
             spawn_state.time_since_last_spawn = 1.0;
         }
 
@@ -625,13 +621,13 @@ mod tests {
             GlobalTransform::from_translation(Vec3::new(0.0, 20.0, 15.0)),
         ));
 
-        // Force a spawn
+        // Force a spawn by setting high game level (for fast spawn rate)
         {
-            let mut spawn_state = app
-                .world_mut()
-                .get_resource_mut::<EnemySpawnState>()
-                .unwrap();
-            spawn_state.spawn_rate_per_second = 100.0;
+            let mut game_level = app.world_mut().resource_mut::<GameLevel>();
+            game_level.level = 20; // High level = fast spawn rate (~22/sec)
+        }
+        {
+            let mut spawn_state = app.world_mut().resource_mut::<EnemySpawnState>();
             spawn_state.time_since_last_spawn = 1.0;
         }
 
@@ -674,13 +670,13 @@ mod tests {
             GlobalTransform::from_translation(Vec3::new(0.0, 20.0, 15.0)),
         ));
 
-        // Force many spawns to get variety of levels
+        // Force many spawns by setting high game level (for fast spawn rate and variety)
         {
-            let mut spawn_state = app
-                .world_mut()
-                .get_resource_mut::<EnemySpawnState>()
-                .unwrap();
-            spawn_state.spawn_rate_per_second = 1000.0;
+            let mut game_level = app.world_mut().resource_mut::<GameLevel>();
+            game_level.level = 25; // Very high level = very fast spawn rate (~65/sec)
+        }
+        {
+            let mut spawn_state = app.world_mut().resource_mut::<EnemySpawnState>();
             spawn_state.time_since_last_spawn = 1.0;
         }
 
@@ -729,13 +725,13 @@ mod tests {
             GlobalTransform::from_translation(Vec3::new(0.0, 20.0, 15.0)),
         ));
 
-        // Force many spawns to get variety of levels
+        // Force many spawns by setting high game level (for fast spawn rate and variety)
         {
-            let mut spawn_state = app
-                .world_mut()
-                .get_resource_mut::<EnemySpawnState>()
-                .unwrap();
-            spawn_state.spawn_rate_per_second = 1000.0;
+            let mut game_level = app.world_mut().resource_mut::<GameLevel>();
+            game_level.level = 25; // Very high level = very fast spawn rate (~65/sec)
+        }
+        {
+            let mut spawn_state = app.world_mut().resource_mut::<EnemySpawnState>();
             spawn_state.time_since_last_spawn = 1.0;
         }
 
@@ -785,13 +781,13 @@ mod tests {
             GlobalTransform::from_translation(Vec3::new(0.0, 20.0, 15.0)),
         ));
 
-        // Force spawns
+        // Force spawns by setting high game level (for fast spawn rate)
         {
-            let mut spawn_state = app
-                .world_mut()
-                .get_resource_mut::<EnemySpawnState>()
-                .unwrap();
-            spawn_state.spawn_rate_per_second = 100.0;
+            let mut game_level = app.world_mut().resource_mut::<GameLevel>();
+            game_level.level = 20; // High level = fast spawn rate (~22/sec)
+        }
+        {
+            let mut spawn_state = app.world_mut().resource_mut::<EnemySpawnState>();
             spawn_state.time_since_last_spawn = 1.0;
         }
 
