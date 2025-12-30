@@ -8,10 +8,19 @@ pub struct LaserBeam {
     pub lifetime: Timer,
     pub max_lifetime: f32,
     pub damage: f32,
+    /// Y height in 3D world (fires from Whisper's height)
+    pub y_height: f32,
 }
 
 impl LaserBeam {
+    /// Creates a new LaserBeam at the default height (0.5).
+    /// Prefer `with_height` for proper 3D positioning from Whisper.
     pub fn new(start_pos: Vec2, direction: Vec2, damage: f32) -> Self {
+        Self::with_height(start_pos, direction, damage, 0.5)
+    }
+
+    /// Creates a new LaserBeam at the specified Y height.
+    pub fn with_height(start_pos: Vec2, direction: Vec2, damage: f32, y_height: f32) -> Self {
         let end_pos = start_pos + direction * 800.0;
         Self {
             start_pos,
@@ -20,6 +29,7 @@ impl LaserBeam {
             lifetime: Timer::from_seconds(0.5, TimerMode::Once), // 0.5 second duration
             max_lifetime: 0.5,
             damage,
+            y_height,
         }
     }
 

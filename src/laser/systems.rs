@@ -5,8 +5,8 @@ use crate::game::resources::{GameMaterials, GameMeshes};
 use crate::laser::components::*;
 use crate::movement::components::from_xz;
 
-/// Height of laser beam center above ground
-pub const LASER_Y_HEIGHT: f32 = 0.5;
+/// Default height of laser beam center above ground (used for tests)
+pub const LASER_DEFAULT_Y_HEIGHT: f32 = 0.5;
 
 #[cfg(test)]
 mod tests {
@@ -89,6 +89,7 @@ mod tests {
             lifetime: Timer::from_seconds(0.25, TimerMode::Once), // Mid lifetime, should be thick
             max_lifetime: 0.5,
             damage: 15.0,
+            y_height: LASER_DEFAULT_Y_HEIGHT,
         }).id();
 
         // Create enemy on the laser line with Health component
@@ -170,6 +171,7 @@ mod tests {
             lifetime: Timer::from_seconds(0.25, TimerMode::Once),
             max_lifetime: 0.5,
             damage: 15.0,
+            y_height: LASER_DEFAULT_Y_HEIGHT,
         });
 
         // Create enemy on laser line at X=100 but at very high Y - should still collide
@@ -223,6 +225,7 @@ mod tests {
             lifetime: Timer::from_seconds(0.25, TimerMode::Once),
             max_lifetime: 0.5,
             damage: 15.0,
+            y_height: LASER_DEFAULT_Y_HEIGHT,
         });
 
         // Create enemy on Z axis at Z=50 (Vec3.z)
@@ -277,6 +280,7 @@ mod tests {
             lifetime: Timer::from_seconds(0.25, TimerMode::Once),
             max_lifetime: 0.5,
             damage: 15.0,
+            y_height: LASER_DEFAULT_Y_HEIGHT,
         });
 
         // Enemy at 0.9 units from laser line (within 1.0 threshold) - should be hit
@@ -306,10 +310,22 @@ mod tests {
     }
 
     #[test]
-    fn test_laser_y_height_constant() {
+    fn test_laser_default_y_height_constant() {
         // Laser beam should render at a height above ground
-        assert!(LASER_Y_HEIGHT > 0.0, "Laser should be above ground");
-        assert!(LASER_Y_HEIGHT <= 1.0, "Laser should be at reasonable height");
+        assert!(LASER_DEFAULT_Y_HEIGHT > 0.0, "Laser should be above ground");
+        assert!(LASER_DEFAULT_Y_HEIGHT <= 1.0, "Laser should be at reasonable height");
+    }
+
+    #[test]
+    fn test_laser_beam_stores_y_height() {
+        let laser = LaserBeam::with_height(Vec2::ZERO, Vec2::X, 15.0, 2.5);
+        assert_eq!(laser.y_height, 2.5, "Laser should store the provided Y height");
+    }
+
+    #[test]
+    fn test_laser_beam_new_uses_default_height() {
+        let laser = LaserBeam::new(Vec2::ZERO, Vec2::X, 15.0);
+        assert_eq!(laser.y_height, LASER_DEFAULT_Y_HEIGHT, "LaserBeam::new should use default height");
     }
 
     #[test]
@@ -454,12 +470,13 @@ mod tests {
         app.update();
 
         let transform = app.world().get::<Transform>(laser_entity).unwrap();
+        let laser = app.world().get::<LaserBeam>(laser_entity).unwrap();
 
-        // Y should be at LASER_Y_HEIGHT
+        // Y should be at the laser's stored y_height
         assert!(
-            (transform.translation.y - LASER_Y_HEIGHT).abs() < 0.001,
+            (transform.translation.y - laser.y_height).abs() < 0.001,
             "Laser Y position should be {}, got {}",
-            LASER_Y_HEIGHT,
+            laser.y_height,
             transform.translation.y
         );
     }
@@ -498,6 +515,7 @@ mod tests {
             lifetime: Timer::from_seconds(0.5, TimerMode::Once),
             max_lifetime: 0.5,
             damage: 15.0,
+            y_height: LASER_DEFAULT_Y_HEIGHT,
         }).id();
 
         app.update();
@@ -607,11 +625,12 @@ pub fn render_laser_beams(
         let scale = Vec3::new(thickness / 10.0, thickness / 10.0, length);
 
         // Update or create the visual representation as 3D mesh
+        // Use laser's stored y_height (from Whisper's position)
         commands.entity(entity).insert((
             Mesh3d(game_meshes.laser.clone()),
             MeshMaterial3d(game_materials.laser.clone()),
             Transform {
-                translation: Vec3::new(center_xz.x, LASER_Y_HEIGHT, center_xz.y),
+                translation: Vec3::new(center_xz.x, laser.y_height, center_xz.y),
                 rotation,
                 scale,
             },
