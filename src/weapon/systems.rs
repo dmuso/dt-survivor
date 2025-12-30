@@ -22,9 +22,9 @@ mod tests {
         let mut app = App::new();
         app.add_systems(Update, weapon_firing_system);
 
-        // Set up WeaponOrigin at (0, 0) on XZ plane - simulates Whisper collected
+        // Set up WeaponOrigin at (0, 3, 0) - simulates Whisper collected at height
         app.insert_resource(WeaponOrigin {
-            position: Some(Vec2::new(0.0, 0.0)),
+            position: Some(Vec3::new(0.0, 3.0, 0.0)),
         });
 
         // Create 10 enemies at different distances on XZ plane
@@ -64,9 +64,9 @@ mod tests {
         let mut app = App::new();
         app.add_systems(Update, weapon_firing_system);
 
-        // Set up WeaponOrigin at (0, 0) on XZ plane - simulates Whisper collected
+        // Set up WeaponOrigin at (0, 3, 0) - simulates Whisper collected at height
         app.insert_resource(WeaponOrigin {
-            position: Some(Vec2::new(0.0, 0.0)),
+            position: Some(Vec3::new(0.0, 3.0, 0.0)),
         });
 
         // Create enemies in a line on XZ plane (along X-axis from weapon origin)
@@ -114,9 +114,9 @@ mod tests {
         let mut app = App::new();
         app.add_systems(Update, weapon_firing_system);
 
-        // Set up WeaponOrigin at (0, 0) on XZ plane - simulates Whisper collected
+        // Set up WeaponOrigin at (0, 3, 0) - simulates Whisper collected at height
         app.insert_resource(WeaponOrigin {
-            position: Some(Vec2::new(0.0, 0.0)),
+            position: Some(Vec3::new(0.0, 3.0, 0.0)),
         });
 
         // Create enemies in a circle on XZ plane
@@ -200,6 +200,194 @@ mod tests {
         let bullet_count = app.world_mut().query::<&crate::bullets::components::Bullet>().iter(app.world()).count();
         assert_eq!(bullet_count, 0, "No bullets should spawn when Whisper not collected");
     }
+
+    #[test]
+    fn test_laser_weapon_spawns_with_correct_damage() {
+        use crate::laser::components::LaserBeam;
+
+        let mut app = App::new();
+        app.add_systems(Update, weapon_firing_system);
+
+        // Set up WeaponOrigin
+        app.insert_resource(WeaponOrigin {
+            position: Some(Vec3::new(0.0, 3.0, 0.0)),
+        });
+
+        // Create enemy for targeting
+        app.world_mut().spawn((
+            Enemy { speed: 50.0, strength: 10.0 },
+            Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
+        ));
+
+        // Create level 5 laser weapon with base_damage 10.0
+        // Expected damage: 10.0 * 5 * 1.25 = 62.5
+        app.world_mut().spawn((
+            Weapon {
+                weapon_type: WeaponType::Laser,
+                level: 5,
+                fire_rate: 0.1,
+                base_damage: 10.0,
+                last_fired: -10.0, // Ready to fire
+            },
+            EquippedWeapon { weapon_type: WeaponType::Laser },
+            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+        ));
+
+        app.init_resource::<Time>();
+        app.update();
+
+        // Verify laser was spawned with correct damage
+        let mut laser_query = app.world_mut().query::<&LaserBeam>();
+        let lasers: Vec<_> = laser_query.iter(app.world()).collect();
+        assert_eq!(lasers.len(), 1, "One laser should be spawned");
+        assert_eq!(
+            lasers[0].damage, 62.5,
+            "Laser damage should be 62.5 (10.0 * 5 * 1.25)"
+        );
+    }
+
+    #[test]
+    fn test_laser_damage_scales_with_weapon_level() {
+        use crate::laser::components::LaserBeam;
+
+        let test_cases = [
+            (1, 10.0, 12.5),   // 10 * 1 * 1.25
+            (5, 10.0, 62.5),   // 10 * 5 * 1.25
+            (10, 10.0, 125.0), // 10 * 10 * 1.25
+            (3, 20.0, 75.0),   // 20 * 3 * 1.25
+        ];
+
+        for (level, base_damage, expected_damage) in test_cases {
+            let mut app = App::new();
+            app.add_systems(Update, weapon_firing_system);
+
+            app.insert_resource(WeaponOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
+            ));
+
+            app.world_mut().spawn((
+                Weapon {
+                    weapon_type: WeaponType::Laser,
+                    level,
+                    fire_rate: 0.1,
+                    base_damage,
+                    last_fired: -10.0,
+                },
+                EquippedWeapon { weapon_type: WeaponType::Laser },
+                Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut laser_query = app.world_mut().query::<&LaserBeam>();
+            let lasers: Vec<_> = laser_query.iter(app.world()).collect();
+            assert_eq!(
+                lasers[0].damage, expected_damage,
+                "Level {} with base {} should have damage {}",
+                level, base_damage, expected_damage
+            );
+        }
+    }
+
+    #[test]
+    fn test_laser_weapon_damage_reduces_enemy_health() {
+        use crate::laser::systems::laser_beam_collision_system;
+        use crate::combat::{apply_damage_system, DamageEvent, Health};
+
+        let mut app = App::new();
+        app.add_message::<DamageEvent>();
+        app.add_systems(
+            Update,
+            (
+                weapon_firing_system,
+                laser_beam_collision_system,
+                apply_damage_system,
+            ).chain(),
+        );
+
+        app.insert_resource(WeaponOrigin {
+            position: Some(Vec3::new(0.0, 3.0, 0.0)),
+        });
+
+        // Create enemy with 100 HP on the laser's path
+        let enemy_entity = app.world_mut().spawn((
+            Enemy { speed: 50.0, strength: 10.0 },
+            Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
+            Health::new(100.0),
+        )).id();
+
+        // Create level 5 laser weapon: damage = 10 * 5 * 1.25 = 62.5
+        app.world_mut().spawn((
+            Weapon {
+                weapon_type: WeaponType::Laser,
+                level: 5,
+                fire_rate: 0.1,
+                base_damage: 10.0,
+                last_fired: -10.0,
+            },
+            EquippedWeapon { weapon_type: WeaponType::Laser },
+            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+        ));
+
+        app.init_resource::<Time>();
+        app.update();
+
+        // Verify enemy health was reduced by laser damage
+        let health = app.world().get::<Health>(enemy_entity).unwrap();
+        assert_eq!(
+            health.current, 37.5,
+            "Enemy health should be 100 - 62.5 = 37.5 after level 5 laser hit"
+        );
+    }
+
+    #[test]
+    fn test_rocket_weapon_spawns_with_correct_damage() {
+        use crate::rocket_launcher::components::RocketProjectile;
+
+        let mut app = App::new();
+        app.add_systems(Update, weapon_firing_system);
+
+        app.insert_resource(WeaponOrigin {
+            position: Some(Vec3::new(0.0, 3.0, 0.0)),
+        });
+
+        app.world_mut().spawn((
+            Enemy { speed: 50.0, strength: 10.0 },
+            Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
+        ));
+
+        // Create level 3 rocket launcher with base_damage 30.0
+        // Expected damage: 30.0 * 3 * 1.25 = 112.5
+        app.world_mut().spawn((
+            Weapon {
+                weapon_type: WeaponType::RocketLauncher,
+                level: 3,
+                fire_rate: 2.0,
+                base_damage: 30.0,
+                last_fired: -10.0,
+            },
+            EquippedWeapon { weapon_type: WeaponType::RocketLauncher },
+            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+        ));
+
+        app.init_resource::<Time>();
+        app.update();
+
+        // Verify rocket was spawned with correct damage
+        let mut rocket_query = app.world_mut().query::<&RocketProjectile>();
+        let rockets: Vec<_> = rocket_query.iter(app.world()).collect();
+        assert_eq!(rockets.len(), 1, "One rocket should be spawned");
+        assert_eq!(
+            rockets[0].damage, 112.5,
+            "Rocket damage should be 112.5 (30.0 * 3 * 1.25)"
+        );
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -228,13 +416,16 @@ pub fn weapon_firing_system(
         return; // No Whisper = no weapons
     };
 
+    // Extract XZ plane position for targeting calculations
+    let origin_xz = from_xz(origin_pos);
+
     // Find 5 closest enemies to the weapon origin (Whisper)
     // Use XZ plane for distance calculation in 3D world
     let mut enemy_distances: Vec<(Entity, Vec2, f32)> = enemy_query
         .iter()
         .map(|(entity, transform, _)| {
             let pos = from_xz(transform.translation);
-            let distance = origin_pos.distance(pos);
+            let distance = origin_xz.distance(pos);
             (entity, pos, distance)
         })
         .collect();
@@ -260,8 +451,8 @@ pub fn weapon_firing_system(
             let target_index = rng.gen_range(0..closest_enemies.len());
             let target_pos = closest_enemies[target_index].1;
 
-            // Calculate direction towards target enemy from Whisper position
-            let base_direction = (target_pos - origin_pos).normalize();
+            // Calculate direction towards target enemy from Whisper position (on XZ plane)
+            let base_direction = (target_pos - origin_xz).normalize();
 
             match &weapon.weapon_type {
                 WeaponType::Pistol { .. } => {
@@ -269,7 +460,7 @@ pub fn weapon_firing_system(
                     crate::pistol::systems::fire_pistol(
                         &mut commands,
                         &weapon,
-                        origin_pos,
+                        origin_pos, // Full 3D position
                         target_pos,
                         asset_server.as_ref(),
                         weapon_channel.as_mut(),
@@ -281,7 +472,7 @@ pub fn weapon_firing_system(
                  WeaponType::Laser => {
                      // Create a laser beam entity
                      use crate::laser::components::LaserBeam;
-                      commands.spawn(LaserBeam::new(origin_pos, base_direction, weapon.damage()));
+                      commands.spawn(LaserBeam::new(origin_xz, base_direction, weapon.damage()));
 
                      // Play laser sound effect
                      if let (Some(asset_server), Some(weapon_channel), Some(sound_limiter)) =
