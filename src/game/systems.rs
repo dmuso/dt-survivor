@@ -10,7 +10,7 @@ use rand::Rng;
 use crate::combat::components::Health;
 use crate::enemies::components::*;
 use crate::game::components::*;
-use crate::game::resources::{EnemyLevelMaterials, GameLevel, GameMaterials, GameMeshes, PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
+use crate::game::resources::{EnemyLevelMaterials, GameLevel, GameMaterials, GameMeshes, PlayerDamageTimer, ScreenTintEffect, SurvivalTime, XpOrbMaterials};
 use crate::game::events::*;
 use crate::movement::components::from_xz;
 use crate::player::components::*;
@@ -99,10 +99,7 @@ pub fn setup_game(
             last_movement_direction: Vec3::ZERO,
         },
         Health::new(100.0), // Player health as separate component
-        crate::experience::components::PlayerExperience {
-            current: 0,
-            level: 1,
-        },
+        crate::experience::components::PlayerExperience::new(),
     ));
 
     // Spawn random rocks scattered throughout the scene (on XZ plane)
@@ -128,6 +125,7 @@ pub fn setup_game_assets(
     commands.insert_resource(GameMeshes::new(&mut meshes));
     commands.insert_resource(GameMaterials::new(&mut materials));
     commands.insert_resource(EnemyLevelMaterials::new(&mut materials));
+    commands.insert_resource(XpOrbMaterials::new(&mut materials));
 }
 
 pub fn game_input(
@@ -826,6 +824,7 @@ mod tests {
             app.world_mut().write_message(EnemyDeathEvent {
                 enemy_entity: Entity::PLACEHOLDER,
                 position: Vec3::ZERO,
+                enemy_level: 1,
             });
 
             app.update();
@@ -872,6 +871,7 @@ mod tests {
                 app.world_mut().write_message(EnemyDeathEvent {
                     enemy_entity: Entity::PLACEHOLDER,
                     position: Vec3::ZERO,
+                    enemy_level: 1,
                 });
                 app.update();
             }
@@ -912,6 +912,7 @@ mod tests {
             app.world_mut().write_message(EnemyDeathEvent {
                 enemy_entity: Entity::PLACEHOLDER,
                 position: Vec3::ZERO,
+                enemy_level: 1,
             });
 
             app.update();

@@ -1,8 +1,7 @@
 use bevy::prelude::*;
 
-use crate::player::components::Player;
 use crate::experience::components::*;
-use crate::experience::resources::*;
+use crate::player::components::Player;
 
 /// Updates experience orb positions based on velocity (attraction)
 /// Movement is on XZ plane (3D ground plane) with Y as height
@@ -23,10 +22,12 @@ pub fn experience_orb_collection_system(
     mut commands: Commands,
     mut player_query: Query<(&Transform, &mut PlayerExperience), With<Player>>,
     orb_query: Query<(Entity, &Transform, &ExperienceOrb)>,
-    exp_requirements: Res<ExperienceRequirements>,
     asset_server: Option<Res<AssetServer>>,
-    mut audio_channel: Option<ResMut<bevy_kira_audio::AudioChannel<crate::audio::plugin::LootSoundChannel>>>,
+    mut audio_channel: Option<
+        ResMut<bevy_kira_audio::AudioChannel<crate::audio::plugin::LootSoundChannel>>,
+    >,
     mut sound_limiter: Option<ResMut<crate::audio::plugin::SoundLimiter>>,
+    mut level_up_writer: MessageWriter<PlayerLevelUpEvent>,
 ) {
     // Get player data
     if let Ok((player_transform, mut player_exp)) = player_query.single_mut() {
@@ -48,13 +49,18 @@ pub fn experience_orb_collection_system(
             // Check if orb should be collected
             if distance < 10.0 {
                 // Collect orb - add experience and check for level up
-                player_exp.current += orb.value;
-                let exp_for_next_level = exp_requirements.exp_required_for_level(player_exp.level + 1);
-                if player_exp.current >= exp_for_next_level {
-                    player_exp.level += 1;
+                let levels_gained = player_exp.add_xp(orb.value);
+
+                if levels_gained > 0 {
+                    level_up_writer.write(PlayerLevelUpEvent {
+                        new_level: player_exp.level,
+                        levels_gained,
+                    });
                 }
+
                 if let (Some(asset_server), Some(audio_channel), Some(sound_limiter)) =
-                    (asset_server.as_ref(), audio_channel.as_mut(), sound_limiter.as_mut()) {
+                    (asset_server.as_ref(), audio_channel.as_mut(), sound_limiter.as_mut())
+                {
                     crate::audio::plugin::play_limited_sound(
                         audio_channel,
                         asset_server,
@@ -104,27 +110,20 @@ mod tests {
     #[test]
     fn test_player_experience_creation() {
         // Test that PlayerExperience components can be created correctly
-        let exp = PlayerExperience {
-            current: 25,
-            level: 2,
-        };
-        assert_eq!(exp.current, 25);
-        assert_eq!(exp.level, 2);
+        let exp = PlayerExperience::new();
+        assert_eq!(exp.current, 0);
+        assert_eq!(exp.level, 1);
+        assert_eq!(exp.total_xp, 0);
     }
 
     #[test]
-    fn test_experience_requirements_calculation() {
-        let requirements = ExperienceRequirements::default();
-
-        // Test level 1 (no experience required)
-        assert_eq!(requirements.exp_required_for_level(1), 0);
-
-        // Test level 2 (should require some experience)
-        let level2_req = requirements.exp_required_for_level(2);
-        assert!(level2_req > 0, "Level 2 should require experience");
-
-        // Test that higher levels require more experience
-        let level3_req = requirements.exp_required_for_level(3);
-        assert!(level3_req > level2_req, "Higher levels should require more experience");
+    fn test_player_experience_with_custom_values() {
+        let mut exp = PlayerExperience::new();
+        exp.current = 25;
+        exp.level = 2;
+        exp.total_xp = 125;
+        assert_eq!(exp.current, 25);
+        assert_eq!(exp.level, 2);
+        assert_eq!(exp.total_xp, 125);
     }
 }
