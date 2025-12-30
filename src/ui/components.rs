@@ -36,6 +36,11 @@ pub struct WeaponTimer;
 pub struct WeaponTimerFill;
 
 #[derive(Component)]
+pub struct WeaponTimerType {
+    pub weapon_type: WeaponType,
+}
+
+#[derive(Component)]
 pub struct WeaponLevelDisplay {
     pub weapon_type: WeaponType,
 }

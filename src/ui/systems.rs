@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy::ecs::world::World;
+use bevy_kira_audio::AudioControl;
 use crate::combat::components::Health;
 use crate::enemies::components::Enemy;
 use crate::states::*;
@@ -479,7 +480,7 @@ pub fn setup_weapon_slots(
         for (i, weapon_type) in weapon_types.iter().enumerate() {
             container.spawn((
                 Node {
-                    width: Val::Px(50.0),  // Larger to accommodate level text
+                    width: Val::Px(50.0),
                     height: Val::Px(50.0),
                     justify_content: JustifyContent::Center,
                     align_items: AlignItems::Center,
@@ -490,6 +491,37 @@ pub fn setup_weapon_slots(
                 WeaponSlot { slot_index: i },
             ))
             .with_children(|slot| {
+                // Level box at top center (absolute positioned, on top)
+                slot.spawn((
+                    Node {
+                        position_type: PositionType::Absolute,
+                        top: Val::Px(-8.0),
+                        left: Val::Percent(50.0),
+                        padding: UiRect::axes(Val::Px(4.0), Val::Px(1.0)),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
+                        border: UiRect::all(Val::Px(1.0)),
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.0, 0.0, 0.0)), // Black background
+                    BorderColor::all(Color::srgb(1.0, 1.0, 1.0)), // White border
+                    BorderRadius::all(Val::Px(2.0)),
+                    ZIndex(10), // Render on top of everything
+                ))
+                .with_children(|level_box| {
+                    // Level number only
+                    level_box.spawn((
+                        Text::new(""),
+                        TextFont {
+                            font_size: 10.0,
+                            ..default()
+                        },
+                        TextColor(Color::srgb(1.0, 1.0, 1.0)),
+                        TextLayout::new_with_justify(bevy::text::Justify::Center),
+                        WeaponLevelDisplay { weapon_type: weapon_type.clone() },
+                    ));
+                });
+
                 // Weapon icon
                 slot.spawn((
                     Node {
@@ -501,44 +533,33 @@ pub fn setup_weapon_slots(
                     WeaponIcon { weapon_type: weapon_type.clone() },
                 ));
 
-                // Level text
+                // Circular timer overlay for all weapons
                 slot.spawn((
-                    Text::new(""),
-                    TextFont {
-                        font_size: 12.0,
+                    Node {
+                        position_type: PositionType::Absolute,
+                        width: Val::Px(35.0),
+                        height: Val::Px(35.0),
+                        justify_content: JustifyContent::Center,
+                        align_items: AlignItems::Center,
                         ..default()
                     },
-                    TextColor(Color::srgb(1.0, 1.0, 1.0)),
-                    WeaponLevelDisplay { weapon_type: weapon_type.clone() },
-                ));
-
-                if i == 0 {
-                    // Circular timer overlay only for the first weapon (pistol)
-                    slot.spawn((
+                    BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.8)), // Dark background ring
+                    WeaponTimer,
+                    WeaponTimerType { weapon_type: weapon_type.clone() },
+                ))
+                .with_children(|timer_container| {
+                    // Inner fill circle that grows with progress
+                    timer_container.spawn((
                         Node {
-                            position_type: PositionType::Absolute,
-                            width: Val::Px(35.0),
-                            height: Val::Px(35.0),
-                            justify_content: JustifyContent::Center,
-                            align_items: AlignItems::Center,
+                            width: Val::Px(25.0), // Will be scaled
+                            height: Val::Px(25.0), // Will be scaled
                             ..default()
                         },
-                        BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.8)), // Dark background ring
-                        WeaponTimer,
-                    ))
-                    .with_children(|timer_container| {
-                        // Inner fill circle that grows with progress
-                        timer_container.spawn((
-                            Node {
-                                width: Val::Px(25.0), // Will be scaled
-                                height: Val::Px(25.0), // Will be scaled
-                                ..default()
-                            },
-                            BackgroundColor(Color::srgba(0.5, 0.7, 1.0, 0.0)), // Initially transparent
-                            WeaponTimerFill,
-                        ));
-                    });
-                }
+                        BackgroundColor(Color::srgba(0.5, 0.7, 1.0, 0.0)), // Initially transparent
+                        WeaponTimerFill,
+                        WeaponTimerType { weapon_type: weapon_type.clone() },
+                    ));
+                });
             });
         }
     });
@@ -547,12 +568,16 @@ pub fn setup_weapon_slots(
 pub fn update_weapon_slots(
     time: Res<Time>,
     weapon_query: Query<(&Weapon, &EquippedWeapon)>,
-    mut fill_query: Query<&mut BackgroundColor, With<WeaponTimerFill>>,
-    mut size_query: Query<&mut Node, With<WeaponTimerFill>>,
+    mut timer_query: Query<(&mut BackgroundColor, &mut Node, &WeaponTimerType), With<WeaponTimerFill>>,
 ) {
-    // Find the pistol weapon for the timer display
-    for (weapon, equipped) in weapon_query.iter() {
-        if matches!(equipped.weapon_type, WeaponType::Pistol { .. }) {
+    // Update timer for each weapon type
+    for (mut bg_color, mut node, timer_type) in timer_query.iter_mut() {
+        // Find the matching weapon
+        let weapon_opt = weapon_query
+            .iter()
+            .find(|(_, equipped)| equipped.weapon_type == timer_type.weapon_type);
+
+        if let Some((weapon, _)) = weapon_opt {
             let time_since_fired = time.elapsed_secs() - weapon.last_fired;
             let progress = (time_since_fired / weapon.fire_rate).clamp(0.0, 1.0);
 
@@ -562,17 +587,17 @@ pub fn update_weapon_slots(
             let current_size = min_size + (max_size - min_size) * progress;
 
             // Update size
-            for mut node in size_query.iter_mut() {
-                node.width = Val::Px(current_size);
-                node.height = Val::Px(current_size);
-            }
+            node.width = Val::Px(current_size);
+            node.height = Val::Px(current_size);
 
             // Update color alpha based on progress
             let alpha = progress * 0.8; // Max 80% opacity
-            for mut bg_color in fill_query.iter_mut() {
-                *bg_color = BackgroundColor(Color::srgba(0.5, 0.7, 1.0, alpha));
-            }
-            break; // Only update for the first weapon found in slot 0
+            *bg_color = BackgroundColor(Color::srgba(0.5, 0.7, 1.0, alpha));
+        } else {
+            // Weapon not equipped - hide the timer
+            node.width = Val::Px(0.0);
+            node.height = Val::Px(0.0);
+            *bg_color = BackgroundColor(Color::srgba(0.5, 0.7, 1.0, 0.0));
         }
     }
 }
@@ -603,7 +628,8 @@ pub fn update_weapon_level_displays(
 ) {
     for (mut text, display) in text_query.iter_mut() {
         if let Some(weapon) = inventory.get_weapon(&display.weapon_type) {
-            **text = format!("Lv.{}", weapon.level);
+            // Just show the number
+            **text = format!("{}", weapon.level);
         } else {
             **text = "".to_string();
         }
@@ -1025,13 +1051,11 @@ pub fn handle_continue_button(
 
 /// Play level complete sound when entering LevelComplete state
 pub fn play_level_complete_sound(
-    mut commands: Commands,
     asset_server: Res<AssetServer>,
+    loot_channel: ResMut<bevy_kira_audio::prelude::AudioChannel<crate::audio::plugin::LootSoundChannel>>,
 ) {
-    commands.spawn((
-        AudioPlayer::new(asset_server.load("sounds/790472__organizedlaziness__level-completed.wav")),
-        PlaybackSettings::DESPAWN,
-    ));
+    // Use the loot sound channel for celebratory sounds
+    loot_channel.play(asset_server.load("sounds/790472__organizedlaziness__level-completed.wav"));
 }
 
 /// Cleanup the level complete screen when exiting the state
