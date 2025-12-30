@@ -114,6 +114,39 @@ impl Default for Invincibility {
     }
 }
 
+/// Visual flash effect when entity takes damage
+/// When applied, the entity's material is temporarily changed to a bright white emissive
+/// to provide visual feedback that damage was dealt
+#[derive(Component, Debug, Clone)]
+pub struct DamageFlash {
+    /// Timer for flash duration
+    pub timer: Timer,
+    /// Original material handle to restore after flash ends
+    pub original_material: Handle<StandardMaterial>,
+}
+
+impl DamageFlash {
+    /// Create a new DamageFlash effect
+    /// - `original_material`: The material to restore after the flash
+    /// - `duration`: How long the flash lasts in seconds
+    pub fn new(original_material: Handle<StandardMaterial>, duration: f32) -> Self {
+        Self {
+            timer: Timer::from_seconds(duration, TimerMode::Once),
+            original_material,
+        }
+    }
+
+    /// Tick the flash timer
+    pub fn tick(&mut self, delta: std::time::Duration) {
+        self.timer.tick(delta);
+    }
+
+    /// Check if the flash effect has finished
+    pub fn is_finished(&self) -> bool {
+        self.timer.is_finished()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,6 +281,36 @@ mod tests {
 
             inv.tick(Duration::from_secs_f32(0.6));
             assert!(inv.is_expired());
+        }
+    }
+
+    mod damage_flash_tests {
+        use super::*;
+
+        #[test]
+        fn test_damage_flash_timer_starts_correctly() {
+            let flash = DamageFlash::new(Handle::default(), 0.1);
+            assert!(!flash.is_finished());
+            assert_eq!(flash.timer.duration().as_secs_f32(), 0.1);
+        }
+
+        #[test]
+        fn test_damage_flash_tick_and_finish() {
+            let mut flash = DamageFlash::new(Handle::default(), 0.1);
+            assert!(!flash.is_finished());
+
+            flash.tick(Duration::from_secs_f32(0.05));
+            assert!(!flash.is_finished());
+
+            flash.tick(Duration::from_secs_f32(0.06));
+            assert!(flash.is_finished());
+        }
+
+        #[test]
+        fn test_damage_flash_stores_original_material() {
+            let material_handle: Handle<StandardMaterial> = Handle::default();
+            let flash = DamageFlash::new(material_handle.clone(), 0.1);
+            assert_eq!(flash.original_material, material_handle);
         }
     }
 }

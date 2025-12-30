@@ -1,8 +1,11 @@
 use bevy::prelude::*;
 
-use super::components::{Health, Invincibility};
+use super::components::{DamageFlash, Health, Invincibility};
 use super::events::{DamageEvent, DeathEvent, EntityType};
+use crate::enemies::components::Enemy;
+use crate::game::components::Level;
 use crate::game::events::EnemyDeathEvent;
+use crate::game::resources::DamageFlashMaterial;
 use crate::score::Score;
 
 /// Marker component indicating an entity should have death checked
@@ -63,20 +66,73 @@ pub fn handle_enemy_death_system(
     mut death_events: MessageReader<DeathEvent>,
     mut enemy_death_events: MessageWriter<EnemyDeathEvent>,
     mut score: ResMut<Score>,
+    level_query: Query<&Level>,
 ) {
     for event in death_events.read() {
         if event.entity_type == EntityType::Enemy {
             // Update score
             score.0 += 1;
 
+            // Get enemy level (default to 1 if not found)
+            let enemy_level = level_query
+                .get(event.entity)
+                .map(|l| l.value())
+                .unwrap_or(1);
+
             // Send EnemyDeathEvent for loot/experience handling
             enemy_death_events.write(EnemyDeathEvent {
                 enemy_entity: event.entity,
                 position: event.position,
+                enemy_level,
             });
 
             // Despawn the enemy
             commands.entity(event.entity).try_despawn();
+        }
+    }
+}
+
+/// Apply flash effect when damage is dealt to enemies
+/// Listens to DamageEvent and applies a white flash material to damaged enemies
+#[allow(clippy::type_complexity)]
+pub fn apply_damage_flash_system(
+    mut commands: Commands,
+    mut damage_events: MessageReader<DamageEvent>,
+    enemy_query: Query<
+        (Entity, &MeshMaterial3d<StandardMaterial>),
+        (With<Enemy>, Without<DamageFlash>),
+    >,
+    flash_material: Option<Res<DamageFlashMaterial>>,
+) {
+    // Require flash material resource to function
+    let Some(flash_material) = flash_material else {
+        return;
+    };
+
+    for event in damage_events.read() {
+        if let Ok((entity, current_material)) = enemy_query.get(event.target) {
+            // Store original material and apply flash
+            commands.entity(entity).insert((
+                DamageFlash::new(current_material.0.clone(), 0.1),
+                MeshMaterial3d(flash_material.0.clone()),
+            ));
+        }
+    }
+}
+
+/// Update flash timers and restore original materials when flash ends
+pub fn update_damage_flash_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut DamageFlash, &mut MeshMaterial3d<StandardMaterial>)>,
+) {
+    for (entity, mut flash, mut material) in query.iter_mut() {
+        flash.tick(time.delta());
+
+        if flash.is_finished() {
+            // Restore original material and remove flash component
+            material.0 = flash.original_material.clone();
+            commands.entity(entity).remove::<DamageFlash>();
         }
     }
 }
@@ -430,6 +486,329 @@ mod tests {
             // Verify score was NOT updated
             let score = app.world().get_resource::<Score>().unwrap();
             assert_eq!(score.0, 0);
+        }
+    }
+
+    mod damage_flash_tests {
+        use super::*;
+        use crate::game::resources::DamageFlashMaterial;
+
+        fn setup_test_app() -> App {
+            let mut app = App::new();
+            app.add_plugins(bevy::asset::AssetPlugin::default());
+            app.add_plugins(bevy::time::TimePlugin::default());
+            app.init_asset::<Mesh>();
+            app.init_asset::<StandardMaterial>();
+            app.add_message::<DamageEvent>();
+            app
+        }
+
+        #[test]
+        fn test_apply_damage_flash_applies_flash_to_enemy() {
+            let mut app = setup_test_app();
+
+            // Create flash material resource
+            let flash_handle = {
+                let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+                materials.add(StandardMaterial {
+                    base_color: Color::WHITE,
+                    ..default()
+                })
+            };
+            app.insert_resource(DamageFlashMaterial(flash_handle.clone()));
+
+            app.add_systems(Update, apply_damage_flash_system);
+
+            // Create enemy material and entity
+            let original_handle = {
+                let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+                materials.add(StandardMaterial {
+                    base_color: Color::srgb(1.0, 0.0, 0.0),
+                    ..default()
+                })
+            };
+
+            let entity = app
+                .world_mut()
+                .spawn((
+                    Enemy { speed: 50.0, strength: 10.0 },
+                    MeshMaterial3d(original_handle.clone()),
+                    Transform::default(),
+                ))
+                .id();
+
+            // Send damage event
+            app.world_mut().write_message(DamageEvent::new(entity, 10.0));
+
+            // Run the system
+            app.update();
+
+            // Verify DamageFlash component was added
+            assert!(
+                app.world().get::<DamageFlash>(entity).is_some(),
+                "DamageFlash component should be added when enemy takes damage"
+            );
+
+            // Verify material was changed to flash material
+            let material = app.world().get::<MeshMaterial3d<StandardMaterial>>(entity).unwrap();
+            assert_eq!(
+                material.0, flash_handle,
+                "Entity material should be set to flash material"
+            );
+        }
+
+        #[test]
+        fn test_apply_damage_flash_stores_original_material() {
+            let mut app = setup_test_app();
+
+            // Create flash material resource
+            let flash_handle = {
+                let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+                materials.add(StandardMaterial::default())
+            };
+            app.insert_resource(DamageFlashMaterial(flash_handle));
+
+            app.add_systems(Update, apply_damage_flash_system);
+
+            // Create enemy material and entity
+            let original_handle = {
+                let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+                materials.add(StandardMaterial {
+                    base_color: Color::srgb(0.0, 1.0, 0.0),
+                    ..default()
+                })
+            };
+
+            let entity = app
+                .world_mut()
+                .spawn((
+                    Enemy { speed: 50.0, strength: 10.0 },
+                    MeshMaterial3d(original_handle.clone()),
+                    Transform::default(),
+                ))
+                .id();
+
+            // Send damage event
+            app.world_mut().write_message(DamageEvent::new(entity, 10.0));
+            app.update();
+
+            // Verify original material is stored
+            let flash = app.world().get::<DamageFlash>(entity).unwrap();
+            assert_eq!(
+                flash.original_material, original_handle,
+                "Original material should be stored in DamageFlash"
+            );
+        }
+
+        #[test]
+        fn test_apply_damage_flash_skips_already_flashing() {
+            let mut app = setup_test_app();
+
+            // Create flash material resource
+            let flash_handle = {
+                let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+                materials.add(StandardMaterial::default())
+            };
+            app.insert_resource(DamageFlashMaterial(flash_handle.clone()));
+
+            app.add_systems(Update, apply_damage_flash_system);
+
+            // Create enemy material
+            let original_handle = {
+                let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+                materials.add(StandardMaterial::default())
+            };
+
+            // Create enemy that already has DamageFlash
+            let entity = app
+                .world_mut()
+                .spawn((
+                    Enemy { speed: 50.0, strength: 10.0 },
+                    MeshMaterial3d(flash_handle.clone()),
+                    Transform::default(),
+                    DamageFlash::new(original_handle.clone(), 0.1),
+                ))
+                .id();
+
+            // Send damage event
+            app.world_mut().write_message(DamageEvent::new(entity, 10.0));
+            app.update();
+
+            // Original material should still be the one stored (not overwritten)
+            let flash = app.world().get::<DamageFlash>(entity).unwrap();
+            assert_eq!(
+                flash.original_material, original_handle,
+                "Flash component should not be overwritten when already flashing"
+            );
+        }
+
+        #[test]
+        fn test_update_damage_flash_restores_material() {
+            let mut app = setup_test_app();
+            app.add_systems(Update, update_damage_flash_system);
+
+            // Create materials
+            let original_handle = {
+                let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+                materials.add(StandardMaterial {
+                    base_color: Color::srgb(1.0, 0.0, 0.0),
+                    ..default()
+                })
+            };
+            let flash_handle = {
+                let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+                materials.add(StandardMaterial {
+                    base_color: Color::WHITE,
+                    ..default()
+                })
+            };
+
+            // Create entity with flash that's about to expire
+            let mut flash = DamageFlash::new(original_handle.clone(), 0.1);
+            flash.tick(Duration::from_secs_f32(0.15)); // Expire the flash
+
+            let entity = app
+                .world_mut()
+                .spawn((
+                    MeshMaterial3d(flash_handle),
+                    flash,
+                ))
+                .id();
+
+            app.update();
+
+            // Verify material was restored
+            let material = app.world().get::<MeshMaterial3d<StandardMaterial>>(entity).unwrap();
+            assert_eq!(
+                material.0, original_handle,
+                "Material should be restored to original after flash ends"
+            );
+
+            // Verify DamageFlash was removed
+            assert!(
+                app.world().get::<DamageFlash>(entity).is_none(),
+                "DamageFlash component should be removed after flash ends"
+            );
+        }
+
+        #[test]
+        fn test_update_damage_flash_keeps_active_flash() {
+            let mut app = setup_test_app();
+            app.add_systems(Update, update_damage_flash_system);
+
+            // Create materials
+            let original_handle = {
+                let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+                materials.add(StandardMaterial::default())
+            };
+            let flash_handle = {
+                let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+                materials.add(StandardMaterial::default())
+            };
+
+            // Create entity with fresh flash
+            let entity = app
+                .world_mut()
+                .spawn((
+                    MeshMaterial3d(flash_handle.clone()),
+                    DamageFlash::new(original_handle, 1.0), // 1 second flash
+                ))
+                .id();
+
+            // Advance a small amount of time
+            {
+                let mut time = app.world_mut().resource_mut::<Time>();
+                time.advance_by(Duration::from_secs_f32(0.1));
+            }
+
+            app.update();
+
+            // Verify flash material is still applied
+            let material = app.world().get::<MeshMaterial3d<StandardMaterial>>(entity).unwrap();
+            assert_eq!(
+                material.0, flash_handle,
+                "Flash material should still be applied while flash is active"
+            );
+
+            // Verify DamageFlash is still present
+            assert!(
+                app.world().get::<DamageFlash>(entity).is_some(),
+                "DamageFlash component should remain while flash is active"
+            );
+        }
+
+        #[test]
+        fn test_apply_damage_flash_ignores_non_enemies() {
+            let mut app = setup_test_app();
+
+            // Create flash material resource
+            let flash_handle = {
+                let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+                materials.add(StandardMaterial::default())
+            };
+            app.insert_resource(DamageFlashMaterial(flash_handle));
+
+            app.add_systems(Update, apply_damage_flash_system);
+
+            // Create non-enemy entity with material
+            let material_handle = {
+                let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+                materials.add(StandardMaterial::default())
+            };
+
+            let entity = app
+                .world_mut()
+                .spawn((
+                    MeshMaterial3d(material_handle),
+                    Transform::default(),
+                    // Note: No Enemy component!
+                ))
+                .id();
+
+            // Send damage event
+            app.world_mut().write_message(DamageEvent::new(entity, 10.0));
+            app.update();
+
+            // Verify no DamageFlash was added
+            assert!(
+                app.world().get::<DamageFlash>(entity).is_none(),
+                "DamageFlash should not be added to non-enemy entities"
+            );
+        }
+
+        #[test]
+        fn test_apply_damage_flash_handles_missing_resource() {
+            let mut app = setup_test_app();
+            // Note: NOT inserting DamageFlashMaterial resource
+
+            app.add_systems(Update, apply_damage_flash_system);
+
+            // Create enemy
+            let material_handle = {
+                let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+                materials.add(StandardMaterial::default())
+            };
+
+            let entity = app
+                .world_mut()
+                .spawn((
+                    Enemy { speed: 50.0, strength: 10.0 },
+                    MeshMaterial3d(material_handle),
+                    Transform::default(),
+                ))
+                .id();
+
+            // Send damage event
+            app.world_mut().write_message(DamageEvent::new(entity, 10.0));
+
+            // System should not panic
+            app.update();
+
+            // No flash should be added
+            assert!(
+                app.world().get::<DamageFlash>(entity).is_none(),
+                "DamageFlash should not be added when resource is missing"
+            );
         }
     }
 }

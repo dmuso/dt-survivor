@@ -255,6 +255,69 @@ impl EnemyLevelMaterials {
     }
 }
 
+/// Materials for each XP orb rarity level (1-5)
+/// Higher level orbs have emissive glow for visual distinction
+#[derive(Resource)]
+pub struct XpOrbMaterials {
+    /// Level 1 - Common (Grey)
+    pub common: Handle<StandardMaterial>,
+    /// Level 2 - Uncommon (Green)
+    pub uncommon: Handle<StandardMaterial>,
+    /// Level 3 - Rare (Blue)
+    pub rare: Handle<StandardMaterial>,
+    /// Level 4 - Epic (Purple)
+    pub epic: Handle<StandardMaterial>,
+    /// Level 5 - Legendary (Gold with strong emissive glow)
+    pub legendary: Handle<StandardMaterial>,
+}
+
+impl XpOrbMaterials {
+    pub fn new(materials: &mut Assets<StandardMaterial>) -> Self {
+        Self {
+            common: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.6, 0.6, 0.6),
+                emissive: bevy::color::LinearRgba::rgb(0.3, 0.3, 0.3),
+                ..default()
+            }),
+            uncommon: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.0, 0.8, 0.2),
+                emissive: bevy::color::LinearRgba::rgb(0.0, 0.4, 0.1),
+                ..default()
+            }),
+            rare: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.2, 0.4, 1.0),
+                emissive: bevy::color::LinearRgba::rgb(0.2, 0.4, 1.0),
+                ..default()
+            }),
+            epic: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.6, 0.2, 0.8),
+                emissive: bevy::color::LinearRgba::rgb(0.9, 0.3, 1.2),
+                ..default()
+            }),
+            legendary: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 0.84, 0.0),
+                emissive: bevy::color::LinearRgba::rgb(3.0, 2.52, 0.0),
+                ..default()
+            }),
+        }
+    }
+
+    /// Get material handle for a given XP orb level (1-5)
+    pub fn for_level(&self, level: u8) -> Handle<StandardMaterial> {
+        match level {
+            1 => self.common.clone(),
+            2 => self.uncommon.clone(),
+            3 => self.rare.clone(),
+            4 => self.epic.clone(),
+            _ => self.legendary.clone(),
+        }
+    }
+}
+
+/// Shared material for the damage flash effect - bright white emissive
+#[derive(Resource)]
+pub struct DamageFlashMaterial(pub Handle<StandardMaterial>);
+
 /// Shared material handles for all game entities
 #[derive(Resource)]
 pub struct GameMaterials {
@@ -786,6 +849,7 @@ mod tests {
             // Verify resources were inserted
             assert!(app.world().get_resource::<GameMeshes>().is_some());
             assert!(app.world().get_resource::<GameMaterials>().is_some());
+            assert!(app.world().get_resource::<DamageFlashMaterial>().is_some());
         }
     }
 
@@ -932,6 +996,134 @@ mod tests {
             assert_eq!(enemy_materials.for_level(6), enemy_materials.legendary);
             assert_eq!(enemy_materials.for_level(10), enemy_materials.legendary);
             assert_eq!(enemy_materials.for_level(255), enemy_materials.legendary);
+        }
+    }
+
+    mod xp_orb_materials_tests {
+        use super::*;
+        use bevy::asset::Assets;
+        use bevy::pbr::StandardMaterial;
+
+        fn setup_test_app() -> App {
+            let mut app = App::new();
+            app.add_plugins(bevy::asset::AssetPlugin::default());
+            app.init_asset::<StandardMaterial>();
+            app
+        }
+
+        #[test]
+        fn xp_orb_materials_has_all_handles() {
+            let mut app = setup_test_app();
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+
+            let xp_materials = XpOrbMaterials::new(&mut materials);
+
+            // Verify all handles can retrieve their assets
+            assert!(materials.get(&xp_materials.common).is_some());
+            assert!(materials.get(&xp_materials.uncommon).is_some());
+            assert!(materials.get(&xp_materials.rare).is_some());
+            assert!(materials.get(&xp_materials.epic).is_some());
+            assert!(materials.get(&xp_materials.legendary).is_some());
+        }
+
+        #[test]
+        fn xp_orb_materials_colors_are_correct() {
+            let mut app = setup_test_app();
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+
+            let xp_materials = XpOrbMaterials::new(&mut materials);
+
+            // Level 1 - Grey
+            let common_mat = materials.get(&xp_materials.common).unwrap();
+            assert_eq!(common_mat.base_color, Color::srgb(0.6, 0.6, 0.6));
+
+            // Level 2 - Green
+            let uncommon_mat = materials.get(&xp_materials.uncommon).unwrap();
+            assert_eq!(uncommon_mat.base_color, Color::srgb(0.0, 0.8, 0.2));
+
+            // Level 3 - Blue
+            let rare_mat = materials.get(&xp_materials.rare).unwrap();
+            assert_eq!(rare_mat.base_color, Color::srgb(0.2, 0.4, 1.0));
+
+            // Level 4 - Purple
+            let epic_mat = materials.get(&xp_materials.epic).unwrap();
+            assert_eq!(epic_mat.base_color, Color::srgb(0.6, 0.2, 0.8));
+
+            // Level 5 - Gold
+            let legendary_mat = materials.get(&xp_materials.legendary).unwrap();
+            assert_eq!(legendary_mat.base_color, Color::srgb(1.0, 0.84, 0.0));
+        }
+
+        #[test]
+        fn xp_orb_materials_all_have_emissive() {
+            let mut app = setup_test_app();
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+
+            let xp_materials = XpOrbMaterials::new(&mut materials);
+
+            // All XP orb materials should have emissive for visibility
+            for handle in [
+                &xp_materials.common,
+                &xp_materials.uncommon,
+                &xp_materials.rare,
+                &xp_materials.epic,
+                &xp_materials.legendary,
+            ] {
+                let mat = materials.get(handle).unwrap();
+                let emissive = mat.emissive;
+                assert!(
+                    emissive.red > 0.0 || emissive.green > 0.0 || emissive.blue > 0.0,
+                    "XP orb material should have emissive glow"
+                );
+            }
+        }
+
+        #[test]
+        fn xp_orb_legendary_has_strongest_emissive() {
+            let mut app = setup_test_app();
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+
+            let xp_materials = XpOrbMaterials::new(&mut materials);
+
+            let common_mat = materials.get(&xp_materials.common).unwrap();
+            let legendary_mat = materials.get(&xp_materials.legendary).unwrap();
+
+            // Legendary should have stronger emissive than common
+            let common_brightness = common_mat.emissive.red + common_mat.emissive.green + common_mat.emissive.blue;
+            let legendary_brightness = legendary_mat.emissive.red + legendary_mat.emissive.green + legendary_mat.emissive.blue;
+
+            assert!(
+                legendary_brightness > common_brightness,
+                "Legendary XP orb should have stronger emissive than common"
+            );
+        }
+
+        #[test]
+        fn for_level_returns_correct_material() {
+            let mut app = setup_test_app();
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+
+            let xp_materials = XpOrbMaterials::new(&mut materials);
+
+            // Test each level returns expected material
+            assert_eq!(xp_materials.for_level(1), xp_materials.common);
+            assert_eq!(xp_materials.for_level(2), xp_materials.uncommon);
+            assert_eq!(xp_materials.for_level(3), xp_materials.rare);
+            assert_eq!(xp_materials.for_level(4), xp_materials.epic);
+            assert_eq!(xp_materials.for_level(5), xp_materials.legendary);
+        }
+
+        #[test]
+        fn for_level_handles_out_of_range() {
+            let mut app = setup_test_app();
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+
+            let xp_materials = XpOrbMaterials::new(&mut materials);
+
+            // Levels > 5 should return legendary
+            assert_eq!(xp_materials.for_level(6), xp_materials.legendary);
+            assert_eq!(xp_materials.for_level(10), xp_materials.legendary);
+            assert_eq!(xp_materials.for_level(255), xp_materials.legendary);
         }
     }
 }

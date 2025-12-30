@@ -2,9 +2,11 @@ use bevy::prelude::*;
 
 use super::events::{DamageEvent, DeathEvent};
 use super::systems::{
-    apply_damage_system, check_death_system, handle_enemy_death_system, tick_invincibility_system,
+    apply_damage_flash_system, apply_damage_system, check_death_system, handle_enemy_death_system,
+    tick_invincibility_system, update_damage_flash_system,
 };
 use crate::game::events::EnemyDeathEvent;
+use crate::game::sets::GameSet;
 use crate::states::GameState;
 
 /// System sets for combat systems ordering
@@ -46,6 +48,14 @@ pub fn plugin(app: &mut App) {
             Update,
             tick_invincibility_system
                 .in_set(CombatSets::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Damage flash effect systems run in GameSet::Effects
+        .add_systems(
+            Update,
+            (apply_damage_flash_system, update_damage_flash_system)
+                .chain()
+                .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         );
 }
