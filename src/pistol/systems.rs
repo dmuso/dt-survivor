@@ -28,12 +28,22 @@ pub fn fire_pistol(
         let spawn_xz = from_xz(spawn_position);
         let base_direction = (target_pos - spawn_xz).normalize();
 
-        // Calculate spread pattern for 5 bullets
+        // Get bullet count based on weapon level (1 at level 1-4, 2 at 5-9, 3 at 10)
+        let bullet_count = weapon.bullet_count();
         let spread_angle_rad = config.spread_angle.to_radians();
 
-        // Create 5 bullets in a spread pattern (-2, -1, 0, 1, 2)
-        for i in -2..=2 {
-            let angle_offset = i as f32 * spread_angle_rad;
+        // Create bullets in a spread pattern centered around the target direction
+        // For 1 bullet: just shoot straight
+        // For 2 bullets: -0.5, +0.5 offsets
+        // For 3 bullets: -1, 0, +1 offsets
+        for i in 0..bullet_count {
+            let angle_offset = if bullet_count == 1 {
+                0.0
+            } else {
+                // Center the spread: offset from -(count-1)/2 to +(count-1)/2
+                let half_spread = (bullet_count - 1) as f32 / 2.0;
+                (i as f32 - half_spread) * spread_angle_rad
+            };
 
             // Rotate the base direction by the spread angle
             let cos_offset = angle_offset.cos();
@@ -89,7 +99,6 @@ mod tests {
     #[test]
     fn test_pistol_config_default() {
         let config = PistolConfig::default();
-        assert_eq!(config.bullet_count, 5);
         assert_eq!(config.spread_angle, 15.0);
         assert_eq!(config.bullet_speed, 20.0); // 3D world units/sec
         assert_eq!(config.bullet_lifetime, 5.0);
@@ -100,10 +109,10 @@ mod tests {
     #[test]
     fn test_fire_pistol_creates_bullets() {
         // Test that pistol firing creates the expected number of bullets
-        // This is a simple unit test that doesn't require the full Bevy app
+        // Bullet count is determined by weapon level via Weapon::bullet_count()
         let weapon = Weapon {
             weapon_type: WeaponType::Pistol {
-                bullet_count: 5,
+                bullet_count: 5, // Legacy field, not used
                 spread_angle: 15.0,
             },
             level: 1,
@@ -112,16 +121,40 @@ mod tests {
             last_fired: 0.0,
         };
 
-        let _player_transform = Transform::from_translation(Vec3::new(0.0, 0.0, 0.0));
-        let _target_pos = Vec2::new(10.0, 0.0);
+        // Level 1 pistol should have 1 bullet
+        assert_eq!(weapon.bullet_count(), 1);
 
-        // Test pistol config
+        // Level 5 pistol should have 2 bullets
+        let weapon_5 = Weapon {
+            weapon_type: WeaponType::Pistol {
+                bullet_count: 5,
+                spread_angle: 15.0,
+            },
+            level: 5,
+            fire_rate: 2.0,
+            base_damage: 1.0,
+            last_fired: 0.0,
+        };
+        assert_eq!(weapon_5.bullet_count(), 2);
+
+        // Level 10 pistol should have 3 bullets
+        let weapon_10 = Weapon {
+            weapon_type: WeaponType::Pistol {
+                bullet_count: 5,
+                spread_angle: 15.0,
+            },
+            level: 10,
+            fire_rate: 2.0,
+            base_damage: 1.0,
+            last_fired: 0.0,
+        };
+        assert_eq!(weapon_10.bullet_count(), 3);
+
+        // Test pistol config (spread angle only, bullet count is on weapon)
         let config = PistolConfig::default();
-        assert_eq!(config.bullet_count, 5); // Pistol should create 5 bullets
-        assert_eq!(config.spread_angle, 15.0); // Default spread angle
+        assert_eq!(config.spread_angle, 15.0);
 
-        // The actual firing test would require a full Bevy world setup
-        // For now, just verify the weapon type is correct
+        // Verify weapon type
         assert!(matches!(weapon.weapon_type, WeaponType::Pistol { .. }));
     }
 }

@@ -1,9 +1,9 @@
 use bevy::prelude::*;
 
 /// Pistol-specific weapon configuration
+/// Note: bullet_count is now determined by weapon level via Weapon::bullet_count()
 #[derive(Clone, Debug, PartialEq)]
 pub struct PistolConfig {
-    pub bullet_count: usize,
     pub spread_angle: f32,
     pub bullet_speed: f32,
     pub bullet_lifetime: f32,
@@ -14,7 +14,6 @@ pub struct PistolConfig {
 impl Default for PistolConfig {
     fn default() -> Self {
         Self {
-            bullet_count: 5,
             spread_angle: 15.0,
             bullet_speed: 20.0, // 3D world units/sec (was 200 pixels/sec in 2D)
             bullet_lifetime: 5.0, // Reduced for smaller world
