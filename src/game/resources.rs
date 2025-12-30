@@ -318,6 +318,49 @@ impl XpOrbMaterials {
 #[derive(Resource)]
 pub struct DamageFlashMaterial(pub Handle<StandardMaterial>);
 
+/// Statistics for the current level
+/// Tracks time elapsed, enemies killed, and XP gained during a game level
+#[derive(Resource, Debug, Default)]
+pub struct LevelStats {
+    /// Time elapsed in current level (seconds)
+    pub time_elapsed: f32,
+    /// Enemies killed in current level
+    pub enemies_killed: u32,
+    /// XP gained in current level
+    pub xp_gained: u32,
+}
+
+impl LevelStats {
+    /// Create a new LevelStats with default values
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Reset stats for a new level
+    pub fn reset(&mut self) {
+        self.time_elapsed = 0.0;
+        self.enemies_killed = 0;
+        self.xp_gained = 0;
+    }
+
+    /// Record an enemy kill
+    pub fn record_kill(&mut self) {
+        self.enemies_killed += 1;
+    }
+
+    /// Record XP gained
+    pub fn record_xp(&mut self, amount: u32) {
+        self.xp_gained += amount;
+    }
+
+    /// Format time as MM:SS
+    pub fn formatted_time(&self) -> String {
+        let minutes = (self.time_elapsed / 60.0) as u32;
+        let seconds = (self.time_elapsed % 60.0) as u32;
+        format!("{:02}:{:02}", minutes, seconds)
+    }
+}
+
 /// Shared material handles for all game entities
 #[derive(Resource)]
 pub struct GameMaterials {
@@ -1124,6 +1167,115 @@ mod tests {
             assert_eq!(xp_materials.for_level(6), xp_materials.legendary);
             assert_eq!(xp_materials.for_level(10), xp_materials.legendary);
             assert_eq!(xp_materials.for_level(255), xp_materials.legendary);
+        }
+    }
+
+    mod level_stats_tests {
+        use super::*;
+
+        #[test]
+        fn level_stats_starts_at_zero() {
+            let stats = LevelStats::new();
+            assert_eq!(stats.time_elapsed, 0.0);
+            assert_eq!(stats.enemies_killed, 0);
+            assert_eq!(stats.xp_gained, 0);
+        }
+
+        #[test]
+        fn level_stats_default_matches_new() {
+            let stats_new = LevelStats::new();
+            let stats_default = LevelStats::default();
+            assert_eq!(stats_new.time_elapsed, stats_default.time_elapsed);
+            assert_eq!(stats_new.enemies_killed, stats_default.enemies_killed);
+            assert_eq!(stats_new.xp_gained, stats_default.xp_gained);
+        }
+
+        #[test]
+        fn level_stats_records_kills() {
+            let mut stats = LevelStats::new();
+            stats.record_kill();
+            stats.record_kill();
+            assert_eq!(stats.enemies_killed, 2);
+        }
+
+        #[test]
+        fn level_stats_records_xp() {
+            let mut stats = LevelStats::new();
+            stats.record_xp(50);
+            stats.record_xp(25);
+            assert_eq!(stats.xp_gained, 75);
+        }
+
+        #[test]
+        fn level_stats_formats_time_correctly() {
+            let mut stats = LevelStats::new();
+            stats.time_elapsed = 125.0; // 2:05
+            assert_eq!(stats.formatted_time(), "02:05");
+        }
+
+        #[test]
+        fn level_stats_formats_zero_time() {
+            let stats = LevelStats::new();
+            assert_eq!(stats.formatted_time(), "00:00");
+        }
+
+        #[test]
+        fn level_stats_formats_one_minute() {
+            let mut stats = LevelStats::new();
+            stats.time_elapsed = 60.0;
+            assert_eq!(stats.formatted_time(), "01:00");
+        }
+
+        #[test]
+        fn level_stats_formats_long_time() {
+            let mut stats = LevelStats::new();
+            stats.time_elapsed = 3661.5; // 61 minutes and 1.5 seconds
+            assert_eq!(stats.formatted_time(), "61:01");
+        }
+
+        #[test]
+        fn level_stats_resets_correctly() {
+            let mut stats = LevelStats::new();
+            stats.enemies_killed = 10;
+            stats.xp_gained = 500;
+            stats.time_elapsed = 60.0;
+            stats.reset();
+            assert_eq!(stats.enemies_killed, 0);
+            assert_eq!(stats.xp_gained, 0);
+            assert_eq!(stats.time_elapsed, 0.0);
+        }
+
+        #[test]
+        fn level_stats_can_be_used_as_resource() {
+            let mut app = App::new();
+            app.init_resource::<LevelStats>();
+            app.update();
+
+            // Verify the resource exists with default values
+            let stats = app.world().resource::<LevelStats>();
+            assert_eq!(stats.time_elapsed, 0.0);
+            assert_eq!(stats.enemies_killed, 0);
+            assert_eq!(stats.xp_gained, 0);
+        }
+
+        #[test]
+        fn level_stats_accumulates_multiple_kills() {
+            let mut stats = LevelStats::new();
+            for _ in 0..100 {
+                stats.record_kill();
+            }
+            assert_eq!(stats.enemies_killed, 100);
+        }
+
+        #[test]
+        fn level_stats_accumulates_multiple_xp() {
+            let mut stats = LevelStats::new();
+            stats.record_xp(5);   // Common
+            stats.record_xp(15);  // Uncommon
+            stats.record_xp(35);  // Rare
+            stats.record_xp(75);  // Epic
+            stats.record_xp(150); // Legendary
+            assert_eq!(stats.xp_gained, 280);
         }
     }
 }

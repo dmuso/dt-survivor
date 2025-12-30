@@ -10,7 +10,7 @@ use rand::Rng;
 use crate::combat::components::Health;
 use crate::enemies::components::*;
 use crate::game::components::*;
-use crate::game::resources::{DamageFlashMaterial, EnemyLevelMaterials, GameLevel, GameMaterials, GameMeshes, PlayerDamageTimer, ScreenTintEffect, SurvivalTime, XpOrbMaterials};
+use crate::game::resources::{DamageFlashMaterial, EnemyLevelMaterials, GameLevel, GameMaterials, GameMeshes, LevelStats, PlayerDamageTimer, ScreenTintEffect, SurvivalTime, XpOrbMaterials};
 use crate::game::events::*;
 use crate::movement::components::from_xz;
 use crate::player::components::*;
@@ -335,6 +335,41 @@ pub fn track_enemy_kills_system(
 /// Reset game level on game start
 pub fn reset_game_level(mut game_level: ResMut<GameLevel>) {
     *game_level = GameLevel::new();
+}
+
+/// Update level time tracking (increments time_elapsed each frame)
+pub fn update_level_time_system(
+    time: Res<Time>,
+    mut level_stats: ResMut<LevelStats>,
+) {
+    level_stats.time_elapsed += time.delta_secs();
+}
+
+/// Track enemy kills for level stats (records kills from EnemyDeathEvent)
+pub fn track_level_kills_system(
+    mut death_events: MessageReader<EnemyDeathEvent>,
+    mut level_stats: ResMut<LevelStats>,
+) {
+    for _ in death_events.read() {
+        level_stats.record_kill();
+    }
+}
+
+/// Track XP gained for level stats (records XP from ItemEffectEvent when experience is collected)
+pub fn track_level_xp_system(
+    mut effect_events: MessageReader<crate::loot::events::ItemEffectEvent>,
+    mut level_stats: ResMut<LevelStats>,
+) {
+    for event in effect_events.read() {
+        if let crate::loot::components::ItemData::Experience { amount } = &event.item_data {
+            level_stats.record_xp(*amount);
+        }
+    }
+}
+
+/// Reset level stats when entering a new level or starting a game
+pub fn reset_level_stats_system(mut level_stats: ResMut<LevelStats>) {
+    level_stats.reset();
 }
 
 #[cfg(test)]
@@ -969,6 +1004,216 @@ mod tests {
             let game_level = app.world().resource::<GameLevel>();
             assert_eq!(game_level.kills_this_level, 0);
             assert_eq!(game_level.level, 1);
+        }
+    }
+
+    mod level_stats_system_tests {
+        use super::*;
+        use bevy::ecs::system::RunSystemOnce;
+        use crate::game::resources::LevelStats;
+        use crate::loot::events::ItemEffectEvent;
+        use crate::loot::components::ItemData;
+
+        #[test]
+        fn update_level_time_increments_time_elapsed() {
+            use std::time::Duration;
+
+            let mut app = App::new();
+            app.init_resource::<Time>();
+            app.init_resource::<LevelStats>();
+
+            // Initial time should be 0
+            let stats = app.world().resource::<LevelStats>();
+            assert_eq!(stats.time_elapsed, 0.0);
+
+            // Advance time
+            {
+                let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+                time.advance_by(Duration::from_secs_f32(0.5));
+            }
+
+            // Run system once
+            let _ = app.world_mut().run_system_once(update_level_time_system);
+
+            let stats = app.world().resource::<LevelStats>();
+            assert!((stats.time_elapsed - 0.5).abs() < 0.001, "Time should have elapsed by 0.5 seconds");
+        }
+
+        #[test]
+        fn track_level_kills_increments_on_enemy_death() {
+            let mut app = App::new();
+            app.init_resource::<LevelStats>();
+            app.add_message::<EnemyDeathEvent>();
+            app.add_systems(Update, track_level_kills_system);
+
+            // Initial kills should be 0
+            let stats = app.world().resource::<LevelStats>();
+            assert_eq!(stats.enemies_killed, 0);
+
+            // Write a death event
+            app.world_mut().write_message(EnemyDeathEvent {
+                enemy_entity: Entity::PLACEHOLDER,
+                position: Vec3::ZERO,
+                enemy_level: 1,
+            });
+            app.update();
+
+            let stats = app.world().resource::<LevelStats>();
+            assert_eq!(stats.enemies_killed, 1);
+        }
+
+        #[test]
+        fn track_level_kills_handles_multiple_deaths() {
+            let mut app = App::new();
+            app.init_resource::<LevelStats>();
+            app.add_message::<EnemyDeathEvent>();
+            app.add_systems(Update, track_level_kills_system);
+
+            // Write multiple death events
+            for _ in 0..5 {
+                app.world_mut().write_message(EnemyDeathEvent {
+                    enemy_entity: Entity::PLACEHOLDER,
+                    position: Vec3::ZERO,
+                    enemy_level: 1,
+                });
+            }
+            app.update();
+
+            let stats = app.world().resource::<LevelStats>();
+            assert_eq!(stats.enemies_killed, 5);
+        }
+
+        #[test]
+        fn track_level_xp_increments_on_experience_pickup() {
+            let mut app = App::new();
+            app.init_resource::<LevelStats>();
+            app.add_message::<ItemEffectEvent>();
+            app.add_systems(Update, track_level_xp_system);
+
+            // Initial XP should be 0
+            let stats = app.world().resource::<LevelStats>();
+            assert_eq!(stats.xp_gained, 0);
+
+            // Write an experience pickup event
+            app.world_mut().write_message(ItemEffectEvent {
+                item_entity: Entity::PLACEHOLDER,
+                item_data: ItemData::Experience { amount: 50 },
+                player_entity: Entity::PLACEHOLDER,
+            });
+            app.update();
+
+            let stats = app.world().resource::<LevelStats>();
+            assert_eq!(stats.xp_gained, 50);
+        }
+
+        #[test]
+        fn track_level_xp_handles_multiple_pickups() {
+            let mut app = App::new();
+            app.init_resource::<LevelStats>();
+            app.add_message::<ItemEffectEvent>();
+            app.add_systems(Update, track_level_xp_system);
+
+            // Write multiple experience pickup events
+            app.world_mut().write_message(ItemEffectEvent {
+                item_entity: Entity::PLACEHOLDER,
+                item_data: ItemData::Experience { amount: 5 },
+                player_entity: Entity::PLACEHOLDER,
+            });
+            app.world_mut().write_message(ItemEffectEvent {
+                item_entity: Entity::PLACEHOLDER,
+                item_data: ItemData::Experience { amount: 15 },
+                player_entity: Entity::PLACEHOLDER,
+            });
+            app.world_mut().write_message(ItemEffectEvent {
+                item_entity: Entity::PLACEHOLDER,
+                item_data: ItemData::Experience { amount: 35 },
+                player_entity: Entity::PLACEHOLDER,
+            });
+            app.update();
+
+            let stats = app.world().resource::<LevelStats>();
+            assert_eq!(stats.xp_gained, 55);
+        }
+
+        #[test]
+        fn track_level_xp_ignores_non_experience_items() {
+            let mut app = App::new();
+            app.init_resource::<LevelStats>();
+            app.add_message::<ItemEffectEvent>();
+            app.add_systems(Update, track_level_xp_system);
+
+            // Write a health pack pickup event (not experience)
+            app.world_mut().write_message(ItemEffectEvent {
+                item_entity: Entity::PLACEHOLDER,
+                item_data: ItemData::HealthPack { heal_amount: 25.0 },
+                player_entity: Entity::PLACEHOLDER,
+            });
+            app.update();
+
+            let stats = app.world().resource::<LevelStats>();
+            assert_eq!(stats.xp_gained, 0, "Health pack should not add XP");
+        }
+
+        #[test]
+        fn reset_level_stats_resets_all_values() {
+            let mut app = App::new();
+            app.init_resource::<LevelStats>();
+
+            // Set some values
+            {
+                let mut stats = app.world_mut().resource_mut::<LevelStats>();
+                stats.time_elapsed = 120.5;
+                stats.enemies_killed = 50;
+                stats.xp_gained = 1000;
+            }
+
+            app.add_systems(Update, reset_level_stats_system);
+            app.update();
+
+            let stats = app.world().resource::<LevelStats>();
+            assert_eq!(stats.time_elapsed, 0.0);
+            assert_eq!(stats.enemies_killed, 0);
+            assert_eq!(stats.xp_gained, 0);
+        }
+
+        #[test]
+        fn level_stats_systems_work_together() {
+            use std::time::Duration;
+
+            let mut app = App::new();
+            app.init_resource::<Time>();
+            app.init_resource::<LevelStats>();
+            app.add_message::<EnemyDeathEvent>();
+            app.add_message::<ItemEffectEvent>();
+
+            // Simulate some gameplay: advance time
+            {
+                let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+                time.advance_by(Duration::from_secs_f32(1.0));
+            }
+
+            // Run time update system
+            let _ = app.world_mut().run_system_once(update_level_time_system);
+
+            // Write events and run kill/xp tracking systems
+            app.world_mut().write_message(EnemyDeathEvent {
+                enemy_entity: Entity::PLACEHOLDER,
+                position: Vec3::ZERO,
+                enemy_level: 1,
+            });
+            let _ = app.world_mut().run_system_once(track_level_kills_system);
+
+            app.world_mut().write_message(ItemEffectEvent {
+                item_entity: Entity::PLACEHOLDER,
+                item_data: ItemData::Experience { amount: 15 },
+                player_entity: Entity::PLACEHOLDER,
+            });
+            let _ = app.world_mut().run_system_once(track_level_xp_system);
+
+            let stats = app.world().resource::<LevelStats>();
+            assert!((stats.time_elapsed - 1.0).abs() < 0.001);
+            assert_eq!(stats.enemies_killed, 1);
+            assert_eq!(stats.xp_gained, 15);
         }
     }
 }

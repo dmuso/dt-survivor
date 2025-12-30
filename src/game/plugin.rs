@@ -5,9 +5,10 @@ use crate::camera::plugin as camera_plugin;
 use crate::enemies::systems::*;
 use crate::game::systems::{
     cleanup_game, game_input, player_death_system, player_enemy_collision_detection,
-    player_enemy_damage_system, player_enemy_effect_system, reset_game_level, reset_survival_time,
-    setup_game, setup_game_assets, track_enemy_kills_system, update_screen_tint_timer,
-    update_survival_time,
+    player_enemy_damage_system, player_enemy_effect_system, reset_game_level, reset_level_stats_system,
+    reset_survival_time, setup_game, setup_game_assets, track_enemy_kills_system,
+    track_level_kills_system, track_level_xp_system, update_level_time_system,
+    update_screen_tint_timer, update_survival_time,
 };
 use crate::game::sets::GameSet;
 use crate::inventory::systems::inventory_initialization_system;
@@ -22,7 +23,7 @@ use crate::weapon::plugin as weapon_plugin;
 use crate::whisper::plugin as whisper_plugin;
 use crate::player::systems::{camera_follow_player, update_slow_modifiers, player_health_regeneration_system};
 use crate::whisper::systems::spawn_whisper_drop;
-use crate::game::resources::{GameLevel, PlayerPosition, EnemySpawnState, PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
+use crate::game::resources::{GameLevel, LevelStats, PlayerPosition, EnemySpawnState, PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
 use crate::score::*;
 use crate::game::events::{PlayerEnemyCollisionEvent, BulletEnemyCollisionEvent, GameOverEvent, GameLevelUpEvent};
 
@@ -34,6 +35,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<ScreenTintEffect>()
         .init_resource::<SurvivalTime>()
         .init_resource::<GameLevel>()
+        .init_resource::<LevelStats>()
         .add_message::<PlayerEnemyCollisionEvent>()
         .add_message::<GameOverEvent>()
         .add_message::<BulletEnemyCollisionEvent>()
@@ -60,6 +62,7 @@ pub fn plugin(app: &mut App) {
             inventory_initialization_system,
             reset_survival_time,
             reset_game_level,
+            reset_level_stats_system,
         ).chain())
         // Input systems
         .add_systems(
@@ -109,6 +112,9 @@ pub fn plugin(app: &mut App) {
                 player_health_regeneration_system,
                 update_survival_time,
                 track_enemy_kills_system,
+                update_level_time_system,
+                track_level_kills_system,
+                track_level_xp_system,
             )
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
