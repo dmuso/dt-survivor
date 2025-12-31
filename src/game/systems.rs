@@ -1,3 +1,4 @@
+use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy::camera::ScalingMode;
 use bevy::core_pipeline::tonemapping::Tonemapping;
@@ -65,7 +66,7 @@ pub fn setup_game(
             affects_lightmapped_meshes: false,
         });
 
-        // Add ground plane with concrete texture (tiled)
+        // Add ground plane with concrete texture (tiled) and physics collider
         let ground_texture = asset_server.load_with_settings(
             "textures/concrete-01.png",
             |settings: &mut ImageLoaderSettings| {
@@ -86,6 +87,9 @@ pub fn setup_game(
             })),
             Transform::from_translation(Vec3::ZERO),
             GroundPlane,
+            // Physics collider for dropped items to land on
+            RigidBody::Static,
+            Collider::half_space(Vec3::Y),
         ));
     }
     // If camera exists, we reuse it (no action needed)

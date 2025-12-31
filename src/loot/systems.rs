@@ -1,9 +1,11 @@
+use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy_hanabi::prelude::ParticleEffect;
 use rand::Rng;
 use crate::combat::components::Health;
 use crate::loot::components::{DroppedItem, ItemData, PickupState, PopUpAnimation};
 use crate::loot::events::*;
+use crate::loot::plugin::XpOrbModel;
 use crate::weapon::components::{Weapon, WeaponType};
 use crate::player::components::*;
 use crate::inventory::resources::*;
@@ -25,6 +27,8 @@ use crate::whisper::systems::{WHISPER_LIGHT_COLOR, WHISPER_LIGHT_INTENSITY, WHIS
 pub const LOOT_SMALL_Y_HEIGHT: f32 = 0.2;
 /// Height of large loot cube center above ground (weapons, health packs)
 pub const LOOT_LARGE_Y_HEIGHT: f32 = 0.3;
+/// Height at which XP orbs spawn before falling
+pub const XP_ORB_SPAWN_HEIGHT: f32 = 1.0;
 
 /// XP value scaling by level
 /// Higher level orbs give exponentially more XP
@@ -57,6 +61,7 @@ pub fn loot_drop_system(
     mut loot_drop_events: MessageReader<LootDropEvent>,
     game_meshes: Res<GameMeshes>,
     game_materials: Res<GameMaterials>,
+    xp_orb_model: Res<XpOrbModel>,
     xp_materials: Res<XpOrbMaterials>,
 ) {
     for event in loot_drop_events.read() {
@@ -76,17 +81,36 @@ pub fn loot_drop_system(
             let offset_x = rng.gen_range(-1.0..=1.0);
             let offset_z = rng.gen_range(-1.0..=1.0);
 
-            // Get material based on orb level (using rarity colors with emissive glow)
+            // Get material based on orb level (using code-defined rarity colors with emissive glow)
             let orb_material = xp_materials.for_level(orb_level);
 
+            // Generate random rotation for visual variety
+            let random_rotation = Quat::from_euler(
+                EulerRot::XYZ,
+                rng.gen_range(0.0..std::f32::consts::TAU),
+                rng.gen_range(0.0..std::f32::consts::TAU),
+                rng.gen_range(0.0..std::f32::consts::TAU),
+            );
+
+            // Spawn XP orb using the GLB mesh with level-appropriate material
+            // Uses Avian physics for realistic falling and tumbling
             commands.spawn((
-                Mesh3d(game_meshes.loot_small.clone()),
+                Mesh3d(xp_orb_model.mesh.clone()),
                 MeshMaterial3d(orb_material),
                 Transform::from_translation(Vec3::new(
                     enemy_pos.x + offset_x,
-                    LOOT_SMALL_Y_HEIGHT,
+                    XP_ORB_SPAWN_HEIGHT,
                     enemy_pos.z + offset_z,
-                )),
+                ))
+                .with_rotation(random_rotation)
+                .with_scale(Vec3::splat(0.1)),
+                // Physics components for realistic falling
+                RigidBody::Dynamic,
+                xp_orb_model.collider.clone(),
+                Restitution::new(0.3),  // Slight bounce
+                Friction::new(0.8),      // Grip when settling
+                ColliderDensity(1.0),    // Mass based on volume
+                // Game components
                 DroppedItem {
                     pickup_state: PickupState::Idle,
                     item_data: ItemData::Experience { amount: xp_value },
@@ -236,15 +260,23 @@ pub fn detect_pickup_collisions(
     }
 }
 
+/// Player height for calculating attraction target (50% of this value above ground)
+const PLAYER_HEIGHT: f32 = 2.0;
+
 /// System that applies magnetic attraction physics to items being picked up
-/// Items are attracted toward the player's full 3D position (including Y)
+/// Items are attracted toward a point at 50% of the player's height
 pub fn update_item_attraction(
     mut item_query: Query<(&Transform, &mut DroppedItem), With<DroppedItem>>,
     player_query: Query<(&Transform, &Player), With<Player>>,
     time: Res<Time>,
 ) {
     if let Ok((player_transform, player)) = player_query.single() {
-        let player_pos = player_transform.translation;
+        // Target point is at 50% of player height above the ground
+        let player_pos = Vec3::new(
+            player_transform.translation.x,
+            player_transform.translation.y + PLAYER_HEIGHT * 0.5,
+            player_transform.translation.z,
+        );
 
         for (item_transform, mut item) in item_query.iter_mut() {
             if item.pickup_state == PickupState::BeingAttracted {
@@ -317,6 +349,7 @@ pub fn update_item_movement(
 /// System that starts the pop-up animation when a pickup event is received.
 /// Transitions items from Idle to PopUp state and adds the PopUpAnimation component.
 /// Sets rotation based on player's movement direction when pickup was triggered.
+/// Removes physics components so we control the item's movement.
 pub fn start_popup_animation(
     mut commands: Commands,
     mut pickup_events: MessageReader<PickupEvent>,
@@ -343,9 +376,17 @@ pub fn start_popup_animation(
                     };
                 }
 
-                commands.entity(event.item_entity).insert(
-                    PopUpAnimation::new(transform.translation.y)
-                );
+                // Remove physics components so we control the item's movement
+                // during popup and attraction phases
+                if let Ok(mut entity_commands) = commands.get_entity(event.item_entity) {
+                    entity_commands
+                        .remove::<RigidBody>()
+                        .remove::<Collider>()
+                        .remove::<Restitution>()
+                        .remove::<Friction>()
+                        .remove::<ColliderDensity>()
+                        .insert(PopUpAnimation::new(transform.translation.y));
+                }
             }
         }
     }
@@ -414,18 +455,23 @@ const PICKUP_COMPLETE_DISTANCE: f32 = 0.5;
 
 /// System that completes the pickup when attracted items reach the player.
 /// Transitions from BeingAttracted to PickedUp and fires ItemEffectEvent.
-/// Uses full 3D distance since items fly toward player's position.
+/// Uses full 3D distance since items fly toward player's center position.
 pub fn complete_pickup_when_close(
     player_query: Query<(Entity, &Transform), With<Player>>,
     mut item_query: Query<(Entity, &Transform, &mut DroppedItem)>,
     mut effect_events: MessageWriter<ItemEffectEvent>,
 ) {
     if let Ok((player_entity, player_transform)) = player_query.single() {
-        let player_pos = player_transform.translation;
+        // Target point is at 50% of player height (same as attraction target)
+        let player_pos = Vec3::new(
+            player_transform.translation.x,
+            player_transform.translation.y + PLAYER_HEIGHT * 0.5,
+            player_transform.translation.z,
+        );
 
         for (item_entity, item_transform, mut item) in item_query.iter_mut() {
             if item.pickup_state == PickupState::BeingAttracted {
-                // Use 3D distance since items fly toward player in 3D
+                // Use 3D distance since items fly toward player's center
                 let distance = player_pos.distance(item_transform.translation);
 
                 if distance <= PICKUP_COMPLETE_DISTANCE {
@@ -615,6 +661,45 @@ pub fn cleanup_consumed_items(
     for (entity, item) in item_query.iter() {
         if item.pickup_state == PickupState::Consumed {
             commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// Velocity threshold below which an item is considered settled (units per second)
+const SETTLED_VELOCITY_THRESHOLD: f32 = 0.1;
+
+/// System that removes physics components from dropped items once they stop moving.
+/// This reduces physics simulation overhead for settled items while keeping them pickable.
+/// Only applies to Idle items with LinearVelocity (physics-enabled loot like XP orbs).
+pub fn remove_physics_when_settled(
+    mut commands: Commands,
+    item_query: Query<
+        (Entity, &DroppedItem, &LinearVelocity, Option<&AngularVelocity>),
+        With<DroppedItem>,
+    >,
+) {
+    for (entity, item, linear_vel, angular_vel) in item_query.iter() {
+        // Only process Idle items (not being picked up)
+        if item.pickup_state != PickupState::Idle {
+            continue;
+        }
+
+        // Check if both linear and angular velocities are below threshold
+        let linear_speed = linear_vel.0.length();
+        let angular_speed = angular_vel.map(|v| v.0.length()).unwrap_or(0.0);
+
+        if linear_speed < SETTLED_VELOCITY_THRESHOLD && angular_speed < SETTLED_VELOCITY_THRESHOLD {
+            // Remove all physics components
+            if let Ok(mut entity_commands) = commands.get_entity(entity) {
+                entity_commands
+                    .remove::<RigidBody>()
+                    .remove::<Collider>()
+                    .remove::<LinearVelocity>()
+                    .remove::<AngularVelocity>()
+                    .remove::<Restitution>()
+                    .remove::<Friction>()
+                    .remove::<ColliderDensity>();
+            }
         }
     }
 }
@@ -1401,7 +1486,9 @@ mod tests {
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         ));
 
-        // Create item very close to player (within pickup threshold)
+        // Target is at player position + 50% of PLAYER_HEIGHT (1.0 units up)
+        // Create item very close to target (within pickup threshold of 0.5)
+        let target_y = PLAYER_HEIGHT * 0.5;
         let item_entity = app.world_mut().spawn((
             DroppedItem {
                 pickup_state: PickupState::BeingAttracted,
@@ -1410,7 +1497,7 @@ mod tests {
                 rotation_speed: 0.0,
                 rotation_direction: 1.0,
             },
-            Transform::from_translation(Vec3::new(0.3, LOOT_SMALL_Y_HEIGHT, 0.0)), // Very close
+            Transform::from_translation(Vec3::new(0.3, target_y, 0.0)), // Very close to target
         )).id();
 
         app.update();
@@ -1555,6 +1642,137 @@ mod tests {
             "sounds/366104__original_sound__confirmation-downward.wav",
             "Powerup sound should be different from loot pickup sound"
         );
+    }
+
+    mod remove_physics_when_settled_tests {
+        use super::*;
+
+        #[test]
+        fn test_removes_physics_components_when_velocity_is_low() {
+            let mut app = App::new();
+            app.add_systems(Update, remove_physics_when_settled);
+
+            // Create XP orb with physics components and very low velocity (settled)
+            let item_entity = app.world_mut().spawn((
+                DroppedItem {
+                    pickup_state: PickupState::Idle,
+                    item_data: ItemData::Experience { amount: 10 },
+                    velocity: Vec3::ZERO,
+                    rotation_speed: 0.0,
+                    rotation_direction: 1.0,
+                },
+                Transform::from_translation(Vec3::new(0.0, LOOT_SMALL_Y_HEIGHT, 0.0)),
+                RigidBody::Dynamic,
+                Collider::sphere(0.1),
+                LinearVelocity(Vec3::new(0.01, 0.0, 0.01)), // Very slow
+                AngularVelocity(Vec3::new(0.01, 0.01, 0.01)), // Very slow rotation
+                Restitution::new(0.3),
+                Friction::new(0.8),
+                ColliderDensity(1.0),
+            )).id();
+
+            app.update();
+
+            // Verify physics components were removed
+            assert!(app.world().get::<RigidBody>(item_entity).is_none(), "RigidBody should be removed");
+            assert!(app.world().get::<Collider>(item_entity).is_none(), "Collider should be removed");
+            assert!(app.world().get::<LinearVelocity>(item_entity).is_none(), "LinearVelocity should be removed");
+            assert!(app.world().get::<AngularVelocity>(item_entity).is_none(), "AngularVelocity should be removed");
+            assert!(app.world().get::<Restitution>(item_entity).is_none(), "Restitution should be removed");
+            assert!(app.world().get::<Friction>(item_entity).is_none(), "Friction should be removed");
+            assert!(app.world().get::<ColliderDensity>(item_entity).is_none(), "ColliderDensity should be removed");
+
+            // Verify the entity and DroppedItem still exist
+            assert!(app.world().get::<DroppedItem>(item_entity).is_some(), "DroppedItem should still exist");
+        }
+
+        #[test]
+        fn test_keeps_physics_components_when_moving() {
+            let mut app = App::new();
+            app.add_systems(Update, remove_physics_when_settled);
+
+            // Create XP orb with physics components and significant velocity (still moving)
+            let item_entity = app.world_mut().spawn((
+                DroppedItem {
+                    pickup_state: PickupState::Idle,
+                    item_data: ItemData::Experience { amount: 10 },
+                    velocity: Vec3::ZERO,
+                    rotation_speed: 0.0,
+                    rotation_direction: 1.0,
+                },
+                Transform::from_translation(Vec3::new(0.0, 1.0, 0.0)), // Falling
+                RigidBody::Dynamic,
+                Collider::sphere(0.1),
+                LinearVelocity(Vec3::new(0.0, -5.0, 0.0)), // Falling fast
+                AngularVelocity(Vec3::new(1.0, 2.0, 0.5)), // Tumbling
+                Restitution::new(0.3),
+                Friction::new(0.8),
+                ColliderDensity(1.0),
+            )).id();
+
+            app.update();
+
+            // Verify physics components are still present (item is still moving)
+            assert!(app.world().get::<RigidBody>(item_entity).is_some(), "RigidBody should still exist");
+            assert!(app.world().get::<Collider>(item_entity).is_some(), "Collider should still exist");
+            assert!(app.world().get::<LinearVelocity>(item_entity).is_some(), "LinearVelocity should still exist");
+        }
+
+        #[test]
+        fn test_ignores_non_idle_items() {
+            let mut app = App::new();
+            app.add_systems(Update, remove_physics_when_settled);
+
+            // Create item being attracted (not idle) with low velocity
+            let item_entity = app.world_mut().spawn((
+                DroppedItem {
+                    pickup_state: PickupState::BeingAttracted,
+                    item_data: ItemData::Experience { amount: 10 },
+                    velocity: Vec3::ZERO,
+                    rotation_speed: 0.0,
+                    rotation_direction: 1.0,
+                },
+                Transform::from_translation(Vec3::new(0.0, LOOT_SMALL_Y_HEIGHT, 0.0)),
+                RigidBody::Dynamic,
+                Collider::sphere(0.1),
+                LinearVelocity(Vec3::new(0.01, 0.0, 0.01)),
+                AngularVelocity(Vec3::ZERO),
+            )).id();
+
+            app.update();
+
+            // Physics should still exist because item isn't idle
+            assert!(app.world().get::<RigidBody>(item_entity).is_some(), "Should ignore non-idle items");
+        }
+
+        #[test]
+        fn test_ignores_items_without_linear_velocity() {
+            let mut app = App::new();
+            app.add_systems(Update, remove_physics_when_settled);
+
+            // Create item without LinearVelocity (non-physics loot like weapons)
+            let item_entity = app.world_mut().spawn((
+                DroppedItem {
+                    pickup_state: PickupState::Idle,
+                    item_data: ItemData::Weapon(Weapon {
+                        weapon_type: WeaponType::Laser,
+                        level: 1,
+                        fire_rate: 3.0,
+                        base_damage: 15.0,
+                        last_fired: 0.0,
+                    }),
+                    velocity: Vec3::ZERO,
+                    rotation_speed: 0.0,
+                    rotation_direction: 1.0,
+                },
+                Transform::from_translation(Vec3::new(0.0, LOOT_LARGE_Y_HEIGHT, 0.0)),
+            )).id();
+
+            app.update();
+
+            // Should not panic or fail - just skip items without physics
+            assert!(app.world().get::<DroppedItem>(item_entity).is_some(), "Item should still exist");
+        }
     }
 
     // Tests for LootSoundCooldown

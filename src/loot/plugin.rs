@@ -1,8 +1,102 @@
+use avian3d::prelude::*;
+use bevy::gltf::{Gltf, GltfMesh};
 use bevy::prelude::*;
 use crate::states::*;
 use crate::loot::systems::*;
 use crate::loot::events::*;
 use crate::game::events::LootDropEvent;
+
+/// Temporary resource to hold the GLTF handle while it loads
+#[derive(Resource)]
+pub struct XpOrbGltfHandle(pub Handle<Gltf>);
+
+/// Resource holding the XP orb 3D model mesh and physics collider
+/// Materials are provided by XpOrbMaterials resource (defined in game/resources.rs)
+#[derive(Resource)]
+pub struct XpOrbModel {
+    pub mesh: Handle<Mesh>,
+    pub collider: Collider,
+}
+
+/// Starts loading the XP orb GLB model
+/// Uses Option for asset resources to gracefully handle test environments
+pub fn setup_xp_orb_model(
+    mut commands: Commands,
+    asset_server: Option<Res<AssetServer>>,
+    gltfs: Option<Res<Assets<Gltf>>>,
+) {
+    // Skip setup if asset resources aren't available (e.g., in tests)
+    let (Some(asset_server), Some(_)) = (asset_server, gltfs) else {
+        return;
+    };
+
+    let gltf_handle = asset_server.load("models/xp_orb.glb");
+    commands.insert_resource(XpOrbGltfHandle(gltf_handle));
+}
+
+/// Extracts mesh and computes physics collider from the loaded GLTF
+/// Runs each frame until the GLTF is loaded, then creates the XpOrbModel resource
+pub fn init_xp_orb_materials(
+    mut commands: Commands,
+    gltf_handle: Option<Res<XpOrbGltfHandle>>,
+    gltfs: Option<Res<Assets<Gltf>>>,
+    gltf_meshes: Option<Res<Assets<GltfMesh>>>,
+    meshes: Option<Res<Assets<Mesh>>>,
+    xp_orb_model: Option<Res<XpOrbModel>>,
+) {
+    // Skip if already initialized or resources not available
+    if xp_orb_model.is_some() {
+        return;
+    }
+    let (Some(gltf_handle), Some(gltfs), Some(gltf_meshes), Some(meshes)) =
+        (gltf_handle, gltfs, gltf_meshes, meshes)
+    else {
+        return;
+    };
+
+    // Wait for GLTF to load
+    let Some(gltf) = gltfs.get(&gltf_handle.0) else {
+        return;
+    };
+
+    // Get the first GltfMesh handle from the GLTF
+    let Some(gltf_mesh_handle) = gltf.meshes.first() else {
+        warn!("XP orb GLB has no meshes");
+        return;
+    };
+
+    // Get the actual GltfMesh asset
+    let Some(gltf_mesh) = gltf_meshes.get(gltf_mesh_handle) else {
+        // GltfMesh not loaded yet, wait for next frame
+        return;
+    };
+
+    // Get the first primitive's mesh handle
+    let Some(primitive) = gltf_mesh.primitives.first() else {
+        warn!("XP orb GltfMesh has no primitives");
+        return;
+    };
+
+    // Get the actual mesh asset to compute the collider
+    let Some(mesh) = meshes.get(&primitive.mesh) else {
+        // Mesh not loaded yet, wait for next frame
+        return;
+    };
+
+    // Compute convex hull collider from the mesh
+    let collider = Collider::convex_hull_from_mesh(mesh).unwrap_or_else(|| {
+        warn!("Failed to create convex hull from XP orb mesh, using sphere fallback");
+        Collider::sphere(0.5)
+    });
+
+    commands.insert_resource(XpOrbModel {
+        mesh: primitive.mesh.clone(),
+        collider,
+    });
+
+    // Remove the temporary GLTF handle resource
+    commands.remove_resource::<XpOrbGltfHandle>();
+}
 
 /// Resource to debounce loot pickup sounds.
 /// Only one sound plays within a random 100-250ms window to prevent audio spam.
@@ -35,17 +129,33 @@ pub fn tick_loot_sound_cooldown(mut cooldown: ResMut<LootSoundCooldown>, time: R
     cooldown.timer.tick(time.delta());
 }
 
+/// Cleanup XP orb model resources when exiting game
+fn cleanup_xp_orb_model(mut commands: Commands) {
+    commands.remove_resource::<XpOrbModel>();
+    commands.remove_resource::<XpOrbGltfHandle>();
+}
+
 pub fn plugin(app: &mut App) {
     app
         .add_message::<LootDropEvent>()
         .add_message::<PickupEvent>()
         .add_message::<ItemEffectEvent>()
         .init_resource::<LootSoundCooldown>()
+        // Load XP orb model when entering game
+        .add_systems(OnEnter(GameState::InGame), setup_xp_orb_model)
+        // Cleanup when exiting
+        .add_systems(OnExit(GameState::InGame), cleanup_xp_orb_model)
         .add_systems(Update, (
+            // Initialize XP orb materials once GLTF is loaded
+            init_xp_orb_materials.run_if(in_state(GameState::InGame)),
             // Tick the sound cooldown timer
             tick_loot_sound_cooldown.run_if(in_state(GameState::InGame)),
             // Loot drop system spawns DroppedItem entities from enemy deaths
-            loot_drop_system.run_if(in_state(GameState::InGame)),
+            loot_drop_system
+                .run_if(in_state(GameState::InGame))
+                .run_if(resource_exists::<XpOrbModel>),
+            // Remove physics from settled loot to reduce simulation overhead
+            remove_physics_when_settled.run_if(in_state(GameState::InGame)),
 
             // ECS-based pickup systems - ordered pipeline
             // 1. Detect when items enter pickup radius
