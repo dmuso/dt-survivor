@@ -17,7 +17,7 @@ pub struct Player {
 #[derive(Component)]
 pub struct SlowModifier {
     pub remaining_duration: f32,
-    pub speed_multiplier: f32, // 0.6 for 40% reduction
+    pub speed_multiplier: f32, // 0.76 for 24% reduction
 }
 
 /// Marker component for the player's 3D model entity (child of the Player entity)

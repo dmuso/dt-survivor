@@ -102,7 +102,7 @@ pub fn setup_game(
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
             Visibility::default(),
             Player {
-                speed: 7.0, // 3D world units/sec (was 200 pixels/sec in 2D)
+                speed: 8.0, // 3D world units/sec (+15% from 7.0)
                 regen_rate: 1.0, // 1 health per second
                 pickup_radius: 2.0, // 3D world units (was 50 pixels in 2D)
                 last_movement_direction: Vec3::ZERO,
@@ -270,10 +270,10 @@ pub fn player_enemy_effect_system(
 
     // Apply effects for any collision events
     if !collision_events.is_empty() {
-        // Apply slow modifier (40% speed reduction for 3 seconds)
+        // Apply slow modifier (24% speed reduction for 3 seconds)
         commands.entity(player_entity).insert(SlowModifier {
             remaining_duration: 3.0,
-            speed_multiplier: 0.6, // 40% reduction
+            speed_multiplier: 0.76, // 24% reduction (40% less than original 40%)
         });
 
         // Apply red screen tint for 0.1 seconds

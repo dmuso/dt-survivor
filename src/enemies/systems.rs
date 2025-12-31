@@ -102,7 +102,7 @@ pub fn enemy_spawning_system(
                 Transform::from_translation(Vec3::new(spawn_xz.x, y_height, spawn_xz.y))
                     .with_scale(Vec3::splat(scale)),
                 Enemy {
-                    speed: 1.7, // 3D world units/sec (was 50 pixels/sec in 2D)
+                    speed: 2.0, // 3D world units/sec (+15% from 1.7)
                     strength: scaling.damage_for_level(enemy_level),
                 },
                 Health::new(scaling.health_for_level(enemy_level)),
