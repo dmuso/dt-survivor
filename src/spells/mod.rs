@@ -31,3 +31,4 @@ pub use psychic::brainburn;
 pub use psychic::echo_thought;
 pub use psychic::mind_lash;
 pub use psychic::psionic_burst;
+pub use psychic::psychic_scream;

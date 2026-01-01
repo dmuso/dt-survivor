@@ -157,6 +157,12 @@ use crate::spells::psychic::mind_cage::{
     mind_cage_cleanup_system, mind_cage_constraint_system,
     mind_cage_duration_system, mind_cage_visual_system,
 };
+use crate::spells::psychic::psychic_scream::{
+    apply_disoriented_movement_system, cleanup_disorientation_system,
+    psychic_scream_cleanup_system, psychic_scream_collision_system,
+    psychic_scream_expansion_system, psychic_scream_visual_system,
+    update_disoriented_enemies_system,
+};
 use crate::spells::chaos::chaos_bolt::{
     chaos_bolt_collision_detection, chaos_bolt_collision_effects,
     chaos_bolt_lifetime_system, chaos_bolt_movement_system,
@@ -977,6 +983,40 @@ pub fn plugin(app: &mut App) {
                 mind_cage_cleanup_system,
             )
                 .chain()
+                .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Psychic Scream (PsychicShatter) systems - expansion in Movement, collision in Combat, disorientation in Effects, cleanup in Cleanup
+        .add_systems(
+            Update,
+            psychic_scream_expansion_system
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                psychic_scream_collision_system,
+                psychic_scream_cleanup_system,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                update_disoriented_enemies_system,
+                apply_disoriented_movement_system,
+                psychic_scream_visual_system,
+            )
+                .chain()
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            cleanup_disorientation_system
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )
