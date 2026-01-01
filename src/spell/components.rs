@@ -88,6 +88,7 @@ impl Spell {
     pub fn projectile_count(&self) -> usize {
         match self.spell_type {
             SpellType::Fireball
+            | SpellType::FlameLance
             | SpellType::IceShard
             | SpellType::VenomBolt
             | SpellType::ShadowBolt

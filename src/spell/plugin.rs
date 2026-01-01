@@ -40,6 +40,11 @@ use crate::spells::poison::venom_spray::{
     cleanup_venom_spray, poison_stack_damage_tick, poison_stack_decay,
     venom_spray_hit_detection,
 };
+use crate::spells::fire::cinder_shot::{
+    cinder_shot_collision_detection, cinder_shot_collision_effects,
+    cinder_shot_lifetime_system, cinder_shot_movement_system, weakened_debuff_system,
+    CinderShotEnemyCollisionEvent,
+};
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -60,6 +65,7 @@ pub fn plugin(app: &mut App) {
         .add_message::<FireballEnemyCollisionEvent>()
         .add_message::<IceShardEnemyCollisionEvent>()
         .add_message::<IceShardFragmentCollisionEvent>()
+        .add_message::<CinderShotEnemyCollisionEvent>()
         // Movement systems - spell follows player
         .add_systems(
             Update,
@@ -256,6 +262,32 @@ pub fn plugin(app: &mut App) {
             Update,
             cleanup_venom_spray
                 .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Cinder shot systems - movement and lifetime in Movement, collision in Combat, debuff in Effects
+        .add_systems(
+            Update,
+            (
+                cinder_shot_movement_system,
+                cinder_shot_lifetime_system,
+            )
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                cinder_shot_collision_detection,
+                cinder_shot_collision_effects,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            weakened_debuff_system
+                .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         );
 }
