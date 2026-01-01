@@ -439,6 +439,8 @@ pub struct GameMaterials {
     pub ice_shard: Handle<StandardMaterial>,
     /// Glacial pulse (Frost Nova) material (ice blue with strong emissive glow)
     pub glacial_pulse: Handle<StandardMaterial>,
+    /// Shadow bolt projectile material (dark purple with emissive glow)
+    pub shadow_bolt: Handle<StandardMaterial>,
 }
 
 impl GameMaterials {
@@ -601,6 +603,11 @@ impl GameMaterials {
                 base_color: Color::srgba(0.53, 0.81, 0.92, 0.7), // Ice blue with 70% opacity
                 emissive: bevy::color::LinearRgba::rgb(1.0, 1.5, 1.8), // Bright ice blue glow
                 alpha_mode: AlphaMode::Blend,
+                ..default()
+            }),
+            shadow_bolt: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.5, 0.0, 0.5), // Dark purple (Dark element color)
+                emissive: bevy::color::LinearRgba::rgb(1.0, 0.0, 1.0), // Purple glow
                 ..default()
             }),
         }

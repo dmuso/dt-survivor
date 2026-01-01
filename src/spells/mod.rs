@@ -8,6 +8,7 @@ pub mod poison;
 pub mod psychic;
 
 pub use chaos::fear;
+pub use dark::shadow_bolt;
 pub use dark::soul_drain;
 pub use fire::fireball;
 pub use frost::ice_shard;
