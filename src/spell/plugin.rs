@@ -134,6 +134,11 @@ use crate::spells::psychic::dominate::{
     cast_dominate_system, cleanup_dominate_system,
     dominated_enemy_targeting_system, update_dominated_enemies_system,
 };
+use crate::spells::psychic::brainburn::{
+    apply_brainburn_stacks_system, decay_brainburn_stacks_system,
+    tick_brainburn_damage_system, update_brainburn_aura_duration_system,
+    update_brainburn_aura_position_system,
+};
 use crate::spells::chaos::chaos_bolt::{
     chaos_bolt_collision_detection, chaos_bolt_collision_effects,
     chaos_bolt_lifetime_system, chaos_bolt_movement_system,
@@ -874,6 +879,33 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             cleanup_dominate_system
+                .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Brainburn systems - aura follows player in Movement, stacking and damage in Combat, decay and cleanup in Cleanup
+        .add_systems(
+            Update,
+            update_brainburn_aura_position_system
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                apply_brainburn_stacks_system,
+                tick_brainburn_damage_system,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                decay_brainburn_stacks_system,
+                update_brainburn_aura_duration_system,
+            )
+                .chain()
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )

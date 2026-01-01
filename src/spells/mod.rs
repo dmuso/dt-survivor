@@ -22,5 +22,6 @@ pub use lightning::static_orb;
 pub use lightning::thunder_strike;
 pub use poison::poison_cloud;
 pub use poison::venom_spray;
+pub use psychic::brainburn;
 pub use psychic::mind_lash;
 pub use psychic::psionic_burst;
