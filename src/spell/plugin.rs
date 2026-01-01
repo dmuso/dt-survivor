@@ -50,6 +50,11 @@ use crate::spells::frost::hoarfrost::{
 use crate::spells::frost::ice_lance::{
     ice_lance_collision_system, ice_lance_lifetime_system, ice_lance_movement_system,
 };
+use crate::spells::frost::shatter::{
+    shatter_collision_detection, shatter_collision_effects,
+    shatter_lifetime_system, shatter_movement_system,
+    ShatterEnemyCollisionEvent,
+};
 use crate::spells::poison::venom_spray::{
     cleanup_venom_spray, poison_stack_damage_tick, poison_stack_decay,
     venom_spray_hit_detection,
@@ -125,6 +130,7 @@ pub fn plugin(app: &mut App) {
         .add_message::<IceShardFragmentCollisionEvent>()
         .add_message::<CinderShotEnemyCollisionEvent>()
         .add_message::<LightningDamageEvent>()
+        .add_message::<ShatterEnemyCollisionEvent>()
         // Movement systems - spell follows player
         .add_systems(
             Update,
@@ -599,6 +605,26 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             ice_lance_collision_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Shatter systems - movement and lifetime in Movement, collision in Combat
+        .add_systems(
+            Update,
+            (
+                shatter_movement_system,
+                shatter_lifetime_system,
+            )
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                shatter_collision_detection,
+                shatter_collision_effects,
+            )
+                .chain()
                 .in_set(GameSet::Combat)
                 .run_if(in_state(GameState::InGame)),
         )
