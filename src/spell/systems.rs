@@ -401,8 +401,8 @@ pub fn spell_casting_system(
 
             match &spell.spell_type {
                 SpellType::Fireball => {
-                    // Delegate fireball casting to pistol module (reusing existing logic)
-                    crate::pistol::systems::fire_spell(
+                    // Use the new fireball spell module
+                    crate::spells::fire::fireball::fire_fireball(
                         &mut commands,
                         &spell,
                         origin_pos,

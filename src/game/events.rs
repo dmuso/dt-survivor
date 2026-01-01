@@ -31,6 +31,13 @@ pub struct BulletEnemyCollisionEvent {
     pub enemy_entity: Entity,
 }
 
+/// Event fired when a fireball collides with an enemy
+#[derive(Message)]
+pub struct FireballEnemyCollisionEvent {
+    pub fireball_entity: Entity,
+    pub enemy_entity: Entity,
+}
+
 /// Event fired when the game ends (player death)
 #[derive(Message)]
 pub struct GameOverEvent {

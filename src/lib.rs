@@ -18,6 +18,7 @@ pub mod prelude;
 pub mod rocket_launcher;
 pub mod score;
 pub mod spell;
+pub mod spells;
 pub mod states;
 pub mod ui;
 pub mod weapon;

@@ -421,6 +421,8 @@ pub struct GameMaterials {
     pub lightning: Handle<StandardMaterial>,
     /// Orbital particle/trail material (red-orange)
     pub orbital_particle: Handle<StandardMaterial>,
+    /// Fireball projectile material (orange with emissive)
+    pub fireball: Handle<StandardMaterial>,
 }
 
 impl GameMaterials {
@@ -532,6 +534,11 @@ impl GameMaterials {
                 base_color: Color::srgb(1.0, 1.0, 1.0),
                 emissive: bevy::color::LinearRgba::rgb(3.0, 3.0, 3.0),
                 unlit: true,
+                ..default()
+            }),
+            fireball: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 0.5, 0.0), // Orange (Fire element color)
+                emissive: bevy::color::LinearRgba::rgb(2.0, 1.0, 0.0),
                 ..default()
             }),
         }
@@ -837,6 +844,7 @@ mod tests {
             assert!(materials.get(&game_materials.whisper_drop).is_some());
             assert!(materials.get(&game_materials.lightning).is_some());
             assert!(materials.get(&game_materials.orbital_particle).is_some());
+            assert!(materials.get(&game_materials.fireball).is_some());
         }
 
         #[test]
@@ -935,6 +943,10 @@ mod tests {
             let orbital_mat = materials.get(&game_materials.orbital_particle).unwrap();
             assert_eq!(orbital_mat.base_color, Color::srgb(1.0, 1.0, 1.0));
             assert!(orbital_mat.unlit);
+
+            // Verify fireball is orange (Fire element color)
+            let fireball_mat = materials.get(&game_materials.fireball).unwrap();
+            assert_eq!(fireball_mat.base_color, Color::srgb(1.0, 0.5, 0.0));
         }
 
         #[test]

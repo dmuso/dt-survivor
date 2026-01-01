@@ -1,7 +1,13 @@
 use bevy::prelude::*;
+use crate::combat::DamageEvent;
 use crate::states::*;
+use crate::game::events::FireballEnemyCollisionEvent;
 use crate::game::sets::GameSet;
 use crate::spell::systems::*;
+use crate::spells::fire::fireball::{
+    burn_damage_system, fireball_collision_detection, fireball_collision_effects,
+    fireball_lifetime_system, fireball_movement_system,
+};
 use crate::whisper::resources::SpellOrigin;
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -10,8 +16,12 @@ pub use crate::inventory::systems::spell_follow_player_system;
 
 pub fn plugin(app: &mut App) {
     app
+        // Register DamageEvent for burn damage system (safe to call multiple times)
+        .add_message::<DamageEvent>()
         // Ensure SpellOrigin resource exists (initialized by whisper plugin, but ensure it here too)
         .init_resource::<SpellOrigin>()
+        // Register fireball collision event
+        .add_message::<FireballEnemyCollisionEvent>()
         // Movement systems - spell follows player
         .add_systems(
             Update,
@@ -23,6 +33,34 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             PostUpdate,
             spell_casting_system.run_if(in_state(GameState::InGame)),
+        )
+        // Fireball movement and lifetime systems
+        .add_systems(
+            Update,
+            (
+                fireball_movement_system,
+                fireball_lifetime_system,
+            )
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Fireball collision detection and effects
+        .add_systems(
+            Update,
+            (
+                fireball_collision_detection,
+                fireball_collision_effects,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Burn damage over time system
+        .add_systems(
+            Update,
+            burn_damage_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
         );
 }
 
