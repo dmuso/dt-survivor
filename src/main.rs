@@ -49,11 +49,11 @@ fn main() {
 mod tests {
     use super::*;
     use donny_tango_survivor::prelude::*;
-    use donny_tango_survivor::bullets::systems::bullet_collision_detection;
-    use donny_tango_survivor::bullets::systems::bullet_collision_effects;
+    use donny_tango_survivor::spells::fire::fireball::{
+        FireballProjectile, fireball_collision_detection, fireball_collision_effects,
+    };
     use donny_tango_survivor::score::Score;
-    use donny_tango_survivor::bullets::Bullet;
-    use donny_tango_survivor::weapon::systems::weapon_firing_system;
+    use donny_tango_survivor::spell::systems::spell_casting_system;
     use donny_tango_survivor::inventory::Inventory;
     use donny_tango_survivor::game::ScreenTintEffect;
     use donny_tango_survivor::weapon::components::{Weapon, WeaponType};
@@ -350,8 +350,10 @@ mod tests {
     }
 
     #[test]
-    fn test_weapon_firing_spawns_bullets() {
+    fn test_spell_casting_spawns_fireballs() {
         use donny_tango_survivor::whisper::resources::SpellOrigin;
+        use donny_tango_survivor::spell::{Spell, SpellType};
+        use donny_tango_survivor::inventory::components::EquippedSpell;
 
         let mut app = App::new();
 
@@ -382,34 +384,20 @@ mod tests {
         // Simulate Whisper collection by setting SpellOrigin position (full 3D)
         app.world_mut().resource_mut::<SpellOrigin>().position = Some(Vec3::new(0.0, 3.0, 0.0));
 
-        // Add pistol to inventory (simulating Whisper collection)
-        {
-            let mut inventory = app.world_mut().resource_mut::<Inventory>();
-            inventory.add_or_level_weapon(Weapon {
-                weapon_type: WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 },
-                level: 1,
-                fire_rate: 2.0,
-                base_damage: 1.0,
-                last_fired: -2.0,
-            });
-        }
-
-        // Create weapon entity
-        let player_pos = {
-            let mut query = app.world_mut().query::<&Transform>();
-            query.single(app.world()).map(|t| t.translation).unwrap_or(Vec3::ZERO)
-        };
-
+        // Create spell entity
         app.world_mut().spawn((
-            Weapon {
-                weapon_type: WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 },
+            Spell {
+                spell_type: SpellType::Fireball,
+                element: donny_tango_survivor::element::Element::Fire,
+                name: "Fireball".to_string(),
+                description: "A ball of fire.".to_string(),
                 level: 1,
                 fire_rate: 2.0,
-                base_damage: 1.0,
-                last_fired: -2.0,
+                base_damage: 10.0,
+                last_fired: -2.0, // Ready to fire
             },
-            EquippedWeapon { weapon_type: WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 } },
-            Transform::from_translation(player_pos),
+            EquippedSpell { spell_type: SpellType::Fireball },
+            Transform::from_translation(Vec3::new(0.0, 3.0, 0.0)),
         ));
 
         // Create an enemy to target
@@ -418,27 +406,19 @@ mod tests {
             Enemy { speed: 50.0, strength: 10.0 },
         ));
 
-        // Advance time to allow weapon to fire (past the 2 second cooldown)
+        // Advance time to allow spell to fire (past the 2 second cooldown)
         {
             let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
             time.advance_by(std::time::Duration::from_secs(3));
         }
 
-        // Run weapon firing system
-        let _ = app.world_mut().run_system_once(weapon_firing_system);
+        // Run spell casting system
+        let _ = app.world_mut().run_system_once(spell_casting_system);
 
-        // Check that bullets were spawned (level 1 pistol fires 1 bullet)
+        // Check that fireballs were spawned
         let world = app.world_mut();
-        let bullet_count = world.query::<&Bullet>().iter(world).count();
-        assert_eq!(bullet_count, 1, "Level 1 weapon firing should spawn 1 bullet");
-
-        // Check that weapon last_fired was updated
-        let mut weapon_query = world.query::<&Weapon>();
-        if let Ok(weapon) = weapon_query.single(world) {
-            assert!(weapon.last_fired > 0.0, "Weapon last_fired should be updated after firing");
-        } else {
-            panic!("Weapon not found after firing");
-        }
+        let fireball_count = world.query::<&FireballProjectile>().iter(world).count();
+        assert_eq!(fireball_count, 1, "Spell casting should spawn 1 fireball");
     }
 
     #[test]
@@ -525,34 +505,39 @@ mod tests {
         let initial_score = app.world().get_resource::<Score>().unwrap();
         assert_eq!(initial_score.0, 0, "Score should start at 0");
 
-        // Create a bullet and enemy for collision testing
+        // Create a fireball and enemy for collision testing
         // Enemy needs Health and CheckDeath for the combat system
-        // Collision detection uses XZ plane, so place bullet and enemy within BULLET_COLLISION_RADIUS on XZ
-        let bullet_entity = app.world_mut().spawn((
+        // Collision detection uses XZ plane, so place fireball and enemy within collision radius on XZ
+        use donny_tango_survivor::game::events::FireballEnemyCollisionEvent;
+        app.add_message::<FireballEnemyCollisionEvent>();
+
+        let fireball_entity = app.world_mut().spawn((
             Transform::from_translation(Vec3::new(0.0, 0.15, 0.0)), // X=0, Z=0
-            Bullet {
+            FireballProjectile {
                 direction: Vec2::new(1.0, 0.0),
-                speed: 100.0,
-                lifetime: Timer::from_seconds(15.0, TimerMode::Once),
+                speed: 300.0,
+                damage: 10.0,
+                burn_tick_damage: 2.0,
+                lifetime: Timer::from_seconds(5.0, TimerMode::Once),
             },
         )).id();
 
         let enemy_entity = app.world_mut().spawn((
-            Transform::from_translation(Vec3::new(0.5, 0.375, 0.0)), // X=0.5, Z=0 - within BULLET_COLLISION_RADIUS=1.0
+            Transform::from_translation(Vec3::new(0.5, 0.375, 0.0)), // X=0.5, Z=0 - within collision radius
             Enemy { speed: 50.0, strength: 10.0 },
-            Health::new(10.0), // BULLET_DAMAGE is 10
+            Health::new(10.0),
             CheckDeath,
         )).id();
 
         // Run collision and combat systems in sequence
-        let _ = app.world_mut().run_system_once(bullet_collision_detection);
-        let _ = app.world_mut().run_system_once(bullet_collision_effects);
+        let _ = app.world_mut().run_system_once(fireball_collision_detection);
+        let _ = app.world_mut().run_system_once(fireball_collision_effects);
         let _ = app.world_mut().run_system_once(apply_damage_system);
         let _ = app.world_mut().run_system_once(check_death_system);
         let _ = app.world_mut().run_system_once(handle_enemy_death_system);
 
         // Verify both entities are despawned
-        assert!(!app.world().entities().contains(bullet_entity), "Bullet should be despawned after collision");
+        assert!(!app.world().entities().contains(fireball_entity), "Fireball should be despawned after collision");
         assert!(!app.world().entities().contains(enemy_entity), "Enemy should be despawned after death");
 
         // Verify score incremented
@@ -598,40 +583,46 @@ mod tests {
         let initial_score = app.world().get_resource::<Score>().unwrap();
         assert_eq!(initial_score.0, 0, "Score should start at 0");
 
-        // Create multiple bullets and enemies at once
+        // Register fireball collision event
+        use donny_tango_survivor::game::events::FireballEnemyCollisionEvent;
+        app.add_message::<FireballEnemyCollisionEvent>();
+
+        // Create multiple fireballs and enemies at once
         // Collision detection uses XZ plane, so space them out in Z (Y is height)
-        let mut bullet_entities = Vec::new();
+        let mut fireball_entities = Vec::new();
         let mut enemy_entities = Vec::new();
         for i in 0..3 {
-            let bullet_entity = app.world_mut().spawn((
+            let fireball_entity = app.world_mut().spawn((
                 Transform::from_translation(Vec3::new(0.0, 0.15, i as f32 * 20.0)), // Spread in Z
-                Bullet {
+                FireballProjectile {
                     direction: Vec2::new(1.0, 0.0),
-                    speed: 100.0,
-                    lifetime: Timer::from_seconds(15.0, TimerMode::Once),
+                    speed: 300.0,
+                    damage: 10.0,
+                    burn_tick_damage: 2.0,
+                    lifetime: Timer::from_seconds(5.0, TimerMode::Once),
                 },
             )).id();
-            bullet_entities.push(bullet_entity);
+            fireball_entities.push(fireball_entity);
 
             let enemy_entity = app.world_mut().spawn((
-                Transform::from_translation(Vec3::new(0.5, 0.375, i as f32 * 20.0)), // Same Z, within BULLET_COLLISION_RADIUS on X
+                Transform::from_translation(Vec3::new(0.5, 0.375, i as f32 * 20.0)), // Same Z, within collision radius on X
                 Enemy { speed: 50.0, strength: 10.0 },
-                Health::new(10.0), // BULLET_DAMAGE is 10
+                Health::new(10.0),
                 CheckDeath,
             )).id();
             enemy_entities.push(enemy_entity);
         }
 
         // Run collision and combat systems in sequence
-        let _ = app.world_mut().run_system_once(bullet_collision_detection);
-        let _ = app.world_mut().run_system_once(bullet_collision_effects);
+        let _ = app.world_mut().run_system_once(fireball_collision_detection);
+        let _ = app.world_mut().run_system_once(fireball_collision_effects);
         let _ = app.world_mut().run_system_once(apply_damage_system);
         let _ = app.world_mut().run_system_once(check_death_system);
         let _ = app.world_mut().run_system_once(handle_enemy_death_system);
 
         // Verify all entities are despawned
-        for (i, &bullet_entity) in bullet_entities.iter().enumerate() {
-            assert!(!app.world().entities().contains(bullet_entity), "Bullet {} should be despawned", i);
+        for (i, &fireball_entity) in fireball_entities.iter().enumerate() {
+            assert!(!app.world().entities().contains(fireball_entity), "Fireball {} should be despawned", i);
         }
         for (i, &enemy_entity) in enemy_entities.iter().enumerate() {
             assert!(!app.world().entities().contains(enemy_entity), "Enemy {} should be despawned", i);

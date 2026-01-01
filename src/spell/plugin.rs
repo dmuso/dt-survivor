@@ -8,6 +8,12 @@ use crate::spells::fire::fireball::{
     burn_damage_system, fireball_collision_detection, fireball_collision_effects,
     fireball_lifetime_system, fireball_movement_system,
 };
+use crate::spells::light::radiant_beam::{
+    radiant_beam_collision_system, render_radiant_beams, update_radiant_beams,
+};
+use crate::spells::lightning::thunder_strike::{
+    thunder_strike_damage_system, update_thunder_strike_markers, update_thunder_strikes,
+};
 use crate::whisper::resources::SpellOrigin;
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -60,6 +66,30 @@ pub fn plugin(app: &mut App) {
             Update,
             burn_damage_system
                 .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Radiant beam systems
+        .add_systems(
+            Update,
+            (
+                radiant_beam_collision_system,
+                update_radiant_beams,
+                render_radiant_beams,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Thunder strike systems
+        .add_systems(
+            Update,
+            (
+                update_thunder_strike_markers,
+                thunder_strike_damage_system,
+                update_thunder_strikes,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
                 .run_if(in_state(GameState::InGame)),
         );
 }

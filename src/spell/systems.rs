@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 use bevy_kira_audio::prelude::*;
-use bevy_hanabi::prelude::*;
 use rand::Rng;
 use crate::spell::components::*;
 use crate::spell::SpellType;
@@ -11,7 +10,6 @@ use crate::audio::plugin::SoundLimiter;
 use crate::game::resources::{GameMeshes, GameMaterials};
 use crate::movement::components::from_xz;
 use crate::whisper::resources::SpellOrigin;
-use crate::rocket_launcher::components::RocketExhaustEffect;
 
 #[cfg(test)]
 mod tests {
@@ -147,13 +145,13 @@ mod tests {
         app.init_resource::<Time>();
         app.update();
 
-        let bullet_count = app.world_mut().query::<&crate::bullets::components::Bullet>().iter(app.world()).count();
-        assert_eq!(bullet_count, 0, "No bullets should spawn when Whisper not collected");
+        let fireball_count = app.world_mut().query::<&crate::spells::fire::fireball::FireballProjectile>().iter(app.world()).count();
+        assert_eq!(fireball_count, 0, "No fireballs should spawn when Whisper not collected");
     }
 
     #[test]
     fn test_radiant_beam_spell_spawns_with_correct_damage() {
-        use crate::laser::components::LaserBeam;
+        use crate::spells::light::radiant_beam::RadiantBeam;
 
         let mut app = App::new();
         app.add_systems(Update, spell_casting_system);
@@ -185,15 +183,15 @@ mod tests {
         app.init_resource::<Time>();
         app.update();
 
-        let mut laser_query = app.world_mut().query::<&LaserBeam>();
-        let lasers: Vec<_> = laser_query.iter(app.world()).collect();
-        assert_eq!(lasers.len(), 1, "One laser should be spawned");
-        assert_eq!(lasers[0].damage, 62.5, "Laser damage should be 62.5 (10.0 * 5 * 1.25)");
+        let mut beam_query = app.world_mut().query::<&RadiantBeam>();
+        let beams: Vec<_> = beam_query.iter(app.world()).collect();
+        assert_eq!(beams.len(), 1, "One radiant beam should be spawned");
+        assert_eq!(beams[0].damage, 62.5, "Beam damage should be 62.5 (10.0 * 5 * 1.25)");
     }
 
     #[test]
     fn test_radiant_beam_damage_scales_with_spell_level() {
-        use crate::laser::components::LaserBeam;
+        use crate::spells::light::radiant_beam::RadiantBeam;
 
         let test_cases = [
             (1, 10.0, 12.5),
@@ -233,10 +231,10 @@ mod tests {
             app.init_resource::<Time>();
             app.update();
 
-            let mut laser_query = app.world_mut().query::<&LaserBeam>();
-            let lasers: Vec<_> = laser_query.iter(app.world()).collect();
+            let mut beam_query = app.world_mut().query::<&RadiantBeam>();
+            let beams: Vec<_> = beam_query.iter(app.world()).collect();
             assert_eq!(
-                lasers[0].damage, expected_damage,
+                beams[0].damage, expected_damage,
                 "Level {} with base {} should have damage {}",
                 level, base_damage, expected_damage
             );
@@ -245,7 +243,7 @@ mod tests {
 
     #[test]
     fn test_radiant_beam_spell_damage_reduces_enemy_health() {
-        use crate::laser::systems::laser_beam_collision_system;
+        use crate::spells::light::radiant_beam::radiant_beam_collision_system;
         use crate::combat::{apply_damage_system, DamageEvent, Health};
 
         let mut app = App::new();
@@ -254,7 +252,7 @@ mod tests {
             Update,
             (
                 spell_casting_system,
-                laser_beam_collision_system,
+                radiant_beam_collision_system,
                 apply_damage_system,
             ).chain(),
         );
@@ -290,13 +288,13 @@ mod tests {
         let health = app.world().get::<Health>(enemy_entity).unwrap();
         assert_eq!(
             health.current, 37.5,
-            "Enemy health should be 100 - 62.5 = 37.5 after level 5 laser hit"
+            "Enemy health should be 100 - 62.5 = 37.5 after level 5 radiant beam hit"
         );
     }
 
     #[test]
     fn test_thunder_strike_spell_spawns_with_correct_damage() {
-        use crate::rocket_launcher::components::RocketProjectile;
+        use crate::spells::lightning::thunder_strike::ThunderStrikeMarker;
 
         let mut app = App::new();
         app.add_systems(Update, spell_casting_system);
@@ -328,10 +326,10 @@ mod tests {
         app.init_resource::<Time>();
         app.update();
 
-        let mut rocket_query = app.world_mut().query::<&RocketProjectile>();
-        let rockets: Vec<_> = rocket_query.iter(app.world()).collect();
-        assert_eq!(rockets.len(), 1, "One rocket should be spawned");
-        assert_eq!(rockets[0].damage, 112.5, "Rocket damage should be 112.5 (30.0 * 3 * 1.25)");
+        let mut marker_query = app.world_mut().query::<&ThunderStrikeMarker>();
+        let markers: Vec<_> = marker_query.iter(app.world()).collect();
+        assert_eq!(markers.len(), 1, "One thunder strike marker should be spawned");
+        assert_eq!(markers[0].damage, 112.5, "Thunder strike damage should be 112.5 (30.0 * 3 * 1.25)");
     }
 }
 
@@ -345,7 +343,6 @@ pub fn spell_casting_system(
     spell_origin: Res<SpellOrigin>,
     game_meshes: Option<Res<GameMeshes>>,
     game_materials: Option<Res<GameMaterials>>,
-    rocket_exhaust: Option<Res<RocketExhaustEffect>>,
     enemy_query: Query<(Entity, &Transform, &Enemy)>,
     mut spell_query: Query<&mut Spell>,
 ) {
@@ -396,9 +393,6 @@ pub fn spell_casting_system(
             let target_index = rng.gen_range(0..closest_enemies.len());
             let target_pos = closest_enemies[target_index].1;
 
-            // Calculate direction towards target enemy from Whisper position (on XZ plane)
-            let base_direction = (target_pos - origin_xz).normalize();
-
             match &spell.spell_type {
                 SpellType::Fireball => {
                     // Use the new fireball spell module
@@ -415,11 +409,17 @@ pub fn spell_casting_system(
                     );
                 }
                 SpellType::RadiantBeam => {
-                    // Create a laser beam entity at Whisper's height
-                    use crate::laser::components::LaserBeam;
-                    commands.spawn(LaserBeam::with_height(origin_xz, base_direction, spell.damage(), origin_pos.y));
+                    // Use the new radiant beam spell module
+                    crate::spells::light::radiant_beam::fire_radiant_beam(
+                        &mut commands,
+                        &spell,
+                        origin_pos,
+                        target_pos,
+                        game_meshes.as_deref(),
+                        game_materials.as_deref(),
+                    );
 
-                    // Play laser sound effect
+                    // Play radiant beam sound effect
                     if let (Some(asset_server), Some(weapon_channel), Some(sound_limiter)) =
                         (asset_server.as_ref(), weapon_channel.as_mut(), sound_limiter.as_mut()) {
                         crate::audio::plugin::play_limited_sound_with_volume(
@@ -432,51 +432,15 @@ pub fn spell_casting_system(
                     }
                 }
                 SpellType::ThunderStrike => {
-                    // Find closest enemy for targeting
-                    let rocket_target_pos = closest_enemies.get(target_index).map(|(_, pos)| *pos);
-
-                    // Create a rocket projectile (reusing thunder strike visuals)
-                    use crate::rocket_launcher::components::{RocketProjectile, RocketHissSound};
-                    let (mut rocket, transform) = RocketProjectile::new(origin_pos, base_direction, spell.damage());
-                    rocket.target_position = rocket_target_pos;
-
-                    // Play looped hiss sound and get handle for stopping on explosion
-                    let hiss_handle = if let (Some(asset_server), Some(weapon_channel)) =
-                        (asset_server.as_ref(), weapon_channel.as_mut()) {
-                        Some(weapon_channel
-                            .play(asset_server.load("sounds/45131__erh__85-hiss-b.wav"))
-                            .looped()
-                            .with_volume(Decibels(-6.0))
-                            .handle())
-                    } else {
-                        None
-                    };
-
-                    // Spawn rocket with 3D mesh using GameMeshes/GameMaterials
-                    if let (Some(ref meshes), Some(ref materials)) = (&game_meshes, &game_materials) {
-                        let mut entity_commands = commands.spawn((
-                            rocket,
-                            transform,
-                            Mesh3d(meshes.rocket.clone()),
-                            MeshMaterial3d(materials.rocket_pausing.clone()),
-                        ));
-                        if let Some(handle) = hiss_handle {
-                            entity_commands.insert(RocketHissSound(handle));
-                        }
-                        if let Some(ref exhaust) = rocket_exhaust {
-                            entity_commands.with_children(|parent| {
-                                parent.spawn((
-                                    ParticleEffect::new(exhaust.0.clone()),
-                                    Transform::from_translation(Vec3::new(0.0, 0.0, -0.2)),
-                                ));
-                            });
-                        }
-                    } else {
-                        let mut entity_commands = commands.spawn((rocket, transform));
-                        if let Some(handle) = hiss_handle {
-                            entity_commands.insert(RocketHissSound(handle));
-                        }
-                    }
+                    // Use the new thunder strike spell module
+                    crate::spells::lightning::thunder_strike::fire_thunder_strike(
+                        &mut commands,
+                        &spell,
+                        origin_pos,
+                        target_pos,
+                        game_meshes.as_deref(),
+                        game_materials.as_deref(),
+                    );
                 }
                 _ => {
                     // Other spell types not implemented yet

@@ -1,6 +1,5 @@
 use bevy::prelude::*;
 use crate::states::*;
-use crate::bullets::systems::*;
 use crate::camera::plugin as camera_plugin;
 use crate::enemies::systems::*;
 use crate::game::systems::{
@@ -13,19 +12,18 @@ use crate::game::systems::{
 use crate::game::sets::GameSet;
 use crate::inventory::systems::inventory_initialization_system;
 use crate::enemy_death::plugin as enemy_death_plugin;
-use crate::laser::plugin as laser_plugin;
 use crate::loot::plugin as loot_plugin;
 use crate::movement::plugin as movement_plugin;
 use crate::player::plugin as player_plugin;
 use crate::powerup::plugin as powerup_plugin;
-use crate::rocket_launcher::plugin as rocket_launcher_plugin;
+use crate::spell::plugin as spell_plugin;
 use crate::weapon::plugin as weapon_plugin;
 use crate::whisper::plugin as whisper_plugin;
 use crate::player::systems::{camera_follow_player, update_slow_modifiers, player_health_regeneration_system};
 use crate::whisper::systems::spawn_whisper_drop;
 use crate::game::resources::{FreshGameStart, GameLevel, LevelStats, PlayerPosition, EnemySpawnState, PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
 use crate::score::*;
-use crate::game::events::{PlayerEnemyCollisionEvent, BulletEnemyCollisionEvent, GameOverEvent, GameLevelUpEvent};
+use crate::game::events::{PlayerEnemyCollisionEvent, GameOverEvent, GameLevelUpEvent};
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<PlayerPosition>()
@@ -39,9 +37,8 @@ pub fn plugin(app: &mut App) {
         .insert_resource(FreshGameStart::new())
         .add_message::<PlayerEnemyCollisionEvent>()
         .add_message::<GameOverEvent>()
-        .add_message::<BulletEnemyCollisionEvent>()
         .add_message::<GameLevelUpEvent>()
-        .add_plugins((camera_plugin, enemy_death_plugin, laser_plugin, loot_plugin, movement_plugin, player_plugin, powerup_plugin, rocket_launcher_plugin, weapon_plugin, whisper_plugin))
+        .add_plugins((camera_plugin, enemy_death_plugin, loot_plugin, movement_plugin, player_plugin, powerup_plugin, spell_plugin, weapon_plugin, whisper_plugin))
         // Configure GameSet ordering: Input -> Movement -> Combat -> Spawning -> Effects -> Cleanup
         .configure_sets(
             Update,
@@ -73,13 +70,10 @@ pub fn plugin(app: &mut App) {
                 .run_if(in_state(GameState::InGame)),
         )
         // Movement systems (player_movement and enemy_movement_system are in movement_plugin)
-        // weapon_follow_player_system is now in weapon_plugin
+        // spell_follow_player_system is now in spell_plugin
         .add_systems(
             Update,
-            (
-                camera_follow_player,
-                bullet_movement_system,
-            )
+            camera_follow_player
                 .in_set(GameSet::Movement)
                 .run_if(in_state(GameState::InGame)),
         )
@@ -87,8 +81,6 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             (
-                bullet_collision_detection,
-                bullet_collision_effects,
                 player_enemy_collision_detection,
                 player_enemy_damage_system,
                 player_death_system,
@@ -120,14 +112,7 @@ pub fn plugin(app: &mut App) {
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         )
-        // Cleanup systems
-        .add_systems(
-            Update,
-            bullet_lifetime_system
-                .in_set(GameSet::Cleanup)
-                .run_if(in_state(GameState::InGame)),
-        )
-        // weapon_firing_system is now in weapon_plugin
+        // spell_casting_system is now in spell_plugin
         // Cleanup game entities only when going to Intro or GameOver (not LevelComplete)
         .add_systems(OnEnter(GameState::Intro), (mark_fresh_game_start, cleanup_game).chain())
         .add_systems(OnEnter(GameState::GameOver), (mark_fresh_game_start, cleanup_game).chain());
