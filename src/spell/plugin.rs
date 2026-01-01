@@ -150,6 +150,9 @@ use crate::spells::light::solar_flare::{
     solar_flare_movement_system, solar_flare_spawn_explosion_system,
     SolarFlareExplosionEvent,
 };
+use crate::spells::light::halo_shield::{
+    halo_shield_update_system, halo_shield_contact_damage_system,
+};
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -928,6 +931,19 @@ pub fn plugin(app: &mut App) {
                 blinded_debuff_tick_system,
             )
                 .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Halo Shield (DivineLight) systems - update in Effects, contact damage in Combat
+        .add_systems(
+            Update,
+            halo_shield_update_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            halo_shield_contact_damage_system
+                .in_set(GameSet::Combat)
                 .run_if(in_state(GameState::InGame)),
         )
         // Entropy Field systems - tick in Effects, damage in Combat, visual in Effects, cleanup in Cleanup
