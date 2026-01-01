@@ -1,9 +1,11 @@
 pub mod brainburn;
 pub mod dominate;
+pub mod echo_thought;
 pub mod mind_lash;
 pub mod psionic_burst;
 
 pub use brainburn::*;
 pub use dominate::*;
+pub use echo_thought::*;
 pub use mind_lash::*;
 pub use psionic_burst::*;

@@ -18,6 +18,7 @@ mod tests {
     use crate::element::Element;
     use crate::inventory::resources::SpellList;
     use crate::spell::components::Spell;
+    use crate::spells::psychic::echo_thought::LastSpellCast;
     use crate::whisper::resources::WhisperAttunement;
 
     mod spell_list_integration_tests {
@@ -32,6 +33,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             // Set up SpellList with a fireball
             let mut spell_list = SpellList::default();
@@ -65,6 +67,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             // Set up SpellList with multiple spells
             let mut spell_list = SpellList::default();
@@ -112,6 +115,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             // Empty SpellList - no spells equipped
             app.init_resource::<SpellList>();
@@ -135,6 +139,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut fireball = Spell::new(SpellType::Fireball);
@@ -166,6 +171,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut fireball = Spell::new(SpellType::Fireball);
@@ -202,6 +208,7 @@ mod tests {
 
             // Fire attunement for fire spell
             app.insert_resource(WhisperAttunement::with_element(Element::Fire));
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut fireball = Spell::new(SpellType::Fireball);
@@ -243,6 +250,7 @@ mod tests {
 
             // No attunement
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut fireball = Spell::new(SpellType::Fireball);
@@ -283,6 +291,7 @@ mod tests {
 
             // Frost attunement for fire spell - no bonus
             app.insert_resource(WhisperAttunement::with_element(Element::Frost));
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut fireball = Spell::new(SpellType::Fireball);
@@ -323,6 +332,7 @@ mod tests {
 
             app.insert_resource(SpellOrigin { position: None });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut fireball = Spell::new(SpellType::Fireball);
@@ -358,6 +368,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut fireball = Spell::new(SpellType::Fireball);
@@ -399,6 +410,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let beam = Spell {
@@ -437,6 +449,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.insert_resource(WhisperAttunement::with_element(Element::Light));
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let beam = Spell {
@@ -487,6 +500,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -525,6 +539,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.insert_resource(WhisperAttunement::with_element(Element::Lightning));
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -574,6 +589,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -619,6 +635,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.insert_resource(WhisperAttunement::with_element(Element::Fire));
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -665,6 +682,7 @@ mod tests {
                 position: Some(origin_pos),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut spell = Spell::new(SpellType::Ashfall);
@@ -702,6 +720,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -741,6 +760,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.insert_resource(WhisperAttunement::with_element(Element::Poison));
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -787,6 +807,7 @@ mod tests {
                 position: Some(origin_pos),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut spell = Spell::new(SpellType::PlagueCloud);
@@ -823,6 +844,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -862,6 +884,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.insert_resource(WhisperAttunement::with_element(Element::Lightning));
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -907,6 +930,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut spell = Spell::new(SpellType::ChainLightning);
@@ -943,6 +967,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -982,6 +1007,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.insert_resource(WhisperAttunement::with_element(Element::Poison));
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -1028,6 +1054,7 @@ mod tests {
                 position: Some(origin_pos),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut spell = Spell::new(SpellType::ToxicSpray);
@@ -1064,6 +1091,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -1103,6 +1131,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.insert_resource(WhisperAttunement::with_element(Element::Frost));
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -1149,6 +1178,7 @@ mod tests {
                 position: Some(origin_pos),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut spell = Spell::new(SpellType::FrostNova);
@@ -1185,6 +1215,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -1224,6 +1255,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.insert_resource(WhisperAttunement::with_element(Element::Poison));
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -1270,6 +1302,7 @@ mod tests {
                 position: Some(origin_pos),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut spell = Spell::new(SpellType::Miasma);
@@ -1301,6 +1334,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut spell = Spell::new(SpellType::Miasma);
@@ -1343,6 +1377,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -1386,6 +1421,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.insert_resource(WhisperAttunement::with_element(Element::Fire));
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -1432,6 +1468,7 @@ mod tests {
                 position: Some(origin_pos),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut spell = Spell::new(SpellType::Combustion);
@@ -1469,6 +1506,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -1508,6 +1546,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.insert_resource(WhisperAttunement::with_element(Element::Fire));
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -1548,6 +1587,7 @@ mod tests {
                 position: Some(origin_pos),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut spell = Spell::new(SpellType::Hellfire);
@@ -1584,6 +1624,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -1638,6 +1679,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut spell = Spell::new(SpellType::Flashstep);
@@ -1680,6 +1722,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.insert_resource(WhisperAttunement::with_element(Element::Lightning));
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -1734,6 +1777,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut spell = Spell::new(SpellType::Flashstep);
@@ -1784,6 +1828,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -1821,6 +1866,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.insert_resource(WhisperAttunement::with_element(Element::Poison));
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -1867,6 +1913,7 @@ mod tests {
                 position: Some(origin_pos),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut spell = Spell::new(SpellType::CorrosivePool);
@@ -1905,6 +1952,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -1945,6 +1993,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.insert_resource(WhisperAttunement::with_element(Element::Dark));
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let spell = Spell {
@@ -1992,6 +2041,7 @@ mod tests {
                 position: Some(origin_pos),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut spell = Spell::new(SpellType::DarkPulse);
@@ -2028,6 +2078,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut spell = Spell::new(SpellType::Eclipse);
@@ -2058,6 +2109,7 @@ mod tests {
                 position: Some(origin_pos),
             });
             app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut spell = Spell::new(SpellType::Eclipse);
@@ -2090,6 +2142,7 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
             app.insert_resource(WhisperAttunement::with_element(Element::Dark));
+            app.init_resource::<LastSpellCast>();
 
             let mut spell_list = SpellList::default();
             let mut spell = Spell::new(SpellType::Eclipse);
@@ -2131,6 +2184,7 @@ pub fn spell_casting_system(
     attunement: Res<WhisperAttunement>,
     mut damage_events: Option<MessageWriter<DamageEvent>>,
     player_query: Query<(Entity, &Transform, &Player)>,
+    mut last_spell_cast: ResMut<crate::spells::psychic::echo_thought::LastSpellCast>,
 ) {
     let current_time = time.elapsed_secs();
 
@@ -2580,9 +2634,24 @@ pub fn spell_casting_system(
                     game_materials.as_deref(),
                 );
             }
+            SpellType::Hallucination => {
+                crate::spells::psychic::echo_thought::fire_echo_thought(
+                    &mut commands,
+                    spell,
+                    origin_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
             _ => {
                 // Other spell types not implemented yet
             }
+        }
+
+        // Record last spell cast for Echo Thought (but not Hallucination itself to avoid infinite echoing)
+        if spell.spell_type != SpellType::Hallucination {
+            let direction = (target_pos - origin_xz).normalize_or_zero();
+            last_spell_cast.record(spell.spell_type, origin_xz, direction, final_damage);
         }
 
         // Update last_fired time

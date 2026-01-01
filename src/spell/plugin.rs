@@ -139,6 +139,10 @@ use crate::spells::psychic::brainburn::{
     tick_brainburn_damage_system, update_brainburn_aura_duration_system,
     update_brainburn_aura_position_system,
 };
+use crate::spells::psychic::echo_thought::{
+    cleanup_echo_thought_system, execute_echo_spells_system, spawn_echo_thought_system,
+    update_echo_timers_system, update_echo_visual_system, LastSpellCast,
+};
 use crate::spells::chaos::chaos_bolt::{
     chaos_bolt_collision_detection, chaos_bolt_collision_effects,
     chaos_bolt_lifetime_system, chaos_bolt_movement_system,
@@ -178,6 +182,8 @@ pub fn plugin(app: &mut App) {
         .init_resource::<SpellList>()
         // Initialize WhisperAttunement for elemental damage bonus
         .init_resource::<WhisperAttunement>()
+        // Initialize LastSpellCast for Echo Thought spell tracking
+        .init_resource::<LastSpellCast>()
         // Register spell collision events
         .add_message::<FireballEnemyCollisionEvent>()
         .add_message::<IceShardEnemyCollisionEvent>()
@@ -910,6 +916,35 @@ pub fn plugin(app: &mut App) {
                 update_brainburn_aura_duration_system,
             )
                 .chain()
+                .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Echo Thought (Hallucination) systems - spawn echoes in Spawning, execute in Combat, visual in Effects, cleanup in Cleanup
+        .add_systems(
+            Update,
+            spawn_echo_thought_system
+                .in_set(GameSet::Spawning)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                update_echo_timers_system,
+                execute_echo_spells_system,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            update_echo_visual_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            cleanup_echo_thought_system
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )
