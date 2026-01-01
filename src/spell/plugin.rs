@@ -72,9 +72,17 @@ use crate::spells::lightning::overload::{
 use crate::spells::poison::corrode::{
     apply_corroded_on_poison_damage, corroded_debuff_tick_system,
 };
+use crate::spells::poison::neurotoxin::{
+    apply_neurotoxin_on_poison_damage, neurotoxin_debuff_tick_system,
+    neurotoxin_movement_jitter_system,
+};
 use crate::spells::fire::inferno_pulse::{
     animate_inferno_pulse_wave_system, cleanup_inferno_pulse_wave_system,
     inferno_pulse_wave_visual_system,
+};
+use crate::spells::lightning::ion_field::{
+    ion_field_cleanup_markers_system, ion_field_damage_system,
+    ion_field_duration_system, ion_field_track_enemies_system,
 };
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
@@ -462,6 +470,23 @@ pub fn plugin(app: &mut App) {
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         )
+        // Neurotoxin systems - apply debuff on poison damage in Combat, tick/jitter in Effects
+        .add_systems(
+            Update,
+            apply_neurotoxin_on_poison_damage
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                neurotoxin_debuff_tick_system,
+                neurotoxin_movement_jitter_system,
+            )
+                .chain()
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
         // Inferno Pulse systems - animate wave in Movement, visual in Effects, cleanup in Cleanup
         .add_systems(
             Update,
@@ -497,6 +522,29 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             hoarfrost_cleanup_system
+                .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Ion Field systems - duration tick in Effects, track enemies in Combat, damage in Combat, cleanup in Cleanup
+        .add_systems(
+            Update,
+            ion_field_duration_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                ion_field_track_enemies_system,
+                ion_field_damage_system,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            ion_field_cleanup_markers_system
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         );

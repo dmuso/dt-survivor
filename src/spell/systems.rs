@@ -1830,6 +1830,16 @@ pub fn spell_casting_system(
                     );
                 }
             }
+            SpellType::Electrocute => {
+                crate::spells::lightning::ion_field::fire_ion_field_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
             _ => {
                 // Other spell types not implemented yet
             }
