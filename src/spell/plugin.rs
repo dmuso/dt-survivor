@@ -121,6 +121,12 @@ use crate::spells::psychic::psionic_burst::{
     psionic_burst_cleanup_system, psionic_burst_collision_system,
     psionic_burst_expansion_system, psionic_burst_visual_system,
 };
+use crate::spells::chaos::chaos_bolt::{
+    chaos_bolt_collision_detection, chaos_bolt_collision_effects,
+    chaos_bolt_lifetime_system, chaos_bolt_movement_system,
+    chaos_poison_damage_system, stunned_enemy_system,
+    ChaosBoltEnemyCollisionEvent,
+};
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -144,6 +150,7 @@ pub fn plugin(app: &mut App) {
         .add_message::<CinderShotEnemyCollisionEvent>()
         .add_message::<LightningDamageEvent>()
         .add_message::<ShatterEnemyCollisionEvent>()
+        .add_message::<ChaosBoltEnemyCollisionEvent>()
         // Movement systems - spell follows player
         .add_systems(
             Update,
@@ -770,6 +777,35 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             psionic_burst_visual_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Chaos Bolt systems - movement and lifetime in Movement, collision in Combat, debuffs in Effects
+        .add_systems(
+            Update,
+            (
+                chaos_bolt_movement_system,
+                chaos_bolt_lifetime_system,
+            )
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                chaos_bolt_collision_detection,
+                chaos_bolt_collision_effects,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                stunned_enemy_system,
+                chaos_poison_damage_system,
+            )
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         );

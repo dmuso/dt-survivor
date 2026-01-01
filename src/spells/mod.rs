@@ -7,6 +7,7 @@ pub mod lightning;
 pub mod poison;
 pub mod psychic;
 
+pub use chaos::chaos_bolt;
 pub use chaos::fear;
 pub use dark::shadow_bolt;
 pub use dark::soul_drain;

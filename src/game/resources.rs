@@ -441,6 +441,8 @@ pub struct GameMaterials {
     pub glacial_pulse: Handle<StandardMaterial>,
     /// Shadow bolt projectile material (dark purple with emissive glow)
     pub shadow_bolt: Handle<StandardMaterial>,
+    /// Chaos bolt projectile material (multicolor with shifting emissive glow)
+    pub chaos_bolt: Handle<StandardMaterial>,
 }
 
 impl GameMaterials {
@@ -608,6 +610,11 @@ impl GameMaterials {
             shadow_bolt: materials.add(StandardMaterial {
                 base_color: Color::srgb(0.5, 0.0, 0.5), // Dark purple (Dark element color)
                 emissive: bevy::color::LinearRgba::rgb(1.0, 0.0, 1.0), // Purple glow
+                ..default()
+            }),
+            chaos_bolt: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.8, 0.3, 0.8), // Magenta/chaos color
+                emissive: bevy::color::LinearRgba::rgb(2.0, 0.5, 2.0), // Chaotic purple/pink glow
                 ..default()
             }),
         }
