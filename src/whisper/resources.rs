@@ -29,8 +29,6 @@ impl SpellOrigin {
     }
 }
 
-/// Type alias for backward compatibility during migration
-pub type WeaponOrigin = SpellOrigin;
 
 /// Resource tracking whether Whisper has been collected this game
 #[derive(Resource, Default)]
@@ -104,12 +102,6 @@ mod tests {
         assert_eq!(origin.position.unwrap(), Vec3::new(10.0, 3.0, 20.0));
     }
 
-    #[test]
-    fn test_weapon_origin_alias_works() {
-        // WeaponOrigin is now an alias for SpellOrigin
-        let origin: WeaponOrigin = SpellOrigin::default();
-        assert!(origin.position.is_none());
-    }
 
     #[test]
     fn test_whisper_state_default() {

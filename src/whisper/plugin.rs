@@ -8,7 +8,7 @@ use crate::whisper::systems::*;
 pub fn plugin(app: &mut App) {
     app
         // Resources
-        .init_resource::<WeaponOrigin>()
+        .init_resource::<SpellOrigin>()
         .init_resource::<WhisperState>()
         .init_resource::<WhisperAttunement>()
         // Startup systems (animation setup)
@@ -21,7 +21,7 @@ pub fn plugin(app: &mut App) {
         // Movement systems
         .add_systems(
             Update,
-            (whisper_follow_player, update_weapon_origin)
+            (whisper_follow_player, update_spell_origin)
                 .chain()
                 .in_set(GameSet::Movement)
                 .run_if(in_state(GameState::InGame)),

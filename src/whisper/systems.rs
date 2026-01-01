@@ -245,13 +245,13 @@ pub fn spawn_whisper_drop(
 /// Only resets on a fresh game start (not when continuing from LevelComplete)
 pub fn reset_whisper_state(
     mut whisper_state: ResMut<WhisperState>,
-    mut weapon_origin: ResMut<WeaponOrigin>,
+    mut spell_origin: ResMut<SpellOrigin>,
     fresh_start: Res<crate::game::resources::FreshGameStart>,
 ) {
     // Only reset on a fresh game start
     if fresh_start.0 {
         whisper_state.collected = false;
-        weapon_origin.position = None;
+        spell_origin.position = None;
     }
 }
 
@@ -283,18 +283,18 @@ pub fn whisper_follow_player(
     }
 }
 
-/// Updates WeaponOrigin resource with Whisper's current 3D position.
-/// Weapons fire from Whisper's full 3D position.
+/// Updates SpellOrigin resource with Whisper's current 3D position.
+/// Spells fire from Whisper's full 3D position.
 /// Runs in GameSet::Movement (after whisper_follow_player)
-pub fn update_weapon_origin(
+pub fn update_spell_origin(
     whisper_query: Query<&Transform, With<WhisperCompanion>>,
-    mut weapon_origin: ResMut<WeaponOrigin>,
+    mut spell_origin: ResMut<SpellOrigin>,
 ) {
     if let Ok(whisper_transform) = whisper_query.single() {
-        // Store full 3D position so weapons fire from Whisper's height
-        weapon_origin.position = Some(whisper_transform.translation);
+        // Store full 3D position so spells fire from Whisper's height
+        spell_origin.position = Some(whisper_transform.translation);
     } else {
-        weapon_origin.position = None;
+        spell_origin.position = None;
     }
 }
 
@@ -609,12 +609,12 @@ mod tests {
 
         let mut app = App::new();
         app.init_resource::<WhisperState>();
-        app.init_resource::<WeaponOrigin>();
+        app.init_resource::<SpellOrigin>();
         app.insert_resource(FreshGameStart(true)); // Fresh start = should reset
 
         // Set initial state
         app.world_mut().resource_mut::<WhisperState>().collected = true;
-        app.world_mut().resource_mut::<WeaponOrigin>().position =
+        app.world_mut().resource_mut::<SpellOrigin>().position =
             Some(Vec3::new(10.0, 3.0, 20.0));
 
         app.add_systems(Update, reset_whisper_state);
@@ -622,7 +622,7 @@ mod tests {
 
         // Verify state was reset
         assert!(!app.world().resource::<WhisperState>().collected);
-        assert!(app.world().resource::<WeaponOrigin>().position.is_none());
+        assert!(app.world().resource::<SpellOrigin>().position.is_none());
     }
 
     #[test]
@@ -631,12 +631,12 @@ mod tests {
 
         let mut app = App::new();
         app.init_resource::<WhisperState>();
-        app.init_resource::<WeaponOrigin>();
+        app.init_resource::<SpellOrigin>();
         app.insert_resource(FreshGameStart(false)); // Not fresh = should NOT reset
 
         // Set initial state
         app.world_mut().resource_mut::<WhisperState>().collected = true;
-        app.world_mut().resource_mut::<WeaponOrigin>().position =
+        app.world_mut().resource_mut::<SpellOrigin>().position =
             Some(Vec3::new(10.0, 3.0, 20.0));
 
         app.add_systems(Update, reset_whisper_state);
@@ -644,7 +644,7 @@ mod tests {
 
         // Verify state was NOT reset
         assert!(app.world().resource::<WhisperState>().collected);
-        assert!(app.world().resource::<WeaponOrigin>().position.is_some());
+        assert!(app.world().resource::<SpellOrigin>().position.is_some());
     }
 
     #[test]
@@ -697,10 +697,10 @@ mod tests {
     }
 
     #[test]
-    fn test_update_weapon_origin_with_companion() {
+    fn test_update_spell_origin_with_companion() {
         let mut app = App::new();
-        app.init_resource::<WeaponOrigin>();
-        app.add_systems(Update, update_weapon_origin);
+        app.init_resource::<SpellOrigin>();
+        app.add_systems(Update, update_spell_origin);
 
         // Create WhisperCompanion at (50, 3.0, 60) (Y is height)
         app.world_mut().spawn((
@@ -710,30 +710,30 @@ mod tests {
 
         app.update();
 
-        // Verify WeaponOrigin was updated with full 3D position
-        let weapon_origin = app.world().resource::<WeaponOrigin>();
-        assert!(weapon_origin.position.is_some());
+        // Verify SpellOrigin was updated with full 3D position
+        let spell_origin = app.world().resource::<SpellOrigin>();
+        assert!(spell_origin.position.is_some());
         assert_eq!(
-            weapon_origin.position.unwrap(),
+            spell_origin.position.unwrap(),
             Vec3::new(50.0, 3.0, 60.0)
         );
     }
 
     #[test]
-    fn test_update_weapon_origin_without_companion() {
+    fn test_update_spell_origin_without_companion() {
         let mut app = App::new();
-        app.init_resource::<WeaponOrigin>();
-        app.add_systems(Update, update_weapon_origin);
+        app.init_resource::<SpellOrigin>();
+        app.add_systems(Update, update_spell_origin);
 
         // Set initial position
-        app.world_mut().resource_mut::<WeaponOrigin>().position =
+        app.world_mut().resource_mut::<SpellOrigin>().position =
             Some(Vec3::new(10.0, 3.0, 20.0));
 
         app.update();
 
-        // Verify WeaponOrigin was cleared
-        let weapon_origin = app.world().resource::<WeaponOrigin>();
-        assert!(weapon_origin.position.is_none());
+        // Verify SpellOrigin was cleared
+        let spell_origin = app.world().resource::<SpellOrigin>();
+        assert!(spell_origin.position.is_none());
     }
 
     #[test]

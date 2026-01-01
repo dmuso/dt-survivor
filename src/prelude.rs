@@ -31,7 +31,7 @@ pub use crate::spell::{Spell, SpellType};
 pub use crate::element::Element;
 
 // Re-export whisper module types
-pub use crate::whisper::{SpellOrigin, WeaponOrigin, WhisperState};
+pub use crate::whisper::{SpellOrigin, WhisperState};
 
 #[cfg(test)]
 mod tests {
@@ -118,9 +118,5 @@ mod tests {
         let origin = SpellOrigin::default();
         assert!(origin.position.is_none());
         assert!(!origin.is_active());
-
-        // WeaponOrigin is an alias for SpellOrigin
-        let weapon_origin: WeaponOrigin = SpellOrigin::default();
-        assert!(weapon_origin.position.is_none());
     }
 }

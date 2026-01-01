@@ -351,7 +351,7 @@ mod tests {
 
     #[test]
     fn test_weapon_firing_spawns_bullets() {
-        use donny_tango_survivor::whisper::resources::WeaponOrigin;
+        use donny_tango_survivor::whisper::resources::SpellOrigin;
 
         let mut app = App::new();
 
@@ -379,8 +379,8 @@ mod tests {
         app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
         app.update();
 
-        // Simulate Whisper collection by setting WeaponOrigin position (full 3D)
-        app.world_mut().resource_mut::<WeaponOrigin>().position = Some(Vec3::new(0.0, 3.0, 0.0));
+        // Simulate Whisper collection by setting SpellOrigin position (full 3D)
+        app.world_mut().resource_mut::<SpellOrigin>().position = Some(Vec3::new(0.0, 3.0, 0.0));
 
         // Add pistol to inventory (simulating Whisper collection)
         {

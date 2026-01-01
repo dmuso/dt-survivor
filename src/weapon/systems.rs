@@ -9,7 +9,7 @@ use crate::audio::plugin::*;
 use crate::audio::plugin::SoundLimiter;
 use crate::game::resources::{GameMeshes, GameMaterials};
 use crate::movement::components::from_xz;
-use crate::whisper::resources::WeaponOrigin;
+use crate::whisper::resources::SpellOrigin;
 use crate::rocket_launcher::components::RocketExhaustEffect;
 
 #[cfg(test)]
@@ -22,13 +22,13 @@ mod tests {
         let mut app = App::new();
         app.add_systems(Update, weapon_firing_system);
 
-        // Set up WeaponOrigin at (0, 3, 0) - simulates Whisper collected at height
-        app.insert_resource(WeaponOrigin {
+        // Set up SpellOrigin at (0, 3, 0) - simulates Whisper collected at height
+        app.insert_resource(SpellOrigin {
             position: Some(Vec3::new(0.0, 3.0, 0.0)),
         });
 
         // Create 10 enemies at different distances on XZ plane
-        // Vec2(x, z) in WeaponOrigin maps to Vec3(x, height, z) for enemies
+        // Vec2(x, z) in SpellOrigin maps to Vec3(x, height, z) for enemies
         for i in 1..=10 {
             let distance = i as f32 * 20.0; // 20, 40, 60, ..., 200 units away on X axis
             app.world_mut().spawn((
@@ -64,8 +64,8 @@ mod tests {
         let mut app = App::new();
         app.add_systems(Update, weapon_firing_system);
 
-        // Set up WeaponOrigin at (0, 3, 0) - simulates Whisper collected at height
-        app.insert_resource(WeaponOrigin {
+        // Set up SpellOrigin at (0, 3, 0) - simulates Whisper collected at height
+        app.insert_resource(SpellOrigin {
             position: Some(Vec3::new(0.0, 3.0, 0.0)),
         });
 
@@ -114,8 +114,8 @@ mod tests {
         let mut app = App::new();
         app.add_systems(Update, weapon_firing_system);
 
-        // Set up WeaponOrigin at (0, 3, 0) - simulates Whisper collected at height
-        app.insert_resource(WeaponOrigin {
+        // Set up SpellOrigin at (0, 3, 0) - simulates Whisper collected at height
+        app.insert_resource(SpellOrigin {
             position: Some(Vec3::new(0.0, 3.0, 0.0)),
         });
 
@@ -169,8 +169,8 @@ mod tests {
         let mut app = App::new();
         app.add_systems(Update, weapon_firing_system);
 
-        // Set up WeaponOrigin with None - simulates Whisper not collected
-        app.insert_resource(WeaponOrigin { position: None });
+        // Set up SpellOrigin with None - simulates Whisper not collected
+        app.insert_resource(SpellOrigin { position: None });
 
         // Create enemies on XZ plane
         app.world_mut().spawn((
@@ -196,7 +196,7 @@ mod tests {
         // Run weapon firing system
         app.update();
 
-        // No bullets should be spawned since WeaponOrigin is None
+        // No bullets should be spawned since SpellOrigin is None
         let bullet_count = app.world_mut().query::<&crate::bullets::components::Bullet>().iter(app.world()).count();
         assert_eq!(bullet_count, 0, "No bullets should spawn when Whisper not collected");
     }
@@ -208,8 +208,8 @@ mod tests {
         let mut app = App::new();
         app.add_systems(Update, weapon_firing_system);
 
-        // Set up WeaponOrigin
-        app.insert_resource(WeaponOrigin {
+        // Set up SpellOrigin
+        app.insert_resource(SpellOrigin {
             position: Some(Vec3::new(0.0, 3.0, 0.0)),
         });
 
@@ -261,7 +261,7 @@ mod tests {
             let mut app = App::new();
             app.add_systems(Update, weapon_firing_system);
 
-            app.insert_resource(WeaponOrigin {
+            app.insert_resource(SpellOrigin {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
 
@@ -311,7 +311,7 @@ mod tests {
             ).chain(),
         );
 
-        app.insert_resource(WeaponOrigin {
+        app.insert_resource(SpellOrigin {
             position: Some(Vec3::new(0.0, 3.0, 0.0)),
         });
 
@@ -353,7 +353,7 @@ mod tests {
         let mut app = App::new();
         app.add_systems(Update, weapon_firing_system);
 
-        app.insert_resource(WeaponOrigin {
+        app.insert_resource(SpellOrigin {
             position: Some(Vec3::new(0.0, 3.0, 0.0)),
         });
 
@@ -397,7 +397,7 @@ pub fn weapon_firing_system(
     asset_server: Option<Res<AssetServer>>,
     mut weapon_channel: Option<ResMut<AudioChannel<WeaponSoundChannel>>>,
     mut sound_limiter: Option<ResMut<SoundLimiter>>,
-    weapon_origin: Res<WeaponOrigin>,
+    spell_origin: Res<SpellOrigin>,
     game_meshes: Option<Res<GameMeshes>>,
     game_materials: Option<Res<GameMaterials>>,
     rocket_exhaust: Option<Res<RocketExhaustEffect>>,
@@ -412,7 +412,7 @@ pub fn weapon_firing_system(
     }
 
     // Check if Whisper has been collected (weapons enabled)
-    let Some(origin_pos) = weapon_origin.position else {
+    let Some(origin_pos) = spell_origin.position else {
         return; // No Whisper = no weapons
     };
 
