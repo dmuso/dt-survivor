@@ -260,7 +260,7 @@ impl SpellType {
             SpellType::Cataclysm => "Cataclysm",
 
             // Psychic
-            SpellType::MindBlast => "Mind Blast",
+            SpellType::MindBlast => "Mind Cage",
             SpellType::Telekinesis => "Synapse Shock",
             SpellType::PsychicWave => "Psychic Wave",
             SpellType::Confusion => "Brainburn",
@@ -345,7 +345,7 @@ impl SpellType {
             SpellType::Cataclysm => "Unleashes ultimate chaotic devastation.",
 
             // Psychic
-            SpellType::MindBlast => "A devastating psychic attack on the mind.",
+            SpellType::MindBlast => "Traps enemies in a psychic field, preventing escape.",
             SpellType::Telekinesis => "Stuns enemies briefly with mental overload.",
             SpellType::PsychicWave => "A wave of mental energy that stuns.",
             SpellType::Confusion => "Psychic aura that burns enemy minds with stacking damage.",

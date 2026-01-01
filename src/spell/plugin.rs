@@ -148,6 +148,11 @@ use crate::spells::psychic::synapse_shock::{
     synapse_shock_expansion_system, synapse_shock_stun_application_system,
     synapse_shock_stun_tick_system, synapse_shock_visual_system,
 };
+use crate::spells::psychic::mind_cage::{
+    mind_cage_capture_system, mind_cage_cleanup_markers_system,
+    mind_cage_cleanup_system, mind_cage_constraint_system,
+    mind_cage_duration_system, mind_cage_visual_system,
+};
 use crate::spells::chaos::chaos_bolt::{
     chaos_bolt_collision_detection, chaos_bolt_collision_effects,
     chaos_bolt_lifetime_system, chaos_bolt_movement_system,
@@ -909,6 +914,36 @@ pub fn plugin(app: &mut App) {
                 synapse_shock_cleanup_stun_system,
                 synapse_shock_cleanup_burst_system,
             )
+                .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Mind Cage systems - duration tick in Effects, capture and constraint in Combat, cleanup in Cleanup
+        .add_systems(
+            Update,
+            (
+                mind_cage_duration_system,
+                mind_cage_visual_system,
+            )
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                mind_cage_capture_system,
+                mind_cage_constraint_system,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                mind_cage_cleanup_markers_system,
+                mind_cage_cleanup_system,
+            )
+                .chain()
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )

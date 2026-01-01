@@ -2674,6 +2674,15 @@ pub fn spell_casting_system(
                     game_materials.as_deref(),
                 );
             }
+            SpellType::MindBlast => {
+                crate::spells::psychic::mind_cage::fire_mind_cage(
+                    &mut commands,
+                    spell,
+                    origin_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
             _ => {
                 // Other spell types not implemented yet
             }
