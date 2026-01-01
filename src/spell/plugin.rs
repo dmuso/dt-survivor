@@ -132,6 +132,12 @@ use crate::spells::chaos::chaos_bolt::{
     chaos_poison_damage_system, stunned_enemy_system,
     ChaosBoltEnemyCollisionEvent,
 };
+use crate::spells::light::solar_flare::{
+    blinded_debuff_tick_system, solar_flare_collision_system,
+    solar_flare_explosion_cleanup_system, solar_flare_explosion_damage_system,
+    solar_flare_movement_system, solar_flare_spawn_explosion_system,
+    SolarFlareExplosionEvent,
+};
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -156,6 +162,7 @@ pub fn plugin(app: &mut App) {
         .add_message::<LightningDamageEvent>()
         .add_message::<ShatterEnemyCollisionEvent>()
         .add_message::<ChaosBoltEnemyCollisionEvent>()
+        .add_message::<SolarFlareExplosionEvent>()
         // Movement systems - spell follows player
         .add_systems(
             Update,
@@ -836,6 +843,33 @@ pub fn plugin(app: &mut App) {
             (
                 stunned_enemy_system,
                 chaos_poison_damage_system,
+            )
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Solar Flare systems - movement in Movement, collision and explosion in Combat, debuffs in Effects
+        .add_systems(
+            Update,
+            solar_flare_movement_system
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                solar_flare_collision_system,
+                solar_flare_spawn_explosion_system,
+                solar_flare_explosion_damage_system,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                solar_flare_explosion_cleanup_system,
+                blinded_debuff_tick_system,
             )
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
