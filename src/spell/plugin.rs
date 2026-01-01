@@ -153,6 +153,10 @@ use crate::spells::chaos::entropy_field::{
     entropy_field_cleanup_system, entropy_field_damage_system,
     entropy_field_tick_system, entropy_field_visual_system,
 };
+use crate::spells::chaos::warp_rift::{
+    warp_rift_cleanup_system, warp_rift_damage_system,
+    warp_rift_pull_system, warp_rift_tick_system,
+};
 use crate::spells::light::solar_flare::{
     blinded_debuff_tick_system, solar_flare_collision_system,
     solar_flare_explosion_cleanup_system, solar_flare_explosion_damage_system,
@@ -1039,6 +1043,31 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             entropy_field_cleanup_system
+                .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Warp Rift (Paradox) systems - tick in Effects, pull in Movement, damage in Combat, cleanup in Cleanup
+        .add_systems(
+            Update,
+            warp_rift_tick_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            warp_rift_pull_system
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            warp_rift_damage_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            warp_rift_cleanup_system
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )
