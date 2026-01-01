@@ -2727,6 +2727,18 @@ pub fn spell_casting_system(
                     game_materials.as_deref(),
                 );
             }
+            SpellType::VoidRift => {
+                // Black Spiral creates a rotating vortex that pulls enemies inward and damages them
+                crate::spells::dark::black_spiral::spawn_black_spiral_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
+                    target_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
             _ => {
                 // Other spell types not implemented yet
             }

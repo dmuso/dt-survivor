@@ -127,6 +127,11 @@ use crate::spells::dark::void_pulse::{
     void_pulse_expansion_system, void_pulse_visual_system,
     weakened_debuff_tick_system,
 };
+use crate::spells::dark::black_spiral::{
+    black_spiral_cleanup_system, black_spiral_damage_system,
+    black_spiral_pull_system, black_spiral_tick_system,
+    black_spiral_visual_system,
+};
 use crate::spells::psychic::mind_lash::{
     mind_lash_collision_system, render_mind_lash_system, update_mind_lash_system,
 };
@@ -841,6 +846,37 @@ pub fn plugin(app: &mut App) {
                 weakened_debuff_tick_system,
             )
                 .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Black Spiral (VoidRift) systems - tick in Effects, pull in Movement, damage in Combat, visual in Effects, cleanup in Cleanup
+        .add_systems(
+            Update,
+            black_spiral_tick_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            black_spiral_pull_system
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            black_spiral_damage_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            black_spiral_visual_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            black_spiral_cleanup_system
+                .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )
         // Nightfall (Eclipse) systems - duration in Effects, tracking in Combat, cleanup in Cleanup

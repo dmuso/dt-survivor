@@ -10,6 +10,7 @@ pub mod psychic;
 pub use chaos::chaos_bolt;
 pub use chaos::fear;
 pub use chaos::warp_rift;
+pub use dark::black_spiral;
 pub use dark::grim_tether;
 pub use dark::shadow_bolt;
 pub use dark::soul_drain;

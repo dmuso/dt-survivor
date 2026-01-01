@@ -1,3 +1,4 @@
+pub mod black_spiral;
 pub mod grim_tether;
 pub mod nightfall;
 pub mod shadow_bolt;
@@ -6,6 +7,7 @@ pub mod soul_rend;
 pub mod void_pulse;
 pub mod wraith_form;
 
+pub use black_spiral::*;
 pub use grim_tether::*;
 pub use nightfall::*;
 pub use shadow_bolt::*;
