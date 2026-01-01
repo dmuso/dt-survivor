@@ -1,3 +1,4 @@
+pub mod chaos;
 pub mod dark;
 pub mod fire;
 pub mod frost;
@@ -5,6 +6,7 @@ pub mod light;
 pub mod lightning;
 pub mod poison;
 
+pub use chaos::fear;
 pub use dark::soul_drain;
 pub use fire::fireball;
 pub use frost::ice_shard;
