@@ -111,6 +111,9 @@ use crate::spells::poison::acid_rain::{
     acid_rain_droplet_collision_system, acid_rain_move_droplets_system,
     acid_rain_spawn_droplets_system,
 };
+use crate::spells::dark::soul_drain::{
+    soul_drain_system, soul_drain_pulse_visual_system,
+};
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -707,6 +710,19 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             radiance_pulse_visual_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Soul Drain aura systems - damage/heal in Combat, visual expansion in Effects
+        .add_systems(
+            Update,
+            soul_drain_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            soul_drain_pulse_visual_system
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         );
