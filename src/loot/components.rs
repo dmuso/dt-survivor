@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use crate::weapon::components::Weapon;
+use crate::spell::SpellType;
 
 /// Base rotation speed when pickup starts (radians per second)
 pub const BASE_ROTATION_SPEED: f32 = 2.0;
@@ -28,7 +28,7 @@ pub enum PickupState {
 
 #[derive(Clone, Debug)]
 pub enum ItemData {
-    Weapon(Weapon),
+    Spell(SpellType),
     HealthPack { heal_amount: f32 },
     Experience { amount: u32 },
     Powerup(crate::powerup::components::PowerupType),

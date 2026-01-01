@@ -4,10 +4,10 @@ use crate::combat::components::Health;
 use crate::loot::components::{DroppedItem, FallingAnimation, ItemData, PickupState, PopUpAnimation};
 use crate::loot::events::*;
 use crate::loot::plugin::XpOrbModel;
-use crate::weapon::components::{Weapon, WeaponType};
+use crate::spell::{Spell, SpellType};
 use crate::player::components::*;
 use crate::inventory::resources::*;
-use crate::inventory::components::*;
+use crate::inventory::bag::InventoryBag;
 use bevy_kira_audio::prelude::*;
 use crate::audio::plugin::*;
 use crate::game::components::Level;
@@ -116,40 +116,11 @@ pub fn loot_drop_system(
         // Spawn loot drops with specified probabilities
         let mut loot_drops: Vec<ItemData> = Vec::new();
 
-        // 1% chance to drop rocket launcher
-        if rng.gen_bool(0.01) {
-            loot_drops.push(ItemData::Weapon(Weapon {
-                weapon_type: WeaponType::RocketLauncher,
-                level: 1,
-                fire_rate: 5.0,
-                base_damage: 50.0,
-                last_fired: 0.0,
-            }));
-        }
-
-        // 2% chance to drop laser
-        if rng.gen_bool(0.02) {
-            loot_drops.push(ItemData::Weapon(Weapon {
-                weapon_type: WeaponType::Laser,
-                level: 1,
-                fire_rate: 3.0,
-                base_damage: 15.0,
-                last_fired: 0.0,
-            }));
-        }
-
-        // 3% chance to drop pistol
-        if rng.gen_bool(0.03) {
-            loot_drops.push(ItemData::Weapon(Weapon {
-                weapon_type: WeaponType::Pistol {
-                    bullet_count: 5,
-                    spread_angle: 15.0,
-                },
-                level: 1,
-                fire_rate: 2.0,
-                base_damage: 1.0,
-                last_fired: 0.0,
-            }));
+        // 5% chance to drop a random spell (equal chance for all 64 spells)
+        if rng.gen_bool(0.05) {
+            let all_spells = SpellType::all();
+            let spell_index = rng.gen_range(0..all_spells.len());
+            loot_drops.push(ItemData::Spell(all_spells[spell_index]));
         }
 
         // 3% chance to drop health regen (health pack)
@@ -166,12 +137,13 @@ pub fn loot_drop_system(
 
             // Select mesh and material based on item type (emissive materials handle glow via bloom)
             let (mesh, material, y_height) = match &item_data {
-                ItemData::Weapon(weapon) => {
-                    let material = match weapon.weapon_type {
-                        WeaponType::Pistol { .. } => game_materials.weapon_pistol.clone(),
-                        WeaponType::Laser => game_materials.weapon_laser.clone(),
-                        WeaponType::RocketLauncher => game_materials.weapon_rocket.clone(),
-                        _ => game_materials.xp_orb.clone(), // Default fallback
+                ItemData::Spell(spell_type) => {
+                    // Use element-based coloring for spell drops
+                    let material = match spell_type.element() {
+                        crate::element::Element::Fire => game_materials.fireball.clone(),
+                        crate::element::Element::Lightning => game_materials.thunder_strike.clone(),
+                        crate::element::Element::Light => game_materials.radiant_beam.clone(),
+                        _ => game_materials.powerup.clone(), // Other elements use magenta
                     };
                     (game_meshes.loot_large.clone(), material, LOOT_LARGE_Y_HEIGHT)
                 }
@@ -282,7 +254,7 @@ pub fn update_item_attraction(
                     // Use different acceleration based on item type
                     let base_acceleration = match &item.item_data {
                         ItemData::Experience { .. } => 80.0,  // Fastest for XP
-                        ItemData::Weapon(_) | ItemData::HealthPack { .. } => 60.0, // Medium for loot
+                        ItemData::Spell(_) | ItemData::HealthPack { .. } => 60.0, // Medium for spells/health
                         ItemData::Powerup(_) | ItemData::Whisper => 40.0, // Slower for powerups and whisper
                     };
 
@@ -527,8 +499,8 @@ pub fn apply_item_effects(
     mut effect_events: MessageReader<ItemEffectEvent>,
     mut player_query: Query<(&Transform, &Player, &mut Health)>,
     mut player_exp_query: Query<&mut crate::experience::components::PlayerExperience>,
-    weapon_query: Query<(Entity, &Weapon)>,
-    mut inventory: ResMut<Inventory>,
+    mut spell_list: Option<ResMut<SpellList>>,
+    mut inventory_bag: Option<ResMut<InventoryBag>>,
     mut active_powerups: ResMut<crate::powerup::components::ActivePowerups>,
     mut screen_tint: ResMut<ScreenTintEffect>,
     mut whisper_state: ResMut<WhisperState>,
@@ -541,29 +513,48 @@ pub fn apply_item_effects(
 ) {
     for event in effect_events.read() {
         match &event.item_data {
-            ItemData::Weapon(weapon) => {
-                // Add weapon to inventory
-                if inventory.add_or_level_weapon(weapon.clone()) {
-                    // Recreate all weapon entities to reflect changes
-                    let weapon_entities: Vec<Entity> = weapon_query.iter().map(|(entity, _)| entity).collect();
-                    for entity in weapon_entities {
-                        commands.entity(entity).despawn();
-                    }
+            ItemData::Spell(spell_type) => {
+                // Skip spell pickup if resources aren't available
+                let Some(ref mut spell_list) = spell_list else { continue };
+                let Some(ref mut inventory_bag) = inventory_bag else { continue };
 
-                    // Create new weapon entities for all weapons in inventory
-                    if let Ok((player_transform, _, _)) = player_query.get(event.player_entity) {
-                        for (_weapon_id, weapon) in inventory.iter_weapons() {
-                            commands.spawn((
-                                weapon.clone(),
-                                EquippedWeapon { weapon_type: weapon.weapon_type.clone() },
-                                Transform::from_translation(player_transform.translation),
-                            ));
-                        }
-                    }
+                // Spell pickup priority logic:
+                // 1. SpellList has same spell type -> Level up that spell
+                // 2. InventoryBag has same spell type -> Level up that spell in bag
+                // 3. SpellList has empty slot -> Equip to empty slot
+                // 4. InventoryBag has empty slot -> Add to bag
+                // 5. Both full -> Spell is lost
 
-                    // Play powerup sound for weapon pickups
+                // Check SpellList for same spell (level up)
+                if let Some(slot) = spell_list.find_spell_slot(spell_type) {
+                    if let Some(spell) = spell_list.get_spell_mut(slot) {
+                        spell.level_up();
+                    }
+                    play_powerup_sound(&asset_server, &mut audio_channel, &mut sound_limiter, &mut loot_cooldown);
+                    continue;
+                }
+
+                // Check bag for same spell (level up)
+                if let Some(slot) = inventory_bag.find_spell(spell_type) {
+                    if let Some(spell) = inventory_bag.get_spell_mut(slot) {
+                        spell.level_up();
+                    }
+                    play_powerup_sound(&asset_server, &mut audio_channel, &mut sound_limiter, &mut loot_cooldown);
+                    continue;
+                }
+
+                // Try to equip to SpellList
+                let new_spell = Spell::new(*spell_type);
+                if spell_list.equip(new_spell.clone()).is_some() {
+                    play_powerup_sound(&asset_server, &mut audio_channel, &mut sound_limiter, &mut loot_cooldown);
+                    continue;
+                }
+
+                // Try to add to bag
+                if inventory_bag.add(new_spell).is_some() {
                     play_powerup_sound(&asset_server, &mut audio_channel, &mut sound_limiter, &mut loot_cooldown);
                 }
+                // Both full -> spell is lost (no sound played)
             }
             ItemData::HealthPack { heal_amount } => {
                 // Heal player
@@ -632,34 +623,10 @@ pub fn apply_item_effects(
                 // Mark as collected
                 whisper_state.collected = true;
 
-                // Add default pistol to inventory
-                let pistol = Weapon {
-                    weapon_type: WeaponType::Pistol {
-                        bullet_count: 5,
-                        spread_angle: 15.0,
-                    },
-                    level: 1,
-                    fire_rate: 2.0,
-                    base_damage: 1.0,
-                    last_fired: -2.0,
-                };
-                inventory.add_or_level_weapon(pistol.clone());
-
-                // Recreate weapon entities
-                let weapon_entities: Vec<Entity> = weapon_query.iter().map(|(entity, _)| entity).collect();
-                for entity in weapon_entities {
-                    commands.entity(entity).despawn();
-                }
-
-                // Create new weapon entities for all weapons in inventory
-                for (_weapon_id, weapon) in inventory.iter_weapons() {
-                    commands.spawn((
-                        weapon.clone(),
-                        EquippedWeapon {
-                            weapon_type: weapon.weapon_type.clone(),
-                        },
-                        Transform::from_translation(player_pos),
-                    ));
+                // Add default Fireball spell to spell list (if available)
+                if let Some(ref mut spell_list) = spell_list {
+                    let fireball = Spell::new(SpellType::Fireball);
+                    spell_list.equip(fireball);
                 }
 
                 play_powerup_sound(&asset_server, &mut audio_channel, &mut sound_limiter, &mut loot_cooldown);
@@ -752,7 +719,6 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
-    use crate::weapon::components::{Weapon, WeaponType};
     use crate::player::components::Player;
 
     mod xp_value_tests {
@@ -1107,30 +1073,21 @@ mod tests {
     }
 
     #[test]
-    fn test_dropped_item_weapon_creation() {
-        // Test that DroppedItem can hold weapon data
-        let weapon = Weapon {
-            weapon_type: WeaponType::Laser,
-            level: 1,
-            fire_rate: 3.0,
-            base_damage: 15.0,
-            last_fired: 0.0,
-        };
-
+    fn test_dropped_item_spell_creation() {
+        // Test that DroppedItem can hold spell data
         let item = DroppedItem {
             pickup_state: PickupState::Idle,
-            item_data: ItemData::Weapon(weapon.clone()),
+            item_data: ItemData::Spell(SpellType::Fireball),
             velocity: Vec3::ZERO,
             rotation_speed: 0.0,
             rotation_direction: 1.0,
         };
 
         match item.item_data {
-            ItemData::Weapon(w) => {
-                assert!(matches!(w.weapon_type, WeaponType::Laser));
-                assert_eq!(w.base_damage, 15.0);
+            ItemData::Spell(spell_type) => {
+                assert_eq!(spell_type, SpellType::Fireball);
             }
-            _ => panic!("Expected weapon item data"),
+            _ => panic!("Expected spell item data"),
         }
     }
 
@@ -1960,6 +1917,138 @@ mod tests {
             // Tick past maximum possible cooldown (250ms)
             cooldown.timer.tick(Duration::from_millis(300));
             assert!(cooldown.timer.is_finished(), "Timer should be finished after 300ms");
+        }
+    }
+
+    mod spell_pickup_tests {
+        use super::*;
+        use crate::inventory::resources::SpellList;
+
+        #[test]
+        fn test_spell_pickup_levels_up_when_same_spell_in_spell_list() {
+            // When SpellList already has the same spell, picking up another should level it up
+            let mut spell_list = SpellList::default();
+            let fireball = Spell::new(SpellType::Fireball);
+            spell_list.equip(fireball);
+
+            let initial_level = spell_list.get_spell(0).unwrap().level;
+
+            // Simulate finding the same spell and leveling it up
+            if let Some(slot) = spell_list.find_spell_slot(&SpellType::Fireball) {
+                if let Some(spell) = spell_list.get_spell_mut(slot) {
+                    spell.level_up();
+                }
+            }
+
+            let new_level = spell_list.get_spell(0).unwrap().level;
+            assert_eq!(new_level, initial_level + 1, "Spell should level up when same type is picked up");
+        }
+
+        #[test]
+        fn test_spell_pickup_levels_up_when_same_spell_in_bag() {
+            // When InventoryBag already has the same spell, picking up another should level it up
+            let mut bag = InventoryBag::default();
+            let fireball = Spell::new(SpellType::Fireball);
+            bag.add(fireball);
+
+            let initial_level = bag.get_spell(0).unwrap().level;
+
+            // Simulate finding the same spell and leveling it up
+            if let Some(slot) = bag.find_spell(&SpellType::Fireball) {
+                if let Some(spell) = bag.get_spell_mut(slot) {
+                    spell.level_up();
+                }
+            }
+
+            let new_level = bag.get_spell(0).unwrap().level;
+            assert_eq!(new_level, initial_level + 1, "Spell should level up when same type is picked up");
+        }
+
+        #[test]
+        fn test_spell_pickup_equips_to_spell_list_when_empty() {
+            // When SpellList has empty slots, new spell should be equipped there
+            let mut spell_list = SpellList::default();
+            let new_spell = Spell::new(SpellType::Fireball);
+
+            let slot = spell_list.equip(new_spell);
+            assert_eq!(slot, Some(0), "New spell should be equipped to first empty slot");
+            assert!(spell_list.has_spell(&SpellType::Fireball), "Spell should now be in spell list");
+        }
+
+        #[test]
+        fn test_spell_pickup_adds_to_bag_when_spell_list_full() {
+            // When SpellList is full, new spell should go to InventoryBag
+            let mut spell_list = SpellList::default();
+            let mut bag = InventoryBag::default();
+
+            // Fill spell list with 5 different spells
+            spell_list.equip(Spell::new(SpellType::Fireball));
+            spell_list.equip(Spell::new(SpellType::IceShard));
+            spell_list.equip(Spell::new(SpellType::VenomBolt));
+            spell_list.equip(Spell::new(SpellType::Spark));
+            spell_list.equip(Spell::new(SpellType::HolyBeam));
+
+            // Try to equip new spell - should fail
+            let new_spell = Spell::new(SpellType::ShadowBolt);
+            let slot = spell_list.equip(new_spell.clone());
+            assert_eq!(slot, None, "SpellList should be full");
+
+            // Add to bag instead
+            let bag_slot = bag.add(new_spell);
+            assert!(bag_slot.is_some(), "Should be able to add to bag");
+            assert!(bag.find_spell(&SpellType::ShadowBolt).is_some(), "Spell should be in bag");
+        }
+
+        #[test]
+        fn test_spell_pickup_priority_spell_list_level_up_first() {
+            // If same spell exists in both SpellList and InventoryBag,
+            // SpellList should be leveled up first
+            let mut spell_list = SpellList::default();
+            let mut bag = InventoryBag::default();
+
+            // Put same spell in both locations
+            spell_list.equip(Spell::new(SpellType::Fireball));
+            bag.add(Spell::new(SpellType::Fireball));
+
+            let spell_list_initial = spell_list.get_spell(0).unwrap().level;
+            let bag_initial = bag.get_spell(0).unwrap().level;
+
+            // Priority check: SpellList first
+            if let Some(slot) = spell_list.find_spell_slot(&SpellType::Fireball) {
+                if let Some(spell) = spell_list.get_spell_mut(slot) {
+                    spell.level_up();
+                }
+            }
+
+            let spell_list_new = spell_list.get_spell(0).unwrap().level;
+            let bag_new = bag.get_spell(0).unwrap().level;
+
+            assert_eq!(spell_list_new, spell_list_initial + 1, "SpellList spell should level up");
+            assert_eq!(bag_new, bag_initial, "Bag spell should remain unchanged");
+        }
+
+        #[test]
+        fn test_item_data_spell_stores_spell_type() {
+            let item_data = ItemData::Spell(SpellType::ThunderStrike);
+            match item_data {
+                ItemData::Spell(spell_type) => {
+                    assert_eq!(spell_type, SpellType::ThunderStrike);
+                    assert_eq!(spell_type.element(), crate::element::Element::Lightning);
+                }
+                _ => panic!("Expected Spell item data"),
+            }
+        }
+
+        #[test]
+        fn test_item_data_spell_clone() {
+            let item_data = ItemData::Spell(SpellType::FrostNova);
+            let cloned = item_data.clone();
+            match (item_data, cloned) {
+                (ItemData::Spell(a), ItemData::Spell(b)) => {
+                    assert_eq!(a, b, "Cloned spell type should match original");
+                }
+                _ => panic!("Expected Spell item data"),
+            }
         }
     }
 
