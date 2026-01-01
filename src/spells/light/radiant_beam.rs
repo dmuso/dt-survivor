@@ -196,11 +196,35 @@ pub fn fire_radiant_beam(
     game_meshes: Option<&GameMeshes>,
     game_materials: Option<&GameMaterials>,
 ) {
+    fire_radiant_beam_with_damage(
+        commands,
+        spell,
+        spell.damage(),
+        spawn_position,
+        target_pos,
+        game_meshes,
+        game_materials,
+    );
+}
+
+/// Cast radiant beam spell with explicit damage - spawns a beam with light element visuals.
+/// `spawn_position` is Whisper's full 3D position, `target_pos` is target on XZ plane.
+/// `damage` is the pre-calculated final damage (including attunement multiplier)
+#[allow(clippy::too_many_arguments)]
+pub fn fire_radiant_beam_with_damage(
+    commands: &mut Commands,
+    _spell: &Spell,
+    damage: f32,
+    spawn_position: Vec3,
+    target_pos: Vec2,
+    game_meshes: Option<&GameMeshes>,
+    game_materials: Option<&GameMaterials>,
+) {
     // Extract XZ position from spawn_position for direction calculation
     let spawn_xz = from_xz(spawn_position);
     let direction = (target_pos - spawn_xz).normalize();
 
-    let beam = RadiantBeam::from_spell(spawn_xz, direction, spell, spawn_position.y);
+    let beam = RadiantBeam::with_height(spawn_xz, direction, damage, spawn_position.y);
 
     // Spawn beam at Whisper's full 3D position
     if let (Some(meshes), Some(materials)) = (game_meshes, game_materials) {

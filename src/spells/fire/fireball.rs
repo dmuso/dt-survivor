@@ -134,6 +134,36 @@ pub fn fire_fireball(
     game_meshes: Option<&GameMeshes>,
     game_materials: Option<&GameMaterials>,
 ) {
+    fire_fireball_with_damage(
+        commands,
+        spell,
+        spell.damage(),
+        spawn_position,
+        target_pos,
+        asset_server,
+        weapon_channel,
+        sound_limiter,
+        game_meshes,
+        game_materials,
+    );
+}
+
+/// Cast fireball spell with explicit damage - spawns projectiles with fire element visuals
+/// `spawn_position` is Whisper's full 3D position, `target_pos` is enemy position on XZ plane
+/// `damage` is the pre-calculated final damage (including attunement multiplier)
+#[allow(clippy::too_many_arguments)]
+pub fn fire_fireball_with_damage(
+    commands: &mut Commands,
+    spell: &Spell,
+    damage: f32,
+    spawn_position: Vec3,
+    target_pos: Vec2,
+    asset_server: Option<&Res<AssetServer>>,
+    weapon_channel: Option<&mut ResMut<AudioChannel<WeaponSoundChannel>>>,
+    sound_limiter: Option<&mut ResMut<SoundLimiter>>,
+    game_meshes: Option<&GameMeshes>,
+    game_materials: Option<&GameMaterials>,
+) {
     // Extract XZ position from spawn_position for direction calculation
     let spawn_xz = from_xz(spawn_position);
     let base_direction = (target_pos - spawn_xz).normalize();
@@ -158,7 +188,7 @@ pub fn fire_fireball(
             base_direction.x * sin_offset + base_direction.y * cos_offset,
         );
 
-        let fireball = FireballProjectile::from_spell(direction, spell);
+        let fireball = FireballProjectile::new(direction, FIREBALL_SPEED, FIREBALL_LIFETIME, damage);
 
         // Spawn fireball at Whisper's full 3D position
         if let (Some(meshes), Some(materials)) = (game_meshes, game_materials) {

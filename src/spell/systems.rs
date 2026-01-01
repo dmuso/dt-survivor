@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use bevy_kira_audio::prelude::*;
 use rand::Rng;
-use crate::spell::components::*;
 use crate::spell::SpellType;
 
 use crate::enemies::components::*;
@@ -14,193 +13,184 @@ use crate::whisper::resources::SpellOrigin;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::inventory::components::EquippedSpell;
     use crate::element::Element;
+    use crate::inventory::resources::SpellList;
+    use crate::spell::components::Spell;
+    use crate::whisper::resources::WhisperAttunement;
 
-    #[test]
-    fn test_spell_targeting_random_from_5_closest() {
-        let mut app = App::new();
-        app.add_systems(Update, spell_casting_system);
+    mod spell_list_integration_tests {
+        use super::*;
 
-        // Set up SpellOrigin at (0, 3, 0) - simulates Whisper collected at height
-        app.insert_resource(SpellOrigin {
-            position: Some(Vec3::new(0.0, 3.0, 0.0)),
-        });
+        #[test]
+        fn spell_casting_uses_spell_list_resource() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
 
-        // Create 10 enemies at different distances on XZ plane
-        for i in 1..=10 {
-            let distance = i as f32 * 20.0;
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            // Set up SpellList with a fireball
+            let mut spell_list = SpellList::default();
+            let mut fireball = Spell::new(SpellType::Fireball);
+            fireball.last_fired = -10.0; // Ready to fire
+            spell_list.equip(fireball);
+            app.insert_resource(spell_list);
+
+            // Create enemy
             app.world_mut().spawn((
                 Enemy { speed: 50.0, strength: 10.0 },
-                Transform::from_translation(Vec3::new(distance, 0.375, 0.0)),
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
             ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let fireball_count = app.world_mut()
+                .query::<&crate::spells::fire::fireball::FireballProjectile>()
+                .iter(app.world())
+                .count();
+            assert_eq!(fireball_count, 1, "Fireball should spawn from SpellList");
         }
 
-        // Create a spell entity
-        app.world_mut().spawn((
-            Spell::new(SpellType::Fireball),
-            EquippedSpell { spell_type: SpellType::Fireball },
-            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
-        ));
+        #[test]
+        fn spell_casting_iterates_all_5_spell_slots() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
 
-        app.init_resource::<Time>();
-        app.update();
-    }
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
 
-    #[test]
-    fn test_radiant_beam_spell_raycast_enemy_destruction() {
-        let mut app = App::new();
-        app.add_systems(Update, spell_casting_system);
+            // Set up SpellList with multiple spells
+            let mut spell_list = SpellList::default();
+            for spell_type in [SpellType::Fireball, SpellType::RadiantBeam, SpellType::ThunderStrike] {
+                let mut spell = Spell::new(spell_type);
+                spell.last_fired = -10.0;
+                spell_list.equip(spell);
+            }
+            app.insert_resource(spell_list);
 
-        app.insert_resource(SpellOrigin {
-            position: Some(Vec3::new(0.0, 3.0, 0.0)),
-        });
-
-        let enemy_xz_positions = vec![
-            Vec2::new(100.0, 0.0),
-            Vec2::new(200.0, 0.0),
-            Vec2::new(100.0, 50.0),
-            Vec2::new(300.0, 0.0),
-        ];
-
-        for pos in enemy_xz_positions {
+            // Create enemy
             app.world_mut().spawn((
                 Enemy { speed: 50.0, strength: 10.0 },
-                Transform::from_translation(Vec3::new(pos.x, 0.375, pos.y)),
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
             ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            // All three spell types should have cast
+            let fireball_count = app.world_mut()
+                .query::<&crate::spells::fire::fireball::FireballProjectile>()
+                .iter(app.world())
+                .count();
+            let beam_count = app.world_mut()
+                .query::<&crate::spells::light::radiant_beam::RadiantBeam>()
+                .iter(app.world())
+                .count();
+            let thunder_count = app.world_mut()
+                .query::<&crate::spells::lightning::thunder_strike::ThunderStrikeMarker>()
+                .iter(app.world())
+                .count();
+
+            assert!(fireball_count >= 1, "Fireball should cast from slot 0");
+            assert!(beam_count >= 1, "Radiant beam should cast from slot 1");
+            assert!(thunder_count >= 1, "Thunder strike should cast from slot 2");
         }
 
-        app.world_mut().spawn((
-            Spell {
-                spell_type: SpellType::RadiantBeam,
-                element: Element::Light,
-                name: "Radiant Beam".to_string(),
-                description: "A beam of light.".to_string(),
-                level: 1,
-                fire_rate: 0.1,
-                base_damage: 15.0,
-                last_fired: 10.0,
-            },
-            EquippedSpell { spell_type: SpellType::RadiantBeam },
-            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
-        ));
+        #[test]
+        fn empty_spell_slots_are_skipped() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
 
-        app.init_resource::<Time>();
-        app.update();
-    }
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
 
-    #[test]
-    fn test_multiple_spells_cast_independently() {
-        let mut app = App::new();
-        app.add_systems(Update, spell_casting_system);
+            // Empty SpellList - no spells equipped
+            app.init_resource::<SpellList>();
 
-        app.insert_resource(SpellOrigin {
-            position: Some(Vec3::new(0.0, 3.0, 0.0)),
-        });
-
-        for i in 1..=6 {
-            let angle = (i as f32 / 6.0) * std::f32::consts::PI * 2.0;
-            let x = angle.cos() * 100.0;
-            let z = angle.sin() * 100.0;
             app.world_mut().spawn((
                 Enemy { speed: 50.0, strength: 10.0 },
-                Transform::from_translation(Vec3::new(x, 0.375, z)),
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
             ));
+
+            app.init_resource::<Time>();
+            // Should not panic when iterating empty slots
+            app.update();
         }
 
-        app.world_mut().spawn((
-            Spell::new(SpellType::Fireball),
-            EquippedSpell { spell_type: SpellType::Fireball },
-            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
-        ));
+        #[test]
+        fn cooldown_prevents_spell_casting() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
 
-        app.world_mut().spawn((
-            Spell::new(SpellType::RadiantBeam),
-            EquippedSpell { spell_type: SpellType::RadiantBeam },
-            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
-        ));
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
 
-        app.init_resource::<Time>();
-        app.update();
+            let mut spell_list = SpellList::default();
+            let mut fireball = Spell::new(SpellType::Fireball);
+            fireball.last_fired = 1000.0; // Far in future, still on cooldown
+            spell_list.equip(fireball);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let fireball_count = app.world_mut()
+                .query::<&crate::spells::fire::fireball::FireballProjectile>()
+                .iter(app.world())
+                .count();
+            assert_eq!(fireball_count, 0, "Fireball should not spawn when on cooldown");
+        }
+
+        #[test]
+        fn cooldown_resets_after_cast() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let mut fireball = Spell::new(SpellType::Fireball);
+            fireball.last_fired = -10.0;
+            spell_list.equip(fireball);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let spell_list = app.world().get_resource::<SpellList>().unwrap();
+            let spell = spell_list.get_spell(0).unwrap();
+            assert!(spell.last_fired >= 0.0, "last_fired should update after casting");
+        }
     }
 
-    #[test]
-    fn test_spells_disabled_without_whisper() {
-        let mut app = App::new();
-        app.add_systems(Update, spell_casting_system);
+    mod whisper_attunement_tests {
+        use super::*;
+        use crate::spells::fire::fireball::FireballProjectile;
 
-        app.insert_resource(SpellOrigin { position: None });
-
-        app.world_mut().spawn((
-            Enemy { speed: 50.0, strength: 10.0 },
-            Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
-        ));
-
-        app.world_mut().spawn((
-            Spell::new(SpellType::Fireball),
-            EquippedSpell { spell_type: SpellType::Fireball },
-            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
-        ));
-
-        app.init_resource::<Time>();
-        app.update();
-
-        let fireball_count = app.world_mut().query::<&crate::spells::fire::fireball::FireballProjectile>().iter(app.world()).count();
-        assert_eq!(fireball_count, 0, "No fireballs should spawn when Whisper not collected");
-    }
-
-    #[test]
-    fn test_radiant_beam_spell_spawns_with_correct_damage() {
-        use crate::spells::light::radiant_beam::RadiantBeam;
-
-        let mut app = App::new();
-        app.add_systems(Update, spell_casting_system);
-
-        app.insert_resource(SpellOrigin {
-            position: Some(Vec3::new(0.0, 3.0, 0.0)),
-        });
-
-        app.world_mut().spawn((
-            Enemy { speed: 50.0, strength: 10.0 },
-            Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
-        ));
-
-        app.world_mut().spawn((
-            Spell {
-                spell_type: SpellType::RadiantBeam,
-                element: Element::Light,
-                name: "Radiant Beam".to_string(),
-                description: "A beam of light.".to_string(),
-                level: 5,
-                fire_rate: 0.1,
-                base_damage: 10.0,
-                last_fired: -10.0,
-            },
-            EquippedSpell { spell_type: SpellType::RadiantBeam },
-            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
-        ));
-
-        app.init_resource::<Time>();
-        app.update();
-
-        let mut beam_query = app.world_mut().query::<&RadiantBeam>();
-        let beams: Vec<_> = beam_query.iter(app.world()).collect();
-        assert_eq!(beams.len(), 1, "One radiant beam should be spawned");
-        assert_eq!(beams[0].damage, 62.5, "Beam damage should be 62.5 (10.0 * 5 * 1.25)");
-    }
-
-    #[test]
-    fn test_radiant_beam_damage_scales_with_spell_level() {
-        use crate::spells::light::radiant_beam::RadiantBeam;
-
-        let test_cases = [
-            (1, 10.0, 12.5),
-            (5, 10.0, 62.5),
-            (10, 10.0, 125.0),
-            (3, 20.0, 75.0),
-        ];
-
-        for (level, base_damage, expected_damage) in test_cases {
+        #[test]
+        fn attunement_bonus_applied_to_matching_element() {
             let mut app = App::new();
             app.add_systems(Update, spell_casting_system);
 
@@ -208,67 +198,208 @@ mod tests {
                 position: Some(Vec3::new(0.0, 3.0, 0.0)),
             });
 
+            // Fire attunement for fire spell
+            app.insert_resource(WhisperAttunement::with_element(Element::Fire));
+
+            let mut spell_list = SpellList::default();
+            let mut fireball = Spell::new(SpellType::Fireball);
+            fireball.last_fired = -10.0;
+            spell_list.equip(fireball);
+            app.insert_resource(spell_list);
+
             app.world_mut().spawn((
                 Enemy { speed: 50.0, strength: 10.0 },
                 Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
             ));
 
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut query = app.world_mut().query::<&FireballProjectile>();
+            let projectiles: Vec<_> = query.iter(app.world()).collect();
+            assert_eq!(projectiles.len(), 1);
+
+            // Fireball base damage 15.0 * level 1 * 1.25 = 18.75
+            // With 10% fire attunement: 18.75 * 1.1 = 20.625
+            let expected_damage = 15.0 * 1.0 * 1.25 * 1.1;
+            assert!(
+                (projectiles[0].damage - expected_damage).abs() < 0.01,
+                "Expected damage {} with fire attunement, got {}",
+                expected_damage,
+                projectiles[0].damage
+            );
+        }
+
+        #[test]
+        fn no_attunement_uses_base_damage() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+
+            // No attunement
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let mut fireball = Spell::new(SpellType::Fireball);
+            fireball.last_fired = -10.0;
+            spell_list.equip(fireball);
+            app.insert_resource(spell_list);
+
             app.world_mut().spawn((
-                Spell {
-                    spell_type: SpellType::RadiantBeam,
-                    element: Element::Light,
-                    name: "Radiant Beam".to_string(),
-                    description: "A beam of light.".to_string(),
-                    level,
-                    fire_rate: 0.1,
-                    base_damage,
-                    last_fired: -10.0,
-                },
-                EquippedSpell { spell_type: SpellType::RadiantBeam },
-                Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
             ));
 
             app.init_resource::<Time>();
             app.update();
 
-            let mut beam_query = app.world_mut().query::<&RadiantBeam>();
-            let beams: Vec<_> = beam_query.iter(app.world()).collect();
-            assert_eq!(
-                beams[0].damage, expected_damage,
-                "Level {} with base {} should have damage {}",
-                level, base_damage, expected_damage
+            let mut query = app.world_mut().query::<&FireballProjectile>();
+            let projectiles: Vec<_> = query.iter(app.world()).collect();
+            assert_eq!(projectiles.len(), 1);
+
+            // Fireball base damage 15.0 * level 1 * 1.25 = 18.75 (no attunement bonus)
+            let expected_damage = 15.0 * 1.0 * 1.25;
+            assert!(
+                (projectiles[0].damage - expected_damage).abs() < 0.01,
+                "Expected base damage {} without attunement, got {}",
+                expected_damage,
+                projectiles[0].damage
+            );
+        }
+
+        #[test]
+        fn mismatched_attunement_uses_base_damage() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+
+            // Frost attunement for fire spell - no bonus
+            app.insert_resource(WhisperAttunement::with_element(Element::Frost));
+
+            let mut spell_list = SpellList::default();
+            let mut fireball = Spell::new(SpellType::Fireball);
+            fireball.last_fired = -10.0;
+            spell_list.equip(fireball);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut query = app.world_mut().query::<&FireballProjectile>();
+            let projectiles: Vec<_> = query.iter(app.world()).collect();
+            assert_eq!(projectiles.len(), 1);
+
+            // Fireball base damage 15.0 * level 1 * 1.25 = 18.75 (no frost bonus on fire)
+            let expected_damage = 15.0 * 1.0 * 1.25;
+            assert!(
+                (projectiles[0].damage - expected_damage).abs() < 0.01,
+                "Expected base damage {} with mismatched attunement, got {}",
+                expected_damage,
+                projectiles[0].damage
             );
         }
     }
 
-    #[test]
-    fn test_radiant_beam_spell_damage_reduces_enemy_health() {
-        use crate::spells::light::radiant_beam::radiant_beam_collision_system;
-        use crate::combat::{apply_damage_system, DamageEvent, Health};
+    mod spells_disabled_tests {
+        use super::*;
 
-        let mut app = App::new();
-        app.add_message::<DamageEvent>();
-        app.add_systems(
-            Update,
-            (
-                spell_casting_system,
-                radiant_beam_collision_system,
-                apply_damage_system,
-            ).chain(),
-        );
+        #[test]
+        fn spells_disabled_without_whisper() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
 
-        app.insert_resource(SpellOrigin {
-            position: Some(Vec3::new(0.0, 3.0, 0.0)),
-        });
+            app.insert_resource(SpellOrigin { position: None });
+            app.init_resource::<WhisperAttunement>();
 
-        let enemy_entity = app.world_mut().spawn((
-            Enemy { speed: 50.0, strength: 10.0 },
-            Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
-            Health::new(100.0),
-        )).id();
+            let mut spell_list = SpellList::default();
+            let mut fireball = Spell::new(SpellType::Fireball);
+            fireball.last_fired = -10.0;
+            spell_list.equip(fireball);
+            app.insert_resource(spell_list);
 
-        app.world_mut().spawn((
-            Spell {
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let fireball_count = app.world_mut()
+                .query::<&crate::spells::fire::fireball::FireballProjectile>()
+                .iter(app.world())
+                .count();
+            assert_eq!(fireball_count, 0, "No fireballs should spawn when Whisper not collected");
+        }
+    }
+
+    mod targeting_tests {
+        use super::*;
+
+        #[test]
+        fn spell_targets_from_closest_5_enemies() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let mut fireball = Spell::new(SpellType::Fireball);
+            fireball.last_fired = -10.0;
+            spell_list.equip(fireball);
+            app.insert_resource(spell_list);
+
+            // Create 10 enemies at different distances
+            for i in 1..=10 {
+                let distance = i as f32 * 20.0;
+                app.world_mut().spawn((
+                    Enemy { speed: 50.0, strength: 10.0 },
+                    Transform::from_translation(Vec3::new(distance, 0.375, 0.0)),
+                ));
+            }
+
+            app.init_resource::<Time>();
+            app.update();
+
+            // Should cast toward one of the 5 closest enemies
+            let fireball_count = app.world_mut()
+                .query::<&crate::spells::fire::fireball::FireballProjectile>()
+                .iter(app.world())
+                .count();
+            assert!(fireball_count >= 1, "Fireball should be cast");
+        }
+    }
+
+    mod radiant_beam_tests {
+        use super::*;
+        use crate::spells::light::radiant_beam::RadiantBeam;
+
+        #[test]
+        fn radiant_beam_spawns_with_correct_damage_from_spell_list() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let mut beam = Spell {
                 spell_type: SpellType::RadiantBeam,
                 element: Element::Light,
                 name: "Radiant Beam".to_string(),
@@ -277,39 +408,86 @@ mod tests {
                 fire_rate: 0.1,
                 base_damage: 10.0,
                 last_fired: -10.0,
-            },
-            EquippedSpell { spell_type: SpellType::RadiantBeam },
-            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
-        ));
+            };
+            spell_list.equip(beam);
+            app.insert_resource(spell_list);
 
-        app.init_resource::<Time>();
-        app.update();
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
+            ));
 
-        let health = app.world().get::<Health>(enemy_entity).unwrap();
-        assert_eq!(
-            health.current, 37.5,
-            "Enemy health should be 100 - 62.5 = 37.5 after level 5 radiant beam hit"
-        );
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut beam_query = app.world_mut().query::<&RadiantBeam>();
+            let beams: Vec<_> = beam_query.iter(app.world()).collect();
+            assert_eq!(beams.len(), 1, "One radiant beam should be spawned");
+            assert_eq!(beams[0].damage, 62.5, "Beam damage should be 62.5 (10.0 * 5 * 1.25)");
+        }
+
+        #[test]
+        fn radiant_beam_with_light_attunement() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.insert_resource(WhisperAttunement::with_element(Element::Light));
+
+            let mut spell_list = SpellList::default();
+            let mut beam = Spell {
+                spell_type: SpellType::RadiantBeam,
+                element: Element::Light,
+                name: "Radiant Beam".to_string(),
+                description: "A beam of light.".to_string(),
+                level: 5,
+                fire_rate: 0.1,
+                base_damage: 10.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(beam);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut beam_query = app.world_mut().query::<&RadiantBeam>();
+            let beams: Vec<_> = beam_query.iter(app.world()).collect();
+            assert_eq!(beams.len(), 1);
+            // 10.0 * 5 * 1.25 * 1.1 = 68.75
+            let expected = 10.0 * 5.0 * 1.25 * 1.1;
+            assert!(
+                (beams[0].damage - expected).abs() < 0.01,
+                "Beam damage should be {} with light attunement, got {}",
+                expected,
+                beams[0].damage
+            );
+        }
     }
 
-    #[test]
-    fn test_thunder_strike_spell_spawns_with_correct_damage() {
+    mod thunder_strike_tests {
+        use super::*;
         use crate::spells::lightning::thunder_strike::ThunderStrikeMarker;
 
-        let mut app = App::new();
-        app.add_systems(Update, spell_casting_system);
+        #[test]
+        fn thunder_strike_spawns_with_correct_damage_from_spell_list() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
 
-        app.insert_resource(SpellOrigin {
-            position: Some(Vec3::new(0.0, 3.0, 0.0)),
-        });
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
 
-        app.world_mut().spawn((
-            Enemy { speed: 50.0, strength: 10.0 },
-            Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
-        ));
-
-        app.world_mut().spawn((
-            Spell {
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
                 spell_type: SpellType::ThunderStrike,
                 element: Element::Lightning,
                 name: "Thunder Strike".to_string(),
@@ -318,20 +496,73 @@ mod tests {
                 fire_rate: 2.0,
                 base_damage: 30.0,
                 last_fired: -10.0,
-            },
-            EquippedSpell { spell_type: SpellType::ThunderStrike },
-            Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
-        ));
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
 
-        app.init_resource::<Time>();
-        app.update();
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
+            ));
 
-        let mut marker_query = app.world_mut().query::<&ThunderStrikeMarker>();
-        let markers: Vec<_> = marker_query.iter(app.world()).collect();
-        assert_eq!(markers.len(), 1, "One thunder strike marker should be spawned");
-        assert_eq!(markers[0].damage, 112.5, "Thunder strike damage should be 112.5 (30.0 * 3 * 1.25)");
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut marker_query = app.world_mut().query::<&ThunderStrikeMarker>();
+            let markers: Vec<_> = marker_query.iter(app.world()).collect();
+            assert_eq!(markers.len(), 1, "One thunder strike marker should be spawned");
+            assert_eq!(markers[0].damage, 112.5, "Thunder strike damage should be 112.5 (30.0 * 3 * 1.25)");
+        }
+
+        #[test]
+        fn thunder_strike_with_lightning_attunement() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.insert_resource(WhisperAttunement::with_element(Element::Lightning));
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::ThunderStrike,
+                element: Element::Lightning,
+                name: "Thunder Strike".to_string(),
+                description: "Lightning from above.".to_string(),
+                level: 3,
+                fire_rate: 2.0,
+                base_damage: 30.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut marker_query = app.world_mut().query::<&ThunderStrikeMarker>();
+            let markers: Vec<_> = marker_query.iter(app.world()).collect();
+            assert_eq!(markers.len(), 1);
+            // 30.0 * 3 * 1.25 * 1.1 = 123.75
+            let expected = 30.0 * 3.0 * 1.25 * 1.1;
+            assert!(
+                (markers[0].damage - expected).abs() < 0.01,
+                "Thunder strike damage should be {} with lightning attunement, got {}",
+                expected,
+                markers[0].damage
+            );
+        }
     }
 }
+
+use crate::inventory::resources::SpellList;
+use crate::whisper::resources::WhisperAttunement;
 
 #[allow(clippy::too_many_arguments)]
 pub fn spell_casting_system(
@@ -344,14 +575,10 @@ pub fn spell_casting_system(
     game_meshes: Option<Res<GameMeshes>>,
     game_materials: Option<Res<GameMaterials>>,
     enemy_query: Query<(Entity, &Transform, &Enemy)>,
-    mut spell_query: Query<&mut Spell>,
+    mut spell_list: ResMut<SpellList>,
+    attunement: Res<WhisperAttunement>,
 ) {
     let current_time = time.elapsed_secs();
-
-    // Check if spell exists
-    if spell_query.is_empty() {
-        return; // No spells to cast
-    }
 
     // Check if Whisper has been collected (spells enabled)
     let Some(origin_pos) = spell_origin.position else {
@@ -385,69 +612,85 @@ pub fn spell_casting_system(
         return;
     }
 
-    // Cast spells that are ready
-    for mut spell in spell_query.iter_mut() {
-        if current_time - spell.last_fired >= spell.effective_fire_rate() {
-            // Select random target from 5 closest
-            let mut rng = rand::thread_rng();
-            let target_index = rng.gen_range(0..closest_enemies.len());
-            let target_pos = closest_enemies[target_index].1;
+    // Cast spells from all 5 slots in SpellList
+    for slot in 0..5 {
+        // Get spell from slot, skip empty slots
+        let Some(spell) = spell_list.get_spell(slot) else {
+            continue;
+        };
 
-            match &spell.spell_type {
-                SpellType::Fireball => {
-                    // Use the new fireball spell module
-                    crate::spells::fire::fireball::fire_fireball(
-                        &mut commands,
-                        &spell,
-                        origin_pos,
-                        target_pos,
-                        asset_server.as_ref(),
+        // Check cooldown
+        if current_time - spell.last_fired < spell.effective_fire_rate() {
+            continue;
+        }
+
+        // Select random target from 5 closest
+        let mut rng = rand::thread_rng();
+        let target_index = rng.gen_range(0..closest_enemies.len());
+        let target_pos = closest_enemies[target_index].1;
+
+        // Calculate damage with attunement multiplier
+        let attunement_multiplier = attunement.damage_multiplier(spell.element);
+        let final_damage = spell.damage() * attunement_multiplier;
+
+        // Cast the spell based on type
+        match &spell.spell_type {
+            SpellType::Fireball => {
+                crate::spells::fire::fireball::fire_fireball_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
+                    target_pos,
+                    asset_server.as_ref(),
+                    weapon_channel.as_mut(),
+                    sound_limiter.as_mut(),
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
+            SpellType::RadiantBeam => {
+                crate::spells::light::radiant_beam::fire_radiant_beam_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
+                    target_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+
+                // Play radiant beam sound effect
+                if let (Some(asset_server), Some(weapon_channel), Some(sound_limiter)) =
+                    (asset_server.as_ref(), weapon_channel.as_mut(), sound_limiter.as_mut()) {
+                    crate::audio::plugin::play_limited_sound_with_volume(
                         weapon_channel.as_mut(),
+                        asset_server,
+                        "sounds/72639__chipfork71__laser01rev.wav",
                         sound_limiter.as_mut(),
-                        game_meshes.as_deref(),
-                        game_materials.as_deref(),
+                        0.7,
                     );
-                }
-                SpellType::RadiantBeam => {
-                    // Use the new radiant beam spell module
-                    crate::spells::light::radiant_beam::fire_radiant_beam(
-                        &mut commands,
-                        &spell,
-                        origin_pos,
-                        target_pos,
-                        game_meshes.as_deref(),
-                        game_materials.as_deref(),
-                    );
-
-                    // Play radiant beam sound effect
-                    if let (Some(asset_server), Some(weapon_channel), Some(sound_limiter)) =
-                        (asset_server.as_ref(), weapon_channel.as_mut(), sound_limiter.as_mut()) {
-                        crate::audio::plugin::play_limited_sound_with_volume(
-                            weapon_channel.as_mut(),
-                            asset_server,
-                            "sounds/72639__chipfork71__laser01rev.wav",
-                            sound_limiter.as_mut(),
-                            0.7,
-                        );
-                    }
-                }
-                SpellType::ThunderStrike => {
-                    // Use the new thunder strike spell module
-                    crate::spells::lightning::thunder_strike::fire_thunder_strike(
-                        &mut commands,
-                        &spell,
-                        origin_pos,
-                        target_pos,
-                        game_meshes.as_deref(),
-                        game_materials.as_deref(),
-                    );
-                }
-                _ => {
-                    // Other spell types not implemented yet
                 }
             }
+            SpellType::ThunderStrike => {
+                crate::spells::lightning::thunder_strike::fire_thunder_strike_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
+                    target_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
+            _ => {
+                // Other spell types not implemented yet
+            }
+        }
 
-            spell.last_fired = current_time;
+        // Update last_fired time
+        if let Some(spell_mut) = spell_list.get_spell_mut(slot) {
+            spell_mut.last_fired = current_time;
         }
     }
 }

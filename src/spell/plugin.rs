@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use crate::combat::DamageEvent;
+use crate::inventory::resources::SpellList;
 use crate::states::*;
 use crate::game::events::FireballEnemyCollisionEvent;
 use crate::game::sets::GameSet;
@@ -14,7 +15,7 @@ use crate::spells::light::radiant_beam::{
 use crate::spells::lightning::thunder_strike::{
     thunder_strike_damage_system, update_thunder_strike_markers, update_thunder_strikes,
 };
-use crate::whisper::resources::SpellOrigin;
+use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
 /// This function is semantically about spell behavior
@@ -26,6 +27,10 @@ pub fn plugin(app: &mut App) {
         .add_message::<DamageEvent>()
         // Ensure SpellOrigin resource exists (initialized by whisper plugin, but ensure it here too)
         .init_resource::<SpellOrigin>()
+        // Initialize SpellList resource for equipped spells
+        .init_resource::<SpellList>()
+        // Initialize WhisperAttunement for elemental damage bonus
+        .init_resource::<WhisperAttunement>()
         // Register fireball collision event
         .add_message::<FireballEnemyCollisionEvent>()
         // Movement systems - spell follows player

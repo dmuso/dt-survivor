@@ -353,7 +353,7 @@ mod tests {
     fn test_spell_casting_spawns_fireballs() {
         use donny_tango_survivor::whisper::resources::SpellOrigin;
         use donny_tango_survivor::spell::{Spell, SpellType};
-        use donny_tango_survivor::inventory::components::EquippedSpell;
+        use donny_tango_survivor::inventory::resources::SpellList;
 
         let mut app = App::new();
 
@@ -384,21 +384,13 @@ mod tests {
         // Simulate Whisper collection by setting SpellOrigin position (full 3D)
         app.world_mut().resource_mut::<SpellOrigin>().position = Some(Vec3::new(0.0, 3.0, 0.0));
 
-        // Create spell entity
-        app.world_mut().spawn((
-            Spell {
-                spell_type: SpellType::Fireball,
-                element: donny_tango_survivor::element::Element::Fire,
-                name: "Fireball".to_string(),
-                description: "A ball of fire.".to_string(),
-                level: 1,
-                fire_rate: 2.0,
-                base_damage: 10.0,
-                last_fired: -2.0, // Ready to fire
-            },
-            EquippedSpell { spell_type: SpellType::Fireball },
-            Transform::from_translation(Vec3::new(0.0, 3.0, 0.0)),
-        ));
+        // Add spell to SpellList resource (new approach)
+        {
+            let mut spell_list = app.world_mut().resource_mut::<SpellList>();
+            let mut fireball = Spell::new(SpellType::Fireball);
+            fireball.last_fired = -2.0; // Ready to fire
+            spell_list.equip(fireball);
+        }
 
         // Create an enemy to target
         app.world_mut().spawn((

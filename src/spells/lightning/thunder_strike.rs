@@ -179,12 +179,36 @@ pub fn update_thunder_strikes(
 pub fn fire_thunder_strike(
     commands: &mut Commands,
     spell: &Spell,
+    spawn_position: Vec3,
+    target_pos: Vec2,
+    game_meshes: Option<&GameMeshes>,
+    game_materials: Option<&GameMaterials>,
+) {
+    fire_thunder_strike_with_damage(
+        commands,
+        spell,
+        spell.damage(),
+        spawn_position,
+        target_pos,
+        game_meshes,
+        game_materials,
+    );
+}
+
+/// Cast thunder strike spell with explicit damage - spawns a target marker that becomes a strike after delay.
+/// `spawn_position` is Whisper's full 3D position, `target_pos` is the target on XZ plane.
+/// `damage` is the pre-calculated final damage (including attunement multiplier)
+#[allow(clippy::too_many_arguments)]
+pub fn fire_thunder_strike_with_damage(
+    commands: &mut Commands,
+    _spell: &Spell,
+    damage: f32,
     _spawn_position: Vec3,
     target_pos: Vec2,
     game_meshes: Option<&GameMeshes>,
     game_materials: Option<&GameMaterials>,
 ) {
-    let marker = ThunderStrikeMarker::from_spell(target_pos, spell);
+    let marker = ThunderStrikeMarker::new(target_pos, damage);
     let marker_pos = to_xz(target_pos) + Vec3::new(0.0, 0.1, 0.0);
 
     if let (Some(meshes), Some(materials)) = (game_meshes, game_materials) {
