@@ -10,6 +10,7 @@ pub fn plugin(app: &mut App) {
         // Resources
         .init_resource::<WeaponOrigin>()
         .init_resource::<WhisperState>()
+        .init_resource::<WhisperAttunement>()
         // Startup systems (animation setup)
         .add_systems(Startup, setup_whisper_animations)
         // Setup systems (OnEnter)
