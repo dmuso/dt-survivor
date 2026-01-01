@@ -1,3 +1,4 @@
+pub mod ashfall;
 pub mod cinder_shot;
 pub mod ember_swarm;
 pub mod fire_nova;
@@ -6,6 +7,7 @@ pub mod flame_arc;
 pub mod inferno_pulse;
 pub mod scorch_trail;
 
+pub use ashfall::*;
 pub use cinder_shot::*;
 pub use ember_swarm::*;
 pub use fire_nova::*;

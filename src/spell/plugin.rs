@@ -68,6 +68,11 @@ use crate::spells::fire::ember_swarm::{
     ember_wisp_timeout_system, initialize_ember_swarm_wisps_system, launch_ember_wisps_system,
     move_launched_wisps_system, orbit_ember_wisps_system,
 };
+use crate::spells::fire::ashfall::{
+    ashfall_cleanup_embers_system, ashfall_cleanup_zone_system,
+    ashfall_ember_collision_system, ashfall_move_embers_system,
+    ashfall_spawn_embers_system,
+};
 use crate::spells::lightning::overload::{
     overload_blast_system, overload_charge_accumulate_system, overload_check_release_system,
     LightningDamageEvent,
@@ -444,6 +449,35 @@ pub fn plugin(app: &mut App) {
             (
                 ember_wisp_timeout_system,
                 cleanup_ember_swarm_system,
+            )
+                .chain()
+                .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Ashfall systems - spawn embers in Spawning, movement in Movement, collision in Combat, cleanup in Cleanup
+        .add_systems(
+            Update,
+            ashfall_spawn_embers_system
+                .in_set(GameSet::Spawning)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            ashfall_move_embers_system
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            ashfall_ember_collision_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                ashfall_cleanup_embers_system,
+                ashfall_cleanup_zone_system,
             )
                 .chain()
                 .in_set(GameSet::Cleanup)

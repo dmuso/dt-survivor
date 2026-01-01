@@ -7,7 +7,7 @@ pub enum SpellType {
     // Fire spells (8)
     Fireball,
     FlameLance,
-    Inferno,
+    Ashfall,
     MeteorShower,
     PhoenixFlare,
     Combustion,
@@ -92,7 +92,7 @@ impl SpellType {
             // Fire (0-7)
             SpellType::Fireball => 0,
             SpellType::FlameLance => 1,
-            SpellType::Inferno => 2,
+            SpellType::Ashfall => 2,
             SpellType::MeteorShower => 3,
             SpellType::PhoenixFlare => 4,
             SpellType::Combustion => 5,
@@ -192,7 +192,7 @@ impl SpellType {
             // Fire
             SpellType::Fireball => "Fireball",
             SpellType::FlameLance => "Flame Lance",
-            SpellType::Inferno => "Inferno",
+            SpellType::Ashfall => "Ashfall",
             SpellType::MeteorShower => "Meteor Shower",
             SpellType::PhoenixFlare => "Phoenix Flare",
             SpellType::Combustion => "Combustion",
@@ -277,7 +277,7 @@ impl SpellType {
             // Fire
             SpellType::Fireball => "A blazing projectile that ignites enemies on impact.",
             SpellType::FlameLance => "A piercing lance of concentrated fire.",
-            SpellType::Inferno => "An expanding ring of flames that scorches all nearby.",
+            SpellType::Ashfall => "Embers rain down over an area dealing sustained damage.",
             SpellType::MeteorShower => "Summons falling meteors to devastate an area.",
             SpellType::PhoenixFlare => "Releases a burst of phoenix fire that heals allies.",
             SpellType::Combustion => "Causes enemies to spontaneously combust.",
@@ -362,7 +362,7 @@ impl SpellType {
             // Fire - generally high damage
             SpellType::Fireball => 15.0,
             SpellType::FlameLance => 25.0,
-            SpellType::Inferno => 20.0,
+            SpellType::Ashfall => 18.0, // Area DOT, moderate base for multiple ember hits
             SpellType::MeteorShower => 30.0,
             SpellType::PhoenixFlare => 18.0,
             SpellType::Combustion => 22.0,
@@ -447,7 +447,7 @@ impl SpellType {
             // Fire - balanced fire rates
             SpellType::Fireball => 2.0,
             SpellType::FlameLance => 1.5,
-            SpellType::Inferno => 0.5,
+            SpellType::Ashfall => 0.25, // Long duration zone spell, slow cast rate
             SpellType::MeteorShower => 0.3,
             SpellType::PhoenixFlare => 1.0,
             SpellType::Combustion => 1.2,
@@ -532,7 +532,7 @@ impl SpellType {
             // Fire
             SpellType::Fireball,
             SpellType::FlameLance,
-            SpellType::Inferno,
+            SpellType::Ashfall,
             SpellType::MeteorShower,
             SpellType::PhoenixFlare,
             SpellType::Combustion,
@@ -610,7 +610,7 @@ impl SpellType {
             Element::Fire => &[
                 SpellType::Fireball,
                 SpellType::FlameLance,
-                SpellType::Inferno,
+                SpellType::Ashfall,
                 SpellType::MeteorShower,
                 SpellType::PhoenixFlare,
                 SpellType::Combustion,

@@ -203,7 +203,7 @@ mod tests {
 
         #[test]
         fn test_fire_nova_ring_from_spell() {
-            let spell = Spell::new(SpellType::Inferno);
+            let spell = Spell::new(SpellType::Fireball);
             let center = Vec2::new(5.0, 15.0);
             let nova = FireNovaRing::from_spell(center, &spell);
 
@@ -644,7 +644,7 @@ mod tests {
         fn test_fire_fire_nova_spawns_ring() {
             let mut app = setup_test_app();
 
-            let spell = Spell::new(SpellType::Inferno);
+            let spell = Spell::new(SpellType::Fireball);
             let spawn_pos = Vec3::new(10.0, 0.5, 20.0);
 
             {
@@ -669,7 +669,7 @@ mod tests {
         fn test_fire_fire_nova_at_player_position() {
             let mut app = setup_test_app();
 
-            let spell = Spell::new(SpellType::Inferno);
+            let spell = Spell::new(SpellType::Fireball);
             let spawn_pos = Vec3::new(15.0, 0.5, 25.0);
 
             {
@@ -694,7 +694,7 @@ mod tests {
         fn test_fire_fire_nova_damage_from_spell() {
             let mut app = setup_test_app();
 
-            let spell = Spell::new(SpellType::Inferno);
+            let spell = Spell::new(SpellType::Fireball);
             let expected_damage = spell.damage();
             let spawn_pos = Vec3::new(0.0, 0.5, 0.0);
 
@@ -720,7 +720,7 @@ mod tests {
         fn test_fire_fire_nova_with_damage_uses_explicit_damage() {
             let mut app = setup_test_app();
 
-            let spell = Spell::new(SpellType::Inferno);
+            let spell = Spell::new(SpellType::Fireball);
             let explicit_damage = 100.0;
             let spawn_pos = Vec3::new(0.0, 0.5, 0.0);
 
@@ -747,7 +747,7 @@ mod tests {
         fn test_fire_fire_nova_starts_at_zero_radius() {
             let mut app = setup_test_app();
 
-            let spell = Spell::new(SpellType::Inferno);
+            let spell = Spell::new(SpellType::Fireball);
             let spawn_pos = Vec3::new(0.0, 0.5, 0.0);
 
             {
