@@ -9,6 +9,9 @@ use crate::spells::fire::fireball::{
     burn_damage_system, fireball_collision_detection, fireball_collision_effects,
     fireball_lifetime_system, fireball_movement_system,
 };
+use crate::spells::light::radiance::{
+    radiance_pulse_system, radiance_pulse_visual_system,
+};
 use crate::spells::light::radiant_beam::{
     radiant_beam_collision_system, render_radiant_beams, update_radiant_beams,
 };
@@ -692,6 +695,19 @@ pub fn plugin(app: &mut App) {
                 acid_rain_cleanup_zone_system,
             )
                 .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Radiance aura systems - pulse damage in Combat, visual expansion in Effects
+        .add_systems(
+            Update,
+            radiance_pulse_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            radiance_pulse_visual_system
+                .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         );
 }
