@@ -5,6 +5,7 @@ pub mod frost;
 pub mod light;
 pub mod lightning;
 pub mod poison;
+pub mod psychic;
 
 pub use chaos::fear;
 pub use dark::soul_drain;
@@ -18,3 +19,4 @@ pub use lightning::static_orb;
 pub use lightning::thunder_strike;
 pub use poison::poison_cloud;
 pub use poison::venom_spray;
+pub use psychic::mind_lash;

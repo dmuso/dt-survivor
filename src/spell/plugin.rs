@@ -114,6 +114,9 @@ use crate::spells::poison::acid_rain::{
 use crate::spells::dark::soul_drain::{
     soul_drain_system, soul_drain_pulse_visual_system,
 };
+use crate::spells::psychic::mind_lash::{
+    mind_lash_collision_system, render_mind_lash_system, update_mind_lash_system,
+};
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -723,6 +726,23 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             soul_drain_pulse_visual_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Mind Lash systems - collision in Combat, visual and update in Effects, cleanup in Cleanup
+        .add_systems(
+            Update,
+            mind_lash_collision_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                render_mind_lash_system,
+                update_mind_lash_system,
+            )
+                .chain()
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         );
