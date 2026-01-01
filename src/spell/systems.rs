@@ -1320,6 +1320,131 @@ mod tests {
             );
         }
     }
+
+    mod combustion_tests {
+        use super::*;
+        use crate::spells::fire::ember_swarm::{EmberSwarmController, EmberWisp};
+
+        #[test]
+        fn combustion_spawns_ember_swarm_from_spell_list() {
+            let mut app = App::new();
+            app.add_plugins(bevy::time::TimePlugin::default());
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::Combustion,
+                element: Element::Fire,
+                name: "Combustion".to_string(),
+                description: "Ember swarm.".to_string(),
+                level: 2,
+                fire_rate: 1.0,
+                base_damage: 22.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(10.0, 0.375, 0.0)),
+            ));
+
+            app.update();
+
+            // Should spawn 1 controller
+            let mut controller_query = app.world_mut().query::<&EmberSwarmController>();
+            let controllers: Vec<_> = controller_query.iter(app.world()).collect();
+            assert_eq!(controllers.len(), 1, "One ember swarm controller should be spawned");
+
+            // Should spawn 5-8 wisps
+            let mut wisp_query = app.world_mut().query::<&EmberWisp>();
+            let wisp_count = wisp_query.iter(app.world()).count();
+            assert!(wisp_count >= 5 && wisp_count <= 8, "Expected 5-8 wisps, got {}", wisp_count);
+        }
+
+        #[test]
+        fn combustion_with_fire_attunement() {
+            let mut app = App::new();
+            app.add_plugins(bevy::time::TimePlugin::default());
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.insert_resource(WhisperAttunement::with_element(Element::Fire));
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::Combustion,
+                element: Element::Fire,
+                name: "Combustion".to_string(),
+                description: "Ember swarm.".to_string(),
+                level: 2,
+                fire_rate: 1.0,
+                base_damage: 22.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(10.0, 0.375, 0.0)),
+            ));
+
+            app.update();
+
+            let mut wisp_query = app.world_mut().query::<&EmberWisp>();
+            let wisps: Vec<_> = wisp_query.iter(app.world()).collect();
+            assert!(!wisps.is_empty(), "Should have wisps");
+            // 22.0 * 2 * 1.25 * 1.1 = 60.5
+            let expected = 22.0 * 2.0 * 1.25 * 1.1;
+            assert!(
+                (wisps[0].damage - expected).abs() < 0.01,
+                "Combustion damage should be {} with fire attunement, got {}",
+                expected,
+                wisps[0].damage
+            );
+        }
+
+        #[test]
+        fn combustion_spawns_at_spell_origin() {
+            let mut app = App::new();
+            app.add_plugins(bevy::time::TimePlugin::default());
+            app.add_systems(Update, spell_casting_system);
+
+            let origin_pos = Vec3::new(5.0, 3.0, 10.0);
+            app.insert_resource(SpellOrigin {
+                position: Some(origin_pos),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let mut spell = Spell::new(SpellType::Combustion);
+            spell.last_fired = -10.0;
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(15.0, 0.375, 10.0)),
+            ));
+
+            app.update();
+
+            // Controller should be at origin position
+            let mut controller_query = app.world_mut().query::<(&EmberSwarmController, &Transform)>();
+            let controllers: Vec<_> = controller_query.iter(app.world()).collect();
+            assert_eq!(controllers.len(), 1);
+            assert_eq!(controllers[0].1.translation, origin_pos);
+        }
+    }
 }
 
 use crate::inventory::resources::SpellList;
@@ -1535,6 +1660,16 @@ pub fn spell_casting_system(
             }
             SpellType::FrostNova => {
                 crate::spells::frost::glacial_pulse::fire_glacial_pulse_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
+            SpellType::Combustion => {
+                crate::spells::fire::ember_swarm::fire_ember_swarm_with_damage(
                     &mut commands,
                     spell,
                     final_damage,

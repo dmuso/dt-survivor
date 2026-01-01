@@ -53,6 +53,11 @@ use crate::spells::fire::cinder_shot::{
     cinder_shot_lifetime_system, cinder_shot_movement_system, weakened_debuff_system,
     CinderShotEnemyCollisionEvent,
 };
+use crate::spells::fire::ember_swarm::{
+    cleanup_ember_swarm_system, ember_swarm_orbit_timer_system, ember_wisp_collision_system,
+    ember_wisp_timeout_system, initialize_ember_swarm_wisps_system, launch_ember_wisps_system,
+    move_launched_wisps_system, orbit_ember_wisps_system,
+};
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -346,6 +351,43 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             poison_puddle_cleanup_system
+                .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Ember swarm systems - orbit timer and wisp init in Input, orbit and launch in Movement, collision in Combat, cleanup in Cleanup
+        .add_systems(
+            Update,
+            (
+                ember_swarm_orbit_timer_system,
+                initialize_ember_swarm_wisps_system,
+            )
+                .in_set(GameSet::Input)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                orbit_ember_wisps_system,
+                launch_ember_wisps_system,
+                move_launched_wisps_system,
+            )
+                .chain()
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            ember_wisp_collision_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                ember_wisp_timeout_system,
+                cleanup_ember_swarm_system,
+            )
+                .chain()
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         );
