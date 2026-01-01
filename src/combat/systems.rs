@@ -2,11 +2,13 @@ use bevy::prelude::*;
 
 use super::components::{DamageFlash, Health, Invincibility};
 use super::events::{DamageEvent, DeathEvent, EntityType};
+use crate::element::Element;
 use crate::enemies::components::Enemy;
 use crate::game::components::Level;
 use crate::game::events::EnemyDeathEvent;
 use crate::game::resources::DamageFlashMaterial;
 use crate::score::Score;
+use crate::spells::dark::nightfall::InNightfallZone;
 use crate::spells::fire::cinder_shot::WeakenedDebuff;
 use crate::spells::light::sanctify::SanctifiedDebuff;
 use crate::spells::poison::corrode::CorrodedDebuff;
@@ -17,7 +19,8 @@ use crate::spells::poison::corrode::CorrodedDebuff;
 pub struct CheckDeath;
 
 /// System to apply damage from DamageEvents to entities with Health.
-/// Also applies damage multipliers from debuffs like WeakenedDebuff, SanctifiedDebuff, and CorrodedDebuff.
+/// Also applies damage multipliers from debuffs like WeakenedDebuff, SanctifiedDebuff, CorrodedDebuff,
+/// and zone effects like InNightfallZone (for Dark element damage).
 #[allow(clippy::type_complexity)]
 pub fn apply_damage_system(
     mut messages: MessageReader<DamageEvent>,
@@ -27,10 +30,11 @@ pub fn apply_damage_system(
         Option<&WeakenedDebuff>,
         Option<&SanctifiedDebuff>,
         Option<&CorrodedDebuff>,
+        Option<&InNightfallZone>,
     )>,
 ) {
     for event in messages.read() {
-        if let Ok((mut health, invincibility, weakened, sanctified, corroded)) = query.get_mut(event.target) {
+        if let Ok((mut health, invincibility, weakened, sanctified, corroded, in_nightfall)) = query.get_mut(event.target) {
             // Skip if invincible
             if invincibility.is_some() {
                 continue;
@@ -52,6 +56,13 @@ pub fn apply_damage_system(
             // Apply corroded debuff multiplier
             if let Some(corroded) = corroded {
                 final_damage *= corroded.damage_multiplier;
+            }
+
+            // Apply Nightfall zone multiplier for Dark element damage
+            if let Some(nightfall) = in_nightfall {
+                if event.element == Some(Element::Dark) {
+                    final_damage *= nightfall.dark_damage_multiplier;
+                }
             }
 
             health.take_damage(final_damage);
@@ -236,6 +247,101 @@ mod tests {
 
             // Should not panic
             app.update();
+        }
+
+        #[test]
+        fn test_apply_damage_nightfall_multiplier_for_dark_damage() {
+            let mut app = App::new();
+            app.add_message::<DamageEvent>();
+            app.add_systems(Update, apply_damage_system);
+
+            // Spawn entity with health and InNightfallZone marker
+            let entity = app.world_mut().spawn((
+                Health::new(100.0),
+                InNightfallZone { dark_damage_multiplier: 1.5 },
+            )).id();
+
+            // Send Dark element damage event
+            let mut event = DamageEvent::new(entity, 20.0);
+            event.element = Some(Element::Dark);
+            app.world_mut().write_message(event);
+
+            // Run the system
+            app.update();
+
+            // Verify damage was multiplied: 20.0 * 1.5 = 30.0, so health = 70.0
+            let health = app.world().get::<Health>(entity).unwrap();
+            assert!((health.current - 70.0).abs() < 0.01, "Expected 70.0, got {}", health.current);
+        }
+
+        #[test]
+        fn test_apply_damage_nightfall_no_bonus_for_non_dark() {
+            let mut app = App::new();
+            app.add_message::<DamageEvent>();
+            app.add_systems(Update, apply_damage_system);
+
+            // Spawn entity with health and InNightfallZone marker
+            let entity = app.world_mut().spawn((
+                Health::new(100.0),
+                InNightfallZone { dark_damage_multiplier: 1.5 },
+            )).id();
+
+            // Send Fire element damage event (not Dark)
+            let mut event = DamageEvent::new(entity, 20.0);
+            event.element = Some(Element::Fire);
+            app.world_mut().write_message(event);
+
+            // Run the system
+            app.update();
+
+            // No multiplier applied: health = 80.0
+            let health = app.world().get::<Health>(entity).unwrap();
+            assert!((health.current - 80.0).abs() < 0.01, "Expected 80.0, got {}", health.current);
+        }
+
+        #[test]
+        fn test_apply_damage_nightfall_no_bonus_without_element() {
+            let mut app = App::new();
+            app.add_message::<DamageEvent>();
+            app.add_systems(Update, apply_damage_system);
+
+            // Spawn entity with health and InNightfallZone marker
+            let entity = app.world_mut().spawn((
+                Health::new(100.0),
+                InNightfallZone { dark_damage_multiplier: 1.5 },
+            )).id();
+
+            // Send damage event without element (None)
+            app.world_mut().write_message(DamageEvent::new(entity, 20.0));
+
+            // Run the system
+            app.update();
+
+            // No multiplier applied: health = 80.0
+            let health = app.world().get::<Health>(entity).unwrap();
+            assert!((health.current - 80.0).abs() < 0.01, "Expected 80.0, got {}", health.current);
+        }
+
+        #[test]
+        fn test_apply_damage_nightfall_without_marker() {
+            let mut app = App::new();
+            app.add_message::<DamageEvent>();
+            app.add_systems(Update, apply_damage_system);
+
+            // Spawn entity with health but NO InNightfallZone marker
+            let entity = app.world_mut().spawn(Health::new(100.0)).id();
+
+            // Send Dark element damage event
+            let mut event = DamageEvent::new(entity, 20.0);
+            event.element = Some(Element::Dark);
+            app.world_mut().write_message(event);
+
+            // Run the system
+            app.update();
+
+            // No multiplier applied (no marker): health = 80.0
+            let health = app.world().get::<Health>(entity).unwrap();
+            assert!((health.current - 80.0).abs() < 0.01, "Expected 80.0, got {}", health.current);
         }
     }
 

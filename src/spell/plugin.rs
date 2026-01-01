@@ -111,6 +111,10 @@ use crate::spells::poison::acid_rain::{
     acid_rain_droplet_collision_system, acid_rain_move_droplets_system,
     acid_rain_spawn_droplets_system,
 };
+use crate::spells::dark::nightfall::{
+    nightfall_zone_cleanup_system, nightfall_zone_duration_system,
+    nightfall_zone_tracking_system,
+};
 use crate::spells::dark::soul_drain::{
     soul_drain_system, soul_drain_pulse_visual_system,
 };
@@ -784,6 +788,25 @@ pub fn plugin(app: &mut App) {
                 weakened_debuff_tick_system,
             )
                 .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Nightfall (Eclipse) systems - duration in Effects, tracking in Combat, cleanup in Cleanup
+        .add_systems(
+            Update,
+            nightfall_zone_duration_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            nightfall_zone_tracking_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            nightfall_zone_cleanup_system
+                .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )
         // Mind Lash systems - collision in Combat, visual and update in Effects, cleanup in Cleanup

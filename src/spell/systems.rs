@@ -2014,6 +2014,103 @@ mod tests {
             assert_eq!(waves[0].center, Vec2::new(10.0, 15.0));
         }
     }
+
+    mod eclipse_tests {
+        use super::*;
+        use crate::spells::dark::nightfall::NightfallZone;
+
+        #[test]
+        fn eclipse_spawns_nightfall_zone_from_spell_list() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let mut spell = Spell::new(SpellType::Eclipse);
+            spell.last_fired = -10.0;
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(10.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut zone_query = app.world_mut().query::<&NightfallZone>();
+            let zones: Vec<_> = zone_query.iter(app.world()).collect();
+            assert_eq!(zones.len(), 1, "One nightfall zone should be spawned");
+        }
+
+        #[test]
+        fn eclipse_spawns_at_target_position() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            let origin_pos = Vec3::new(0.0, 3.0, 0.0);
+            app.insert_resource(SpellOrigin {
+                position: Some(origin_pos),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let mut spell = Spell::new(SpellType::Eclipse);
+            spell.last_fired = -10.0;
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            // Enemy at (15, 0.375, 20) - zone should spawn at this XZ position
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(15.0, 0.375, 20.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut zone_query = app.world_mut().query::<&NightfallZone>();
+            let zones: Vec<_> = zone_query.iter(app.world()).collect();
+            assert_eq!(zones.len(), 1);
+            // Zone should be centered at enemy XZ position
+            assert_eq!(zones[0].center, Vec2::new(15.0, 20.0));
+        }
+
+        #[test]
+        fn eclipse_with_dark_attunement() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.insert_resource(WhisperAttunement::with_element(Element::Dark));
+
+            let mut spell_list = SpellList::default();
+            let mut spell = Spell::new(SpellType::Eclipse);
+            spell.last_fired = -10.0;
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(10.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut zone_query = app.world_mut().query::<&NightfallZone>();
+            let zones: Vec<_> = zone_query.iter(app.world()).collect();
+            // Zone should still spawn with dark attunement
+            assert_eq!(zones.len(), 1, "Eclipse should fire with dark attunement");
+        }
+    }
 }
 
 use crate::inventory::resources::SpellList;
@@ -2433,6 +2530,17 @@ pub fn spell_casting_system(
             }
             SpellType::Smite => {
                 crate::spells::light::solar_flare::fire_solar_flare_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
+                    target_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
+            SpellType::Eclipse => {
+                crate::spells::dark::nightfall::fire_nightfall_with_damage(
                     &mut commands,
                     spell,
                     final_damage,
