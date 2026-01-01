@@ -2019,6 +2019,17 @@ pub fn spell_casting_system(
                     game_materials.as_deref(),
                 );
             }
+            SpellType::FrozenRay => {
+                crate::spells::frost::ice_lance::fire_ice_lance_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
+                    target_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
             SpellType::Hellfire => {
                 if let Some(ref mut events) = damage_events {
                     crate::spells::fire::inferno_pulse::fire_inferno_pulse_with_damage(

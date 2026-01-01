@@ -47,6 +47,9 @@ use crate::spells::frost::frozen_orb::{
 use crate::spells::frost::hoarfrost::{
     hoarfrost_cleanup_system, hoarfrost_duration_system, hoarfrost_tracking_system,
 };
+use crate::spells::frost::ice_lance::{
+    ice_lance_collision_system, ice_lance_lifetime_system, ice_lance_movement_system,
+};
 use crate::spells::poison::venom_spray::{
     cleanup_venom_spray, poison_stack_damage_tick, poison_stack_decay,
     venom_spray_hit_detection,
@@ -542,6 +545,22 @@ pub fn plugin(app: &mut App) {
             Update,
             hoarfrost_cleanup_system
                 .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Ice Lance systems - movement and lifetime in Movement, collision in Combat
+        .add_systems(
+            Update,
+            (
+                ice_lance_movement_system,
+                ice_lance_lifetime_system,
+            )
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            ice_lance_collision_system
+                .in_set(GameSet::Combat)
                 .run_if(in_state(GameState::InGame)),
         )
         // Ion Field systems - duration tick in Effects, track enemies in Combat, damage in Combat, cleanup in Cleanup
