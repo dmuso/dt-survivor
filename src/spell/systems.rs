@@ -1890,6 +1890,130 @@ mod tests {
             assert!(zones[0].center.x > 0.0, "Zone should be ahead in X direction");
         }
     }
+
+    mod dark_pulse_tests {
+        use super::*;
+        use crate::spells::dark::void_pulse::VoidPulseWave;
+
+        #[test]
+        fn dark_pulse_spawns_wave_from_spell_list() {
+            let mut app = App::new();
+            app.add_message::<crate::combat::DamageEvent>();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::DarkPulse,
+                element: Element::Dark,
+                name: "Dark Pulse".to_string(),
+                description: "Releases a wave of dark energy.".to_string(),
+                level: 2,
+                fire_rate: 1.25, // 0.8 shots/sec
+                base_damage: 20.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(5.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut wave_query = app.world_mut().query::<&VoidPulseWave>();
+            let waves: Vec<_> = wave_query.iter(app.world()).collect();
+            assert_eq!(waves.len(), 1, "One void pulse wave should be spawned");
+            // 20.0 * 2 * 1.25 = 50.0
+            assert_eq!(waves[0].damage, 50.0, "Dark pulse damage should be 50.0 (20.0 * 2 * 1.25)");
+        }
+
+        #[test]
+        fn dark_pulse_with_dark_attunement() {
+            let mut app = App::new();
+            app.add_message::<crate::combat::DamageEvent>();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.insert_resource(WhisperAttunement::with_element(Element::Dark));
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::DarkPulse,
+                element: Element::Dark,
+                name: "Dark Pulse".to_string(),
+                description: "Releases a wave of dark energy.".to_string(),
+                level: 2,
+                fire_rate: 1.25,
+                base_damage: 20.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(5.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut wave_query = app.world_mut().query::<&VoidPulseWave>();
+            let waves: Vec<_> = wave_query.iter(app.world()).collect();
+            assert_eq!(waves.len(), 1);
+            // 20.0 * 2 * 1.25 * 1.1 = 55.0
+            let expected = 20.0 * 2.0 * 1.25 * 1.1;
+            assert!(
+                (waves[0].damage - expected).abs() < 0.01,
+                "Dark pulse damage should be {} with dark attunement, got {}",
+                expected,
+                waves[0].damage
+            );
+        }
+
+        #[test]
+        fn dark_pulse_spawns_at_spell_origin() {
+            let mut app = App::new();
+            app.add_message::<crate::combat::DamageEvent>();
+            app.add_systems(Update, spell_casting_system);
+
+            let origin_pos = Vec3::new(10.0, 3.0, 15.0);
+            app.insert_resource(SpellOrigin {
+                position: Some(origin_pos),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let mut spell = Spell::new(SpellType::DarkPulse);
+            spell.last_fired = -10.0;
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(20.0, 0.375, 15.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut wave_query = app.world_mut().query::<&VoidPulseWave>();
+            let waves: Vec<_> = wave_query.iter(app.world()).collect();
+            assert_eq!(waves.len(), 1);
+            // Wave should be centered at origin position on XZ plane
+            assert_eq!(waves[0].center, Vec2::new(10.0, 15.0));
+        }
+    }
 }
 
 use crate::inventory::resources::SpellList;
@@ -2239,6 +2363,16 @@ pub fn spell_casting_system(
             }
             SpellType::SoulDrain => {
                 crate::spells::dark::soul_drain::fire_soul_drain_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
+            SpellType::DarkPulse => {
+                crate::spells::dark::void_pulse::fire_void_pulse_with_damage(
                     &mut commands,
                     spell,
                     final_damage,

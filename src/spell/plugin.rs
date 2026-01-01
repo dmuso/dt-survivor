@@ -114,6 +114,11 @@ use crate::spells::poison::acid_rain::{
 use crate::spells::dark::soul_drain::{
     soul_drain_system, soul_drain_pulse_visual_system,
 };
+use crate::spells::dark::void_pulse::{
+    void_pulse_cleanup_system, void_pulse_collision_system,
+    void_pulse_expansion_system, void_pulse_visual_system,
+    weakened_debuff_tick_system,
+};
 use crate::spells::psychic::mind_lash::{
     mind_lash_collision_system, render_mind_lash_system, update_mind_lash_system,
 };
@@ -737,6 +742,32 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             soul_drain_pulse_visual_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Void Pulse systems - expansion in Movement, collision and cleanup in Combat, visual and debuff tick in Effects
+        .add_systems(
+            Update,
+            void_pulse_expansion_system
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                void_pulse_collision_system,
+                void_pulse_cleanup_system,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                void_pulse_visual_system,
+                weakened_debuff_tick_system,
+            )
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         )
