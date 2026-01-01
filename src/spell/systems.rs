@@ -2560,6 +2560,15 @@ pub fn spell_casting_system(
                     origin_pos,
                 );
             }
+            SpellType::Telekinesis => {
+                crate::spells::psychic::synapse_shock::fire_synapse_shock(
+                    &mut commands,
+                    spell,
+                    origin_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
             SpellType::ChaosBolt => {
                 crate::spells::chaos::chaos_bolt::fire_chaos_bolt_with_damage(
                     &mut commands,

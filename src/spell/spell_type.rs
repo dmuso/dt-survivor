@@ -261,7 +261,7 @@ impl SpellType {
 
             // Psychic
             SpellType::MindBlast => "Mind Blast",
-            SpellType::Telekinesis => "Telekinesis",
+            SpellType::Telekinesis => "Synapse Shock",
             SpellType::PsychicWave => "Psychic Wave",
             SpellType::Confusion => "Brainburn",
             SpellType::MentalSpike => "Mental Spike",
@@ -346,7 +346,7 @@ impl SpellType {
 
             // Psychic
             SpellType::MindBlast => "A devastating psychic attack on the mind.",
-            SpellType::Telekinesis => "Moves objects with mental power.",
+            SpellType::Telekinesis => "Stuns enemies briefly with mental overload.",
             SpellType::PsychicWave => "A wave of mental energy that stuns.",
             SpellType::Confusion => "Psychic aura that burns enemy minds with stacking damage.",
             SpellType::MentalSpike => "Pierces mental defenses with focused thought.",

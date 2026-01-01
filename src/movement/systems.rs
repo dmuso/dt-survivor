@@ -10,6 +10,7 @@ use crate::spells::chaos::pandemonium::ConfusedEnemy;
 use crate::spells::frost::hoarfrost::InHoarfrost;
 use crate::spells::frost::ice_shard::SlowedDebuff;
 use crate::spells::frost::permafrost::FrozenStatus;
+use crate::spells::psychic::synapse_shock::StunnedEnemy;
 
 /// Intersects a ray with the Y=0 ground plane and returns the XZ coordinates.
 /// Returns None if the ray is parallel to the ground or the intersection is behind the camera.
@@ -127,7 +128,8 @@ pub fn player_movement(
 /// System that moves enemies towards the player position on the XZ plane.
 /// PlayerPosition stores XZ coordinates as Vec2, enemies chase on ground plane.
 /// Takes into account SlowedDebuff for frost spell slow effects, InHoarfrost for aura slows,
-/// FrozenStatus which completely prevents movement, and ConfusedEnemy which uses different AI.
+/// FrozenStatus which completely prevents movement, StunnedEnemy for synapse shock stuns,
+/// and ConfusedEnemy which uses different AI.
 /// When multiple slow effects are present, uses the stronger slow (lower multiplier).
 #[allow(clippy::type_complexity)]
 pub fn enemy_movement_system(
@@ -138,16 +140,22 @@ pub fn enemy_movement_system(
         Option<&InHoarfrost>,
         Option<&FrozenStatus>,
         Option<&ConfusedEnemy>,
+        Option<&StunnedEnemy>,
     )>,
     player_position: Res<PlayerPosition>,
     time: Res<Time>,
 ) {
     let player_pos = player_position.0; // Vec2 representing XZ coordinates
 
-    for (mut transform, enemy, slowed_debuff, in_hoarfrost, frozen_status, confused) in enemy_query.iter_mut()
+    for (mut transform, enemy, slowed_debuff, in_hoarfrost, frozen_status, confused, stunned) in enemy_query.iter_mut()
     {
         // Frozen enemies cannot move at all
         if frozen_status.is_some() {
+            continue;
+        }
+
+        // Stunned enemies cannot move at all
+        if stunned.is_some() {
             continue;
         }
 
@@ -1007,6 +1015,48 @@ mod tests {
         assert!(
             transform.translation.x.abs() < 0.01,
             "Frozen enemy should not move even with slow effects, got x={}",
+            transform.translation.x
+        );
+    }
+
+    #[test]
+    fn test_stunned_enemy_cannot_move() {
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin::default());
+        app.init_resource::<PlayerPosition>();
+
+        // Set player position in positive X direction
+        {
+            let mut player_pos = app.world_mut().get_resource_mut::<PlayerPosition>().unwrap();
+            player_pos.0 = Vec2::new(100.0, 0.0);
+        }
+
+        // Create stunned enemy
+        let entity = app
+            .world_mut()
+            .spawn((
+                Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+                Enemy {
+                    speed: 100.0,
+                    strength: 10.0,
+                },
+                StunnedEnemy::new(2.0, 100.0),
+            ))
+            .id();
+
+        // Advance time by 1 second
+        {
+            let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+            time.advance_by(Duration::from_secs(1));
+        }
+
+        let _ = app.world_mut().run_system_once(enemy_movement_system);
+
+        // Stunned enemy should NOT have moved at all
+        let transform = app.world().get::<Transform>(entity).unwrap();
+        assert!(
+            transform.translation.x.abs() < 0.01,
+            "Stunned enemy should not move, got x={}",
             transform.translation.x
         );
     }

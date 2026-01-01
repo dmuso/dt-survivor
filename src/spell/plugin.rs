@@ -143,6 +143,11 @@ use crate::spells::psychic::echo_thought::{
     cleanup_echo_thought_system, execute_echo_spells_system, spawn_echo_thought_system,
     update_echo_timers_system, update_echo_visual_system, LastSpellCast,
 };
+use crate::spells::psychic::synapse_shock::{
+    synapse_shock_cleanup_burst_system, synapse_shock_cleanup_stun_system,
+    synapse_shock_expansion_system, synapse_shock_stun_application_system,
+    synapse_shock_stun_tick_system, synapse_shock_visual_system,
+};
 use crate::spells::chaos::chaos_bolt::{
     chaos_bolt_collision_detection, chaos_bolt_collision_effects,
     chaos_bolt_lifetime_system, chaos_bolt_movement_system,
@@ -869,6 +874,37 @@ pub fn plugin(app: &mut App) {
             Update,
             psionic_burst_visual_system
                 .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Synapse Shock systems - expansion in Movement, stun in Combat, tick and visual in Effects, cleanup in Cleanup
+        .add_systems(
+            Update,
+            synapse_shock_expansion_system
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            synapse_shock_stun_application_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                synapse_shock_stun_tick_system,
+                synapse_shock_visual_system,
+            )
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                synapse_shock_cleanup_stun_system,
+                synapse_shock_cleanup_burst_system,
+            )
+                .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )
         // Dominate systems - cast in Combat, targeting override in Movement, update and cleanup in Effects
