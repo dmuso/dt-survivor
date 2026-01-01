@@ -801,6 +801,126 @@ mod tests {
             assert_eq!(projectiles[0].start_pos, Vec2::new(5.0, 10.0));
         }
     }
+
+    mod chain_lightning_tests {
+        use super::*;
+        use crate::spells::lightning::chain_lightning::ChainLightningBolt;
+
+        #[test]
+        fn chain_lightning_spawns_bolt_from_spell_list() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::ChainLightning,
+                element: Element::Lightning,
+                name: "Chain Lightning".to_string(),
+                description: "Arcing lightning.".to_string(),
+                level: 2,
+                fire_rate: 2.0,
+                base_damage: 15.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(10.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut bolt_query = app.world_mut().query::<&ChainLightningBolt>();
+            let bolts: Vec<_> = bolt_query.iter(app.world()).collect();
+            assert_eq!(bolts.len(), 1, "One chain lightning bolt should be spawned");
+            // 15.0 * 2 * 1.25 = 37.5
+            assert_eq!(bolts[0].current_damage, 37.5, "Chain lightning damage should be 37.5 (15.0 * 2 * 1.25)");
+        }
+
+        #[test]
+        fn chain_lightning_with_lightning_attunement() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.insert_resource(WhisperAttunement::with_element(Element::Lightning));
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::ChainLightning,
+                element: Element::Lightning,
+                name: "Chain Lightning".to_string(),
+                description: "Arcing lightning.".to_string(),
+                level: 2,
+                fire_rate: 2.0,
+                base_damage: 15.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(10.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut bolt_query = app.world_mut().query::<&ChainLightningBolt>();
+            let bolts: Vec<_> = bolt_query.iter(app.world()).collect();
+            assert_eq!(bolts.len(), 1);
+            // 15.0 * 2 * 1.25 * 1.1 = 41.25
+            let expected = 15.0 * 2.0 * 1.25 * 1.1;
+            assert!(
+                (bolts[0].current_damage - expected).abs() < 0.01,
+                "Chain lightning damage should be {} with lightning attunement, got {}",
+                expected,
+                bolts[0].current_damage
+            );
+        }
+
+        #[test]
+        fn chain_lightning_targets_enemy_entity() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let mut spell = Spell::new(SpellType::ChainLightning);
+            spell.last_fired = -10.0;
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            let enemy_entity = app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(10.0, 0.375, 0.0)),
+            )).id();
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut bolt_query = app.world_mut().query::<&ChainLightningBolt>();
+            let bolts: Vec<_> = bolt_query.iter(app.world()).collect();
+            assert_eq!(bolts.len(), 1);
+            // Bolt should target the enemy entity
+            assert_eq!(bolts[0].target, enemy_entity);
+        }
+    }
 }
 
 use crate::inventory::resources::SpellList;
@@ -942,6 +1062,19 @@ pub fn spell_casting_system(
                     final_damage,
                     origin_pos,
                     target_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
+            SpellType::ChainLightning => {
+                // Chain lightning targets a specific entity
+                let target_entity = closest_enemies[target_index].0;
+                crate::spells::lightning::chain_lightning::fire_chain_lightning_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
+                    target_entity,
                     game_meshes.as_deref(),
                     game_materials.as_deref(),
                 );

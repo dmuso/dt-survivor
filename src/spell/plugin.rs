@@ -16,6 +16,9 @@ use crate::spells::fire::fire_nova::{
     fire_nova_cleanup_system, fire_nova_collision_system, fire_nova_expansion_system,
     fire_nova_visual_system,
 };
+use crate::spells::lightning::chain_lightning::{
+    chain_lightning_arc_cleanup_system, chain_lightning_hit_system, chain_lightning_movement_system,
+};
 use crate::spells::lightning::thunder_strike::{
     thunder_strike_damage_system, update_thunder_strike_markers, update_thunder_strikes,
 };
@@ -103,6 +106,25 @@ pub fn plugin(app: &mut App) {
             )
                 .chain()
                 .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Chain lightning systems - movement in Movement, hit detection in Combat, cleanup in Cleanup
+        .add_systems(
+            Update,
+            chain_lightning_movement_system
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            chain_lightning_hit_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            chain_lightning_arc_cleanup_system
+                .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )
         // Fire nova systems - expansion in Movement, collision and cleanup in Combat, visual in Effects
