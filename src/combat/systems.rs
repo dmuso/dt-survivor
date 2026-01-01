@@ -8,6 +8,7 @@ use crate::game::events::EnemyDeathEvent;
 use crate::game::resources::DamageFlashMaterial;
 use crate::score::Score;
 use crate::spells::fire::cinder_shot::WeakenedDebuff;
+use crate::spells::light::sanctify::SanctifiedDebuff;
 use crate::spells::poison::corrode::CorrodedDebuff;
 
 /// Marker component indicating an entity should have death checked
@@ -16,7 +17,7 @@ use crate::spells::poison::corrode::CorrodedDebuff;
 pub struct CheckDeath;
 
 /// System to apply damage from DamageEvents to entities with Health.
-/// Also applies damage multipliers from debuffs like WeakenedDebuff and CorrodedDebuff.
+/// Also applies damage multipliers from debuffs like WeakenedDebuff, SanctifiedDebuff, and CorrodedDebuff.
 #[allow(clippy::type_complexity)]
 pub fn apply_damage_system(
     mut messages: MessageReader<DamageEvent>,
@@ -24,11 +25,12 @@ pub fn apply_damage_system(
         &mut Health,
         Option<&Invincibility>,
         Option<&WeakenedDebuff>,
+        Option<&SanctifiedDebuff>,
         Option<&CorrodedDebuff>,
     )>,
 ) {
     for event in messages.read() {
-        if let Ok((mut health, invincibility, weakened, corroded)) = query.get_mut(event.target) {
+        if let Ok((mut health, invincibility, weakened, sanctified, corroded)) = query.get_mut(event.target) {
             // Skip if invincible
             if invincibility.is_some() {
                 continue;
@@ -40,6 +42,11 @@ pub fn apply_damage_system(
             // Apply weakened debuff multiplier
             if let Some(weakened) = weakened {
                 final_damage *= weakened.damage_multiplier;
+            }
+
+            // Apply sanctified debuff multiplier (from Sanctify/Consecration spell)
+            if let Some(sanctified) = sanctified {
+                final_damage *= sanctified.damage_multiplier;
             }
 
             // Apply corroded debuff multiplier
