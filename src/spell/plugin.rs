@@ -126,6 +126,10 @@ use crate::spells::psychic::psionic_burst::{
     psionic_burst_cleanup_system, psionic_burst_collision_system,
     psionic_burst_expansion_system, psionic_burst_visual_system,
 };
+use crate::spells::psychic::dominate::{
+    cast_dominate_system, cleanup_dominate_system,
+    dominated_enemy_targeting_system, update_dominated_enemies_system,
+};
 use crate::spells::chaos::chaos_bolt::{
     chaos_bolt_collision_detection, chaos_bolt_collision_effects,
     chaos_bolt_lifetime_system, chaos_bolt_movement_system,
@@ -816,6 +820,31 @@ pub fn plugin(app: &mut App) {
             Update,
             psionic_burst_visual_system
                 .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Dominate systems - cast in Combat, targeting override in Movement, update and cleanup in Effects
+        .add_systems(
+            Update,
+            cast_dominate_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            dominated_enemy_targeting_system
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            update_dominated_enemies_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            cleanup_dominate_system
+                .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )
         // Chaos Bolt systems - movement and lifetime in Movement, collision in Combat, debuffs in Effects

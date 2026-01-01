@@ -2402,6 +2402,13 @@ pub fn spell_casting_system(
                     game_materials.as_deref(),
                 );
             }
+            SpellType::Dominate => {
+                crate::spells::psychic::dominate::fire_dominate(
+                    &mut commands,
+                    spell,
+                    origin_pos,
+                );
+            }
             SpellType::ChaosBolt => {
                 crate::spells::chaos::chaos_bolt::fire_chaos_bolt_with_damage(
                     &mut commands,
