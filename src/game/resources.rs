@@ -435,6 +435,8 @@ pub struct GameMaterials {
     pub poison_projectile: Handle<StandardMaterial>,
     /// Poison cloud zone material (translucent green toxic fog)
     pub poison_cloud: Handle<StandardMaterial>,
+    /// Ice shard projectile material (ice blue with emissive glow)
+    pub ice_shard: Handle<StandardMaterial>,
 }
 
 impl GameMaterials {
@@ -586,6 +588,11 @@ impl GameMaterials {
                 base_color: Color::srgba(0.0, 0.8, 0.0, 0.5), // Translucent green
                 emissive: bevy::color::LinearRgba::rgb(0.0, 1.0, 0.0), // Green glow
                 alpha_mode: AlphaMode::Blend,
+                ..default()
+            }),
+            ice_shard: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.53, 0.81, 0.92), // Ice blue (Frost element color)
+                emissive: bevy::color::LinearRgba::rgb(0.67, 1.0, 1.18), // Bright ice blue glow
                 ..default()
             }),
         }
@@ -892,6 +899,7 @@ mod tests {
             assert!(materials.get(&game_materials.lightning).is_some());
             assert!(materials.get(&game_materials.orbital_particle).is_some());
             assert!(materials.get(&game_materials.fireball).is_some());
+            assert!(materials.get(&game_materials.ice_shard).is_some());
         }
 
         #[test]
@@ -994,6 +1002,10 @@ mod tests {
             // Verify fireball is orange (Fire element color)
             let fireball_mat = materials.get(&game_materials.fireball).unwrap();
             assert_eq!(fireball_mat.base_color, Color::srgb(1.0, 0.5, 0.0));
+
+            // Verify ice_shard is ice blue (Frost element color)
+            let ice_shard_mat = materials.get(&game_materials.ice_shard).unwrap();
+            assert_eq!(ice_shard_mat.base_color, Color::srgb(0.53, 0.81, 0.92));
         }
 
         #[test]

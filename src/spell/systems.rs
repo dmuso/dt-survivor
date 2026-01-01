@@ -1079,6 +1079,17 @@ pub fn spell_casting_system(
                     game_materials.as_deref(),
                 );
             }
+            SpellType::IceShard => {
+                crate::spells::frost::ice_shard::fire_ice_shard_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
+                    target_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
             _ => {
                 // Other spell types not implemented yet
             }

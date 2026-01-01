@@ -5,6 +5,7 @@ use crate::enemies::components::Enemy;
 use crate::game::resources::PlayerPosition;
 use crate::movement::components::{from_xz, to_xz, Knockback, Velocity};
 use crate::player::components::{Player, SlowModifier};
+use crate::spells::frost::ice_shard::SlowedDebuff;
 
 /// Intersects a ray with the Y=0 ground plane and returns the XZ coordinates.
 /// Returns None if the ray is parallel to the ground or the intersection is behind the camera.
@@ -121,19 +122,27 @@ pub fn player_movement(
 
 /// System that moves enemies towards the player position on the XZ plane.
 /// PlayerPosition stores XZ coordinates as Vec2, enemies chase on ground plane.
+/// Takes into account SlowedDebuff for frost spell slow effects.
 pub fn enemy_movement_system(
-    mut enemy_query: Query<(&mut Transform, &Enemy)>,
+    mut enemy_query: Query<(&mut Transform, &Enemy, Option<&SlowedDebuff>)>,
     player_position: Res<PlayerPosition>,
     time: Res<Time>,
 ) {
     let player_pos = player_position.0; // Vec2 representing XZ coordinates
 
-    for (mut transform, enemy) in enemy_query.iter_mut() {
+    for (mut transform, enemy, slowed_debuff) in enemy_query.iter_mut() {
         let enemy_pos = from_xz(transform.translation);
         let direction = (player_pos - enemy_pos).normalize_or_zero();
 
+        // Calculate effective speed considering slow effects
+        let effective_speed = if let Some(slowed) = slowed_debuff {
+            enemy.speed * slowed.speed_multiplier
+        } else {
+            enemy.speed
+        };
+
         // Move enemy towards player on XZ plane
-        let movement = direction * enemy.speed * time.delta_secs();
+        let movement = direction * effective_speed * time.delta_secs();
         transform.translation += to_xz(movement);
     }
 }
@@ -633,6 +642,91 @@ mod tests {
         assert_eq!(transform2.translation.x, 0.0);
         assert_eq!(transform2.translation.y, 0.5);  // Y preserved
         assert_eq!(transform2.translation.z, 50.0); // Moved 50 units towards origin
+    }
+
+    #[test]
+    fn test_enemy_movement_respects_slowed_debuff() {
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin::default());
+        app.init_resource::<PlayerPosition>();
+
+        // Set player position in positive X direction
+        {
+            let mut player_pos = app.world_mut().get_resource_mut::<PlayerPosition>().unwrap();
+            player_pos.0 = Vec2::new(100.0, 0.0); // X=100, Z=0
+        }
+
+        // Create enemy with SlowedDebuff (50% speed reduction)
+        let entity = app
+            .world_mut()
+            .spawn((
+                Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+                Enemy {
+                    speed: 100.0,
+                    strength: 10.0,
+                },
+                SlowedDebuff::new(5.0, 0.5), // 50% speed for 5 seconds
+            ))
+            .id();
+
+        // Advance time by 1 second
+        {
+            let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+            time.advance_by(Duration::from_secs(1));
+        }
+
+        let _ = app.world_mut().run_system_once(enemy_movement_system);
+
+        // Enemy should have moved 50 units (100 speed * 0.5 multiplier * 1 sec)
+        let transform = app.world().get::<Transform>(entity).unwrap();
+        assert!(
+            (transform.translation.x - 50.0).abs() < 0.01,
+            "Expected x=50.0 (slowed), got {}",
+            transform.translation.x
+        );
+        assert_eq!(transform.translation.y, 0.5); // Y preserved
+        assert_eq!(transform.translation.z, 0.0);
+    }
+
+    #[test]
+    fn test_enemy_without_slow_moves_at_full_speed() {
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin::default());
+        app.init_resource::<PlayerPosition>();
+
+        // Set player position in positive X direction
+        {
+            let mut player_pos = app.world_mut().get_resource_mut::<PlayerPosition>().unwrap();
+            player_pos.0 = Vec2::new(100.0, 0.0);
+        }
+
+        // Create enemy without SlowedDebuff
+        let entity = app
+            .world_mut()
+            .spawn((
+                Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+                Enemy {
+                    speed: 100.0,
+                    strength: 10.0,
+                },
+            ))
+            .id();
+
+        // Advance time by 1 second
+        {
+            let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+            time.advance_by(Duration::from_secs(1));
+        }
+
+        let _ = app.world_mut().run_system_once(enemy_movement_system);
+
+        // Enemy should have moved 100 units (full speed)
+        let transform = app.world().get::<Transform>(entity).unwrap();
+        assert!(
+            (transform.translation.x - 100.0).abs() < 0.01,
+            "Expected x=100.0 (full speed), got {}",
+            transform.translation.x
+        );
     }
 
     // ray_ground_intersection tests

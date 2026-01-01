@@ -26,6 +26,11 @@ use crate::spells::poison::poison_cloud::{
     poison_cloud_cleanup_system, poison_cloud_damage_system,
     poison_cloud_projectile_movement_system, poison_cloud_spawn_zone_system,
 };
+use crate::spells::frost::ice_shard::{
+    ice_shard_collision_detection, ice_shard_collision_effects,
+    ice_shard_lifetime_system, ice_shard_movement_system, slowed_debuff_system,
+    IceShardEnemyCollisionEvent,
+};
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -42,8 +47,9 @@ pub fn plugin(app: &mut App) {
         .init_resource::<SpellList>()
         // Initialize WhisperAttunement for elemental damage bonus
         .init_resource::<WhisperAttunement>()
-        // Register fireball collision event
+        // Register spell collision events
         .add_message::<FireballEnemyCollisionEvent>()
+        .add_message::<IceShardEnemyCollisionEvent>()
         // Movement systems - spell follows player
         .add_systems(
             Update,
@@ -171,6 +177,32 @@ pub fn plugin(app: &mut App) {
             Update,
             poison_cloud_cleanup_system
                 .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Ice shard systems - movement and lifetime in Movement, collision in Combat, debuff in Effects
+        .add_systems(
+            Update,
+            (
+                ice_shard_movement_system,
+                ice_shard_lifetime_system,
+            )
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                ice_shard_collision_detection,
+                ice_shard_collision_effects,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            slowed_debuff_system
+                .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         );
 }
