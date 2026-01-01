@@ -2420,6 +2420,17 @@ pub fn spell_casting_system(
                     game_materials.as_deref(),
                 );
             }
+            SpellType::Entropy => {
+                crate::spells::chaos::entropy_field::fire_entropy_field_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
+                    target_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
             SpellType::Smite => {
                 crate::spells::light::solar_flare::fire_solar_flare_with_damage(
                     &mut commands,
