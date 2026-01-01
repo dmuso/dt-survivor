@@ -103,6 +103,11 @@ impl SpellList {
             None
         }
     }
+
+    /// Get mutable access to slots array for direct manipulation.
+    pub fn slots_mut(&mut self) -> &mut [Option<Spell>; 5] {
+        &mut self.slots
+    }
 }
 
 #[cfg(test)]

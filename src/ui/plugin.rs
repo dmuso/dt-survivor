@@ -1,11 +1,13 @@
 use bevy::prelude::*;
 use crate::states::*;
 use crate::ui::attunement::*;
+use crate::ui::inventory_bag::*;
 use crate::ui::systems::*;
 use crate::score::*;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<DebugHudVisible>()
+        .init_resource::<SelectedBagSlot>()
         .add_systems(Startup, configure_gizmos)
         .add_systems(OnEnter(GameState::Intro), setup_intro)
         .add_systems(Update, button_interactions.run_if(in_state(GameState::Intro)))
@@ -27,7 +29,17 @@ pub fn plugin(app: &mut App) {
             update_xp_progress_bar,
             toggle_debug_hud,
             update_debug_hud,
+            handle_inventory_toggle,
         ).run_if(in_state(GameState::InGame)))
+        // Inventory state systems
+        .add_systems(OnEnter(GameState::InventoryOpen), setup_inventory_ui)
+        .add_systems(Update, (
+            handle_inventory_input,
+            handle_bag_slot_click,
+            handle_active_slot_click,
+            update_selected_slot_visual,
+        ).run_if(in_state(GameState::InventoryOpen)))
+        .add_systems(OnExit(GameState::InventoryOpen), cleanup_inventory_ui)
         .add_systems(Update,
             draw_debug_axis_gizmos
                 .run_if(in_state(GameState::InGame))
