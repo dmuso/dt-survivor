@@ -58,6 +58,10 @@ use crate::spells::fire::ember_swarm::{
     ember_wisp_timeout_system, initialize_ember_swarm_wisps_system, launch_ember_wisps_system,
     move_launched_wisps_system, orbit_ember_wisps_system,
 };
+use crate::spells::lightning::overload::{
+    overload_blast_system, overload_charge_accumulate_system, overload_check_release_system,
+    LightningDamageEvent,
+};
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -79,6 +83,7 @@ pub fn plugin(app: &mut App) {
         .add_message::<IceShardEnemyCollisionEvent>()
         .add_message::<IceShardFragmentCollisionEvent>()
         .add_message::<CinderShotEnemyCollisionEvent>()
+        .add_message::<LightningDamageEvent>()
         // Movement systems - spell follows player
         .add_systems(
             Update,
@@ -389,6 +394,23 @@ pub fn plugin(app: &mut App) {
             )
                 .chain()
                 .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Overload systems - charge accumulation in Effects, blast check and damage in Combat
+        .add_systems(
+            Update,
+            overload_charge_accumulate_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                overload_check_release_system,
+                overload_blast_system,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
                 .run_if(in_state(GameState::InGame)),
         );
 }
