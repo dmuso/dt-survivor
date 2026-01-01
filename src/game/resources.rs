@@ -425,6 +425,10 @@ pub struct GameMaterials {
     pub fireball: Handle<StandardMaterial>,
     /// Radiant beam material (white/gold with strong emissive glow)
     pub radiant_beam: Handle<StandardMaterial>,
+    /// Thunder strike effect material (yellow/electric with strong emissive glow)
+    pub thunder_strike: Handle<StandardMaterial>,
+    /// Thunder strike target marker material (yellow with transparency)
+    pub thunder_strike_marker: Handle<StandardMaterial>,
 }
 
 impl GameMaterials {
@@ -547,6 +551,18 @@ impl GameMaterials {
                 base_color: Color::srgb(1.0, 1.0, 0.9), // White with slight gold tint
                 emissive: bevy::color::LinearRgba::rgb(3.0, 3.0, 2.5), // Bright white/gold glow
                 unlit: true,
+                ..default()
+            }),
+            thunder_strike: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 1.0, 0.0), // Yellow (Lightning element color)
+                emissive: bevy::color::LinearRgba::rgb(3.0, 3.0, 0.0), // Bright yellow glow
+                unlit: true,
+                ..default()
+            }),
+            thunder_strike_marker: materials.add(StandardMaterial {
+                base_color: Color::srgba(1.0, 1.0, 0.0, 0.5), // Yellow with 50% transparency
+                emissive: bevy::color::LinearRgba::rgb(1.0, 1.0, 0.0),
+                alpha_mode: AlphaMode::Blend,
                 ..default()
             }),
         }
