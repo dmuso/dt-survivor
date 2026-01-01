@@ -76,6 +76,9 @@ use crate::spells::poison::neurotoxin::{
     apply_neurotoxin_on_poison_damage, neurotoxin_debuff_tick_system,
     neurotoxin_movement_jitter_system,
 };
+use crate::spells::poison::virulence::{
+    apply_virulent_poison_on_damage, spread_virulent_poison_on_death,
+};
 use crate::spells::fire::inferno_pulse::{
     animate_inferno_pulse_wave_system, cleanup_inferno_pulse_wave_system,
     inferno_pulse_wave_visual_system,
@@ -487,6 +490,19 @@ pub fn plugin(app: &mut App) {
                 neurotoxin_movement_jitter_system,
             )
                 .chain()
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Virulence systems - apply marker on poison damage in Combat, spread on death in Effects
+        .add_systems(
+            Update,
+            apply_virulent_poison_on_damage
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            spread_virulent_poison_on_death
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         )
