@@ -2694,6 +2694,17 @@ pub fn spell_casting_system(
                     );
                 }
             }
+            SpellType::Purify => {
+                // Purify attaches a caster component to the player that cleanses debuffs and damages enemies
+                if let Ok((player_entity, _, _)) = player_query.single() {
+                    crate::spells::light::purify::fire_purify_with_damage(
+                        &mut commands,
+                        spell,
+                        final_damage,
+                        player_entity,
+                    );
+                }
+            }
             _ => {
                 // Other spell types not implemented yet
             }

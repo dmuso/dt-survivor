@@ -189,6 +189,9 @@ use crate::spells::light::beacon::{
     apply_beacon_damage, remove_beacon_attraction,
     beacon_movement_override,
 };
+use crate::spells::light::purify::{
+    cleanup_purify_bursts, trigger_purify_burst, update_purify_cooldown,
+};
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -1218,6 +1221,25 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             remove_beacon_attraction
+                .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Purify (Light) systems - cooldown tick in Effects, burst in Combat, cleanup in Cleanup
+        .add_systems(
+            Update,
+            update_purify_cooldown
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            trigger_purify_burst
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            cleanup_purify_bursts
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         );
