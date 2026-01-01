@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use crate::states::*;
+use crate::ui::attunement::*;
 use crate::ui::systems::*;
 use crate::score::*;
 
@@ -9,6 +10,10 @@ pub fn plugin(app: &mut App) {
         .add_systems(OnEnter(GameState::Intro), setup_intro)
         .add_systems(Update, button_interactions.run_if(in_state(GameState::Intro)))
         .add_systems(OnExit(GameState::Intro), cleanup_intro)
+        // Attunement selection state systems
+        .add_systems(OnEnter(GameState::AttunementSelect), setup_attunement_screen)
+        .add_systems(Update, handle_attunement_selection.run_if(in_state(GameState::AttunementSelect)))
+        .add_systems(OnExit(GameState::AttunementSelect), cleanup_attunement_screen)
         .add_systems(OnEnter(GameState::InGame), (setup_score_display, setup_game_ui, setup_spell_slots, setup_debug_hud))
         .add_systems(Update, (
             update_score_display,

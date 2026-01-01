@@ -127,7 +127,7 @@ pub fn button_interactions(
         match *interaction {
             Interaction::Pressed => {
                 if start_button.is_some() {
-                    next_state.set(GameState::InGame);
+                    next_state.set(GameState::AttunementSelect);
                 } else if exit_button.is_some() {
                     app_exit.write(AppExit::Success);
                 }
