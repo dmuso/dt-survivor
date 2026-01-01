@@ -1,6 +1,5 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
-use bevy_hanabi::prelude::ParticleEffect;
 use rand::Rng;
 use crate::combat::components::Health;
 use crate::loot::components::{DroppedItem, ItemData, PickupState, PopUpAnimation};
@@ -15,11 +14,8 @@ use crate::audio::plugin::*;
 use crate::game::components::Level;
 use crate::game::resources::{GameMaterials, GameMeshes, ScreenTintEffect, XpOrbMaterials};
 use crate::game::events::LootDropEvent;
-use crate::whisper::components::{
-    ArcBurstTimer, LightningSpawnTimer, OrbitalParticleSpawnTimer,
-    WhisperCompanion, WhisperOuterGlow,
-};
-use crate::whisper::resources::{WhisperSparkEffect, WhisperState};
+use crate::whisper::components::{LightningSpawnTimer, WhisperCompanion, WhisperOuterGlow};
+use crate::whisper::resources::WhisperState;
 use crate::whisper::systems::{WHISPER_LIGHT_COLOR, WHISPER_LIGHT_INTENSITY, WHISPER_LIGHT_RADIUS};
 // Note: WHISPER_LIGHT_* constants are still used for the WhisperCompanion entity (not drops)
 
@@ -499,7 +495,6 @@ pub fn apply_item_effects(
     mut active_powerups: ResMut<crate::powerup::components::ActivePowerups>,
     mut screen_tint: ResMut<ScreenTintEffect>,
     mut whisper_state: ResMut<WhisperState>,
-    spark_effect: Option<Res<WhisperSparkEffect>>,
     game_meshes: Option<Res<GameMeshes>>,
     game_materials: Option<Res<GameMaterials>>,
     asset_server: Option<Res<AssetServer>>,
@@ -575,11 +570,9 @@ pub fn apply_item_effects(
                 let companion = WhisperCompanion::default();
                 let companion_pos = player_pos + companion.follow_offset;
 
-                let mut companion_entity = commands.spawn((
+                commands.spawn((
                     companion,
-                    ArcBurstTimer::default(),
                     LightningSpawnTimer::default(),
-                    OrbitalParticleSpawnTimer::default(),
                     Transform::from_translation(companion_pos),
                     Visibility::default(),
                     PointLight {
@@ -589,14 +582,8 @@ pub fn apply_item_effects(
                         shadows_enabled: false,
                         ..default()
                     },
-                ));
-
-                // Add particle effect if available
-                if let Some(effect) = spark_effect.as_ref() {
-                    companion_entity.insert(ParticleEffect::new(effect.0.clone()));
-                }
-
-                companion_entity.with_children(|parent| {
+                ))
+                .with_children(|parent| {
                     parent.spawn((
                         WhisperOuterGlow,
                         Mesh3d(game_meshes.whisper_core.clone()),

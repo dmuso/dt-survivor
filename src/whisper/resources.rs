@@ -1,9 +1,16 @@
+use bevy::animation::graph::AnimationNodeIndex;
 use bevy::prelude::*;
-use bevy_hanabi::prelude::*;
 
-/// Resource holding the Whisper spark particle effect asset
+/// Resource holding handles to the whisper's animation clips and scene
 #[derive(Resource)]
-pub struct WhisperSparkEffect(pub Handle<EffectAsset>);
+pub struct WhisperAnimations {
+    /// Handle to the whisper GLTF scene
+    pub scene: Handle<Scene>,
+    /// Animation graph for the whisper
+    pub graph: Handle<AnimationGraph>,
+    /// Node indices for all animations (one per mesh)
+    pub animation_nodes: Vec<AnimationNodeIndex>,
+}
 
 /// Resource tracking the weapon origin position.
 /// When Whisper is not collected, weapons are disabled.
@@ -53,17 +60,24 @@ mod tests {
     }
 
     #[test]
-    fn test_whisper_spark_effect_holds_handle() {
-        // WhisperSparkEffect should be a newtype wrapper around Handle<EffectAsset>
-        // This is a simple test to verify the struct exists and compiles
-        // Full integration testing requires the HanabiPlugin which has many dependencies
+    fn test_whisper_animations_type_check() {
+        // WhisperAnimations holds scene, graph, and animation node handles
+        // This test verifies the struct exists and type signatures are correct
+        // Full integration testing requires asset loading plugins
+        use bevy::animation::graph::AnimationNodeIndex;
         use bevy::asset::Handle;
 
-        // Verify the type is correctly defined - it wraps Handle<EffectAsset>
-        // We can't easily create a valid handle in tests without full plugin setup,
-        // but we can verify the struct exists and the type signature is correct
-        fn _type_check(handle: Handle<EffectAsset>) -> WhisperSparkEffect {
-            WhisperSparkEffect(handle)
+        // Verify the type is correctly defined
+        fn _type_check(
+            scene: Handle<Scene>,
+            graph: Handle<AnimationGraph>,
+            animation_nodes: Vec<AnimationNodeIndex>,
+        ) -> WhisperAnimations {
+            WhisperAnimations {
+                scene,
+                graph,
+                animation_nodes,
+            }
         }
 
         // Just verify the type compiles - actual handle creation is tested in integration

@@ -10,14 +10,13 @@ pub fn plugin(app: &mut App) {
         // Resources
         .init_resource::<WeaponOrigin>()
         .init_resource::<WhisperState>()
-        // Startup systems (particle effect setup)
-        .add_systems(Startup, setup_whisper_particle_effect)
+        // Startup systems (animation setup)
+        .add_systems(Startup, setup_whisper_animations)
         // Setup systems (OnEnter)
         // Note: spawn_whisper_drop is called from game plugin to ensure resources are ready
-        .add_systems(
-            OnEnter(GameState::InGame),
-            reset_whisper_state,
-        )
+        .add_systems(OnEnter(GameState::InGame), reset_whisper_state)
+        // Cleanup systems (OnExit)
+        .add_systems(OnExit(GameState::InGame), cleanup_whisper_animations)
         // Movement systems
         .add_systems(
             Update,
@@ -26,25 +25,22 @@ pub fn plugin(app: &mut App) {
                 .in_set(GameSet::Movement)
                 .run_if(in_state(GameState::InGame)),
         )
-        // Effect systems (pickup is handled by loot system via DroppedItem)
+        // Model and animation spawn systems
         .add_systems(
             Update,
             (
-                spawn_whisper_arcs,
-                spawn_lightning_bolts,
-                animate_lightning_bolts,
-                spawn_orbital_particles,
-                update_orbital_particles,
-                render_particle_trails,
+                spawn_whisper_model,
+                spawn_dropped_whisper_model,
+                setup_whisper_animation_player,
             )
-                .in_set(GameSet::Effects)
+                .run_if(resource_exists::<WhisperAnimations>)
                 .run_if(in_state(GameState::InGame)),
         )
-        // Cleanup
+        // Effect systems (lightning bolts)
         .add_systems(
             Update,
-            update_whisper_arcs
-                .in_set(GameSet::Cleanup)
+            (spawn_lightning_bolts, animate_lightning_bolts)
+                .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         );
 }
