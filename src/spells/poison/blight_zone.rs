@@ -157,7 +157,11 @@ pub fn blight_zone_damage_system(
                 let enemy_pos = from_xz(enemy_transform.translation);
 
                 if zone.can_damage(enemy_entity, enemy_pos) {
-                    damage_events.write(DamageEvent::new(enemy_entity, zone.tick_damage));
+                    damage_events.write(DamageEvent::with_element(
+                        enemy_entity,
+                        zone.tick_damage,
+                        Element::Poison,
+                    ));
                     zone.mark_hit(enemy_entity);
                 }
             }

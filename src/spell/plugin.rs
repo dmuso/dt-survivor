@@ -66,6 +66,9 @@ use crate::spells::lightning::overload::{
     overload_blast_system, overload_charge_accumulate_system, overload_check_release_system,
     LightningDamageEvent,
 };
+use crate::spells::poison::corrode::{
+    apply_corroded_on_poison_damage, corroded_debuff_tick_system,
+};
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -437,6 +440,19 @@ pub fn plugin(app: &mut App) {
             )
                 .chain()
                 .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Corrode systems - apply debuff on poison damage in Combat, tick debuff in Effects
+        .add_systems(
+            Update,
+            apply_corroded_on_poison_damage
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            corroded_debuff_tick_system
+                .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         );
 }

@@ -234,7 +234,11 @@ pub fn poison_puddle_damage_system(
                 let enemy_pos = from_xz(enemy_transform.translation);
 
                 if puddle.can_damage(enemy_entity, enemy_pos) {
-                    damage_events.write(DamageEvent::new(enemy_entity, puddle.tick_damage));
+                    damage_events.write(DamageEvent::with_element(
+                        enemy_entity,
+                        puddle.tick_damage,
+                        Element::Poison,
+                    ));
                     puddle.mark_hit(enemy_entity);
                 }
             }

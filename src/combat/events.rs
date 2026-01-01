@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use crate::element::Element;
 
 /// Type of entity that died (for death handling)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -17,6 +18,8 @@ pub struct DamageEvent {
     pub amount: f32,
     /// Source of the damage (if any)
     pub source: Option<Entity>,
+    /// Element type of the damage (for debuff application)
+    pub element: Option<Element>,
 }
 
 impl DamageEvent {
@@ -25,6 +28,7 @@ impl DamageEvent {
             target,
             amount,
             source: None,
+            element: None,
         }
     }
 
@@ -33,7 +37,41 @@ impl DamageEvent {
             target,
             amount,
             source: Some(source),
+            element: None,
         }
+    }
+
+    pub fn with_element(target: Entity, amount: f32, element: Element) -> Self {
+        Self {
+            target,
+            amount,
+            source: None,
+            element: Some(element),
+        }
+    }
+
+    pub fn with_source_and_element(
+        target: Entity,
+        amount: f32,
+        source: Entity,
+        element: Element,
+    ) -> Self {
+        Self {
+            target,
+            amount,
+            source: Some(source),
+            element: Some(element),
+        }
+    }
+
+    /// Check if this damage is of the specified element type
+    pub fn is_element(&self, element: Element) -> bool {
+        self.element == Some(element)
+    }
+
+    /// Check if this is poison damage
+    pub fn is_poison(&self) -> bool {
+        self.is_element(Element::Poison)
     }
 }
 
@@ -74,6 +112,7 @@ mod tests {
             assert_eq!(event.target, target);
             assert_eq!(event.amount, 25.0);
             assert!(event.source.is_none());
+            assert!(event.element.is_none());
         }
 
         #[test]
@@ -86,6 +125,57 @@ mod tests {
             assert_eq!(event.target, target);
             assert_eq!(event.amount, 50.0);
             assert_eq!(event.source, Some(source));
+            assert!(event.element.is_none());
+        }
+
+        #[test]
+        fn test_damage_event_with_element() {
+            let mut world = World::new();
+            let target = world.spawn_empty().id();
+            let event = DamageEvent::with_element(target, 30.0, Element::Poison);
+
+            assert_eq!(event.target, target);
+            assert_eq!(event.amount, 30.0);
+            assert!(event.source.is_none());
+            assert_eq!(event.element, Some(Element::Poison));
+        }
+
+        #[test]
+        fn test_damage_event_with_source_and_element() {
+            let mut world = World::new();
+            let target = world.spawn_empty().id();
+            let source = world.spawn_empty().id();
+            let event = DamageEvent::with_source_and_element(target, 40.0, source, Element::Fire);
+
+            assert_eq!(event.target, target);
+            assert_eq!(event.amount, 40.0);
+            assert_eq!(event.source, Some(source));
+            assert_eq!(event.element, Some(Element::Fire));
+        }
+
+        #[test]
+        fn test_damage_event_is_element() {
+            let mut world = World::new();
+            let target = world.spawn_empty().id();
+            let event = DamageEvent::with_element(target, 25.0, Element::Poison);
+
+            assert!(event.is_element(Element::Poison));
+            assert!(!event.is_element(Element::Fire));
+        }
+
+        #[test]
+        fn test_damage_event_is_poison() {
+            let mut world = World::new();
+            let target = world.spawn_empty().id();
+
+            let poison_event = DamageEvent::with_element(target, 25.0, Element::Poison);
+            assert!(poison_event.is_poison());
+
+            let fire_event = DamageEvent::with_element(target, 25.0, Element::Fire);
+            assert!(!fire_event.is_poison());
+
+            let no_element_event = DamageEvent::new(target, 25.0);
+            assert!(!no_element_event.is_poison());
         }
     }
 

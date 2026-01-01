@@ -181,7 +181,11 @@ pub fn venom_spray_hit_detection(
                 cone.mark_hit(enemy_entity);
 
                 // Apply initial damage
-                damage_events.write(DamageEvent::new(enemy_entity, cone.base_damage));
+                damage_events.write(DamageEvent::with_element(
+                    enemy_entity,
+                    cone.base_damage,
+                    Element::Poison,
+                ));
 
                 // Apply or add poison stack
                 if let Ok(mut existing_stack) = poison_query.get_mut(enemy_entity) {
@@ -205,7 +209,7 @@ pub fn poison_stack_damage_tick(
 
         if stack.should_damage() {
             let damage = stack.tick_damage();
-            damage_events.write(DamageEvent::new(entity, damage));
+            damage_events.write(DamageEvent::with_element(entity, damage, Element::Poison));
         }
     }
 }
