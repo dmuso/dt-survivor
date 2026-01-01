@@ -18,6 +18,7 @@ pub use dark::void_pulse;
 pub use fire::fireball;
 pub use frost::ice_shard;
 pub use frost::ice_shards;
+pub use light::beacon;
 pub use light::radiant_beam;
 pub use lightning::arc_surge;
 pub use lightning::chain_lightning;

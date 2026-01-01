@@ -175,6 +175,11 @@ use crate::spells::light::judgment::{
     judgment_caster_system, update_judgment_strikes,
     judgment_beam_damage_system, update_judgment_beams,
 };
+use crate::spells::light::beacon::{
+    update_beacon_timers, attract_enemies_to_beacon,
+    apply_beacon_damage, remove_beacon_attraction,
+    beacon_movement_override,
+};
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -1127,6 +1132,30 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             update_judgment_beams
+                .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Beacon (Light) systems - timer updates, enemy attraction, damage, cleanup
+        .add_systems(
+            Update,
+            (
+                update_beacon_timers,
+                attract_enemies_to_beacon,
+                beacon_movement_override,
+            )
+                .chain()
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            apply_beacon_damage
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            remove_beacon_attraction
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         );

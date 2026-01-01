@@ -235,7 +235,7 @@ impl SpellType {
             SpellType::Radiance => "Radiance",
             SpellType::Smite => "Smite",
             SpellType::DivineLight => "Divine Light",
-            SpellType::Consecration => "Consecration",
+            SpellType::Consecration => "Beacon",
             SpellType::Purify => "Purify",
             SpellType::Judgment => "Judgment",
 
@@ -320,7 +320,7 @@ impl SpellType {
             SpellType::Radiance => "Emits blinding light in all directions.",
             SpellType::Smite => "Calls down divine judgment on a target.",
             SpellType::DivineLight => "Bathes an area in healing light.",
-            SpellType::Consecration => "Sanctifies the ground, damaging evil.",
+            SpellType::Consecration => "Light source that draws enemies while damaging them.",
             SpellType::Purify => "Cleanses corruption and heals wounds.",
             SpellType::Judgment => "Delivers ultimate divine punishment.",
 
