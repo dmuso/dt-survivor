@@ -158,6 +158,10 @@ use crate::spells::light::solar_flare::{
 use crate::spells::light::halo_shield::{
     halo_shield_update_system, halo_shield_contact_damage_system,
 };
+use crate::spells::light::judgment::{
+    judgment_caster_system, update_judgment_strikes,
+    judgment_beam_damage_system, update_judgment_beams,
+};
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -1000,6 +1004,29 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             entropy_field_cleanup_system
+                .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Judgment (Light) systems - caster targeting in Combat, strike updates in Combat, beam damage in Combat, beam cleanup in Cleanup
+        .add_systems(
+            Update,
+            judgment_caster_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                update_judgment_strikes,
+                judgment_beam_damage_system,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            update_judgment_beams
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         );
