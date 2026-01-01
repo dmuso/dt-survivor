@@ -921,6 +921,127 @@ mod tests {
             assert_eq!(bolts[0].target, enemy_entity);
         }
     }
+
+    mod toxic_spray_tests {
+        use super::*;
+        use crate::spells::poison::venom_spray::VenomSprayCone;
+
+        #[test]
+        fn toxic_spray_spawns_cone_from_spell_list() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::ToxicSpray,
+                element: Element::Poison,
+                name: "Toxic Spray".to_string(),
+                description: "Cone of poison.".to_string(),
+                level: 2,
+                fire_rate: 2.0,
+                base_damage: 14.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(5.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut cone_query = app.world_mut().query::<&VenomSprayCone>();
+            let cones: Vec<_> = cone_query.iter(app.world()).collect();
+            assert_eq!(cones.len(), 1, "One venom spray cone should be spawned");
+            // 14.0 * 2 * 1.25 = 35.0
+            assert_eq!(cones[0].base_damage, 35.0, "Toxic spray damage should be 35.0 (14.0 * 2 * 1.25)");
+        }
+
+        #[test]
+        fn toxic_spray_with_poison_attunement() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.insert_resource(WhisperAttunement::with_element(Element::Poison));
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::ToxicSpray,
+                element: Element::Poison,
+                name: "Toxic Spray".to_string(),
+                description: "Cone of poison.".to_string(),
+                level: 2,
+                fire_rate: 2.0,
+                base_damage: 14.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(5.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut cone_query = app.world_mut().query::<&VenomSprayCone>();
+            let cones: Vec<_> = cone_query.iter(app.world()).collect();
+            assert_eq!(cones.len(), 1);
+            // 14.0 * 2 * 1.25 * 1.1 = 38.5
+            let expected = 14.0 * 2.0 * 1.25 * 1.1;
+            assert!(
+                (cones[0].base_damage - expected).abs() < 0.01,
+                "Toxic spray damage should be {} with poison attunement, got {}",
+                expected,
+                cones[0].base_damage
+            );
+        }
+
+        #[test]
+        fn toxic_spray_spawns_at_spell_origin() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            let origin_pos = Vec3::new(5.0, 3.0, 10.0);
+            app.insert_resource(SpellOrigin {
+                position: Some(origin_pos),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let mut spell = Spell::new(SpellType::ToxicSpray);
+            spell.last_fired = -10.0;
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(15.0, 0.375, 10.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut cone_query = app.world_mut().query::<&VenomSprayCone>();
+            let cones: Vec<_> = cone_query.iter(app.world()).collect();
+            assert_eq!(cones.len(), 1);
+            // Cone should be centered at origin position on XZ plane
+            assert_eq!(cones[0].origin, Vec2::new(5.0, 10.0));
+        }
+    }
 }
 
 use crate::inventory::resources::SpellList;
@@ -1092,6 +1213,17 @@ pub fn spell_casting_system(
             }
             SpellType::GlacialSpike => {
                 crate::spells::frost::ice_shards::fire_ice_shards_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
+                    target_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
+            SpellType::ToxicSpray => {
+                crate::spells::poison::venom_spray::fire_venom_spray_with_damage(
                     &mut commands,
                     spell,
                     final_damage,

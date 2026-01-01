@@ -36,6 +36,10 @@ use crate::spells::frost::ice_shards::{
     ice_shards_lifetime_system, ice_shards_movement_system,
     IceShardFragmentCollisionEvent,
 };
+use crate::spells::poison::venom_spray::{
+    cleanup_venom_spray, poison_stack_damage_tick, poison_stack_decay,
+    venom_spray_hit_detection,
+};
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -229,6 +233,29 @@ pub fn plugin(app: &mut App) {
             )
                 .chain()
                 .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Venom spray systems - hit detection in Combat, DOT damage in Effects, cleanup in Cleanup
+        .add_systems(
+            Update,
+            venom_spray_hit_detection
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                poison_stack_damage_tick,
+                poison_stack_decay,
+            )
+                .chain()
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            cleanup_venom_spray
+                .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         );
 }

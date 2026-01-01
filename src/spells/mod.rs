@@ -12,3 +12,4 @@ pub use lightning::chain_lightning;
 pub use lightning::static_orb;
 pub use lightning::thunder_strike;
 pub use poison::poison_cloud;
+pub use poison::venom_spray;
