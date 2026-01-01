@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_kira_audio::prelude::*;
 use rand::Rng;
+use crate::combat::DamageEvent;
 use crate::spell::SpellType;
 
 use crate::enemies::components::*;
@@ -1445,6 +1446,122 @@ mod tests {
             assert_eq!(controllers[0].1.translation, origin_pos);
         }
     }
+
+    mod hellfire_tests {
+        use super::*;
+        use crate::spells::fire::inferno_pulse::InfernoPulseWave;
+
+        #[test]
+        fn hellfire_spawns_inferno_pulse_from_spell_list() {
+            let mut app = App::new();
+            app.add_plugins(bevy::time::TimePlugin::default());
+            app.add_message::<crate::combat::DamageEvent>();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::Hellfire,
+                element: Element::Fire,
+                name: "Hellfire".to_string(),
+                description: "Infernal pulse.".to_string(),
+                level: 2,
+                fire_rate: 2.0,
+                base_damage: 18.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(3.0, 0.375, 0.0)),
+            ));
+
+            app.update();
+
+            // Should spawn a visual wave
+            let mut wave_query = app.world_mut().query::<&InfernoPulseWave>();
+            let waves: Vec<_> = wave_query.iter(app.world()).collect();
+            assert_eq!(waves.len(), 1, "One inferno pulse wave should be spawned");
+        }
+
+        #[test]
+        fn hellfire_with_fire_attunement() {
+            let mut app = App::new();
+            app.add_plugins(bevy::time::TimePlugin::default());
+            app.add_message::<crate::combat::DamageEvent>();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.insert_resource(WhisperAttunement::with_element(Element::Fire));
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::Hellfire,
+                element: Element::Fire,
+                name: "Hellfire".to_string(),
+                description: "Infernal pulse.".to_string(),
+                level: 2,
+                fire_rate: 2.0,
+                base_damage: 18.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(3.0, 0.375, 0.0)),
+            ));
+
+            app.update();
+
+            // Should still spawn a wave (verifies the spell fires with attunement)
+            let mut wave_query = app.world_mut().query::<&InfernoPulseWave>();
+            let waves: Vec<_> = wave_query.iter(app.world()).collect();
+            assert_eq!(waves.len(), 1, "Inferno pulse should fire with fire attunement");
+        }
+
+        #[test]
+        fn hellfire_spawns_at_spell_origin() {
+            let mut app = App::new();
+            app.add_plugins(bevy::time::TimePlugin::default());
+            app.add_message::<crate::combat::DamageEvent>();
+            app.add_systems(Update, spell_casting_system);
+
+            let origin_pos = Vec3::new(5.0, 3.0, 10.0);
+            app.insert_resource(SpellOrigin {
+                position: Some(origin_pos),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let mut spell = Spell::new(SpellType::Hellfire);
+            spell.last_fired = -10.0;
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(5.0, 0.375, 10.0)),
+            ));
+
+            app.update();
+
+            let mut wave_query = app.world_mut().query::<&InfernoPulseWave>();
+            let waves: Vec<_> = wave_query.iter(app.world()).collect();
+            assert_eq!(waves.len(), 1);
+            // Wave should be centered at origin position on XZ plane
+            assert_eq!(waves[0].center, Vec2::new(5.0, 10.0));
+        }
+    }
 }
 
 use crate::inventory::resources::SpellList;
@@ -1463,6 +1580,7 @@ pub fn spell_casting_system(
     enemy_query: Query<(Entity, &Transform, &Enemy)>,
     mut spell_list: ResMut<SpellList>,
     attunement: Res<WhisperAttunement>,
+    mut damage_events: Option<MessageWriter<DamageEvent>>,
 ) {
     let current_time = time.elapsed_secs();
 
@@ -1697,6 +1815,20 @@ pub fn spell_casting_system(
                     game_meshes.as_deref(),
                     game_materials.as_deref(),
                 );
+            }
+            SpellType::Hellfire => {
+                if let Some(ref mut events) = damage_events {
+                    crate::spells::fire::inferno_pulse::fire_inferno_pulse_with_damage(
+                        &mut commands,
+                        spell,
+                        final_damage,
+                        origin_pos,
+                        &enemy_query,
+                        events,
+                        game_meshes.as_deref(),
+                        game_materials.as_deref(),
+                    );
+                }
             }
             _ => {
                 // Other spell types not implemented yet

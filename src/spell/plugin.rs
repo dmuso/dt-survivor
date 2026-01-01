@@ -69,6 +69,10 @@ use crate::spells::lightning::overload::{
 use crate::spells::poison::corrode::{
     apply_corroded_on_poison_damage, corroded_debuff_tick_system,
 };
+use crate::spells::fire::inferno_pulse::{
+    animate_inferno_pulse_wave_system, cleanup_inferno_pulse_wave_system,
+    inferno_pulse_wave_visual_system,
+};
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -453,6 +457,25 @@ pub fn plugin(app: &mut App) {
             Update,
             corroded_debuff_tick_system
                 .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Inferno Pulse systems - animate wave in Movement, visual in Effects, cleanup in Cleanup
+        .add_systems(
+            Update,
+            animate_inferno_pulse_wave_system
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            inferno_pulse_wave_visual_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            cleanup_inferno_pulse_wave_system
+                .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         );
 }
