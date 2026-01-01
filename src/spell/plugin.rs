@@ -36,6 +36,10 @@ use crate::spells::frost::ice_shards::{
     ice_shards_lifetime_system, ice_shards_movement_system,
     IceShardFragmentCollisionEvent,
 };
+use crate::spells::frost::glacial_pulse::{
+    glacial_pulse_cleanup_system, glacial_pulse_collision_system,
+    glacial_pulse_expansion_system, glacial_pulse_visual_system,
+};
 use crate::spells::poison::venom_spray::{
     cleanup_venom_spray, poison_stack_damage_tick, poison_stack_decay,
     venom_spray_hit_detection,
@@ -243,6 +247,29 @@ pub fn plugin(app: &mut App) {
             )
                 .chain()
                 .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Glacial pulse (FrostNova) systems - expansion in Movement, collision and cleanup in Combat, visual in Effects
+        .add_systems(
+            Update,
+            glacial_pulse_expansion_system
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                glacial_pulse_collision_system,
+                glacial_pulse_cleanup_system,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            glacial_pulse_visual_system
+                .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         )
         // Venom spray systems - hit detection in Combat, DOT damage in Effects, cleanup in Cleanup

@@ -437,6 +437,8 @@ pub struct GameMaterials {
     pub poison_cloud: Handle<StandardMaterial>,
     /// Ice shard projectile material (ice blue with emissive glow)
     pub ice_shard: Handle<StandardMaterial>,
+    /// Glacial pulse (Frost Nova) material (ice blue with strong emissive glow)
+    pub glacial_pulse: Handle<StandardMaterial>,
 }
 
 impl GameMaterials {
@@ -593,6 +595,12 @@ impl GameMaterials {
             ice_shard: materials.add(StandardMaterial {
                 base_color: Color::srgb(0.53, 0.81, 0.92), // Ice blue (Frost element color)
                 emissive: bevy::color::LinearRgba::rgb(0.67, 1.0, 1.18), // Bright ice blue glow
+                ..default()
+            }),
+            glacial_pulse: materials.add(StandardMaterial {
+                base_color: Color::srgba(0.53, 0.81, 0.92, 0.7), // Ice blue with 70% opacity
+                emissive: bevy::color::LinearRgba::rgb(1.0, 1.5, 1.8), // Bright ice blue glow
+                alpha_mode: AlphaMode::Blend,
                 ..default()
             }),
         }

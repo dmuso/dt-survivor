@@ -1043,6 +1043,127 @@ mod tests {
         }
     }
 
+    mod frost_nova_tests {
+        use super::*;
+        use crate::spells::frost::glacial_pulse::GlacialPulseWave;
+
+        #[test]
+        fn frost_nova_spawns_glacial_pulse_from_spell_list() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::FrostNova,
+                element: Element::Frost,
+                name: "Frost Nova".to_string(),
+                description: "Expanding ring of frost.".to_string(),
+                level: 2,
+                fire_rate: 2.0,
+                base_damage: 15.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut pulse_query = app.world_mut().query::<&GlacialPulseWave>();
+            let pulses: Vec<_> = pulse_query.iter(app.world()).collect();
+            assert_eq!(pulses.len(), 1, "One glacial pulse should be spawned");
+            // 15.0 * 2 * 1.25 = 37.5
+            assert_eq!(pulses[0].damage, 37.5, "Frost nova damage should be 37.5 (15.0 * 2 * 1.25)");
+        }
+
+        #[test]
+        fn frost_nova_with_frost_attunement() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.insert_resource(WhisperAttunement::with_element(Element::Frost));
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::FrostNova,
+                element: Element::Frost,
+                name: "Frost Nova".to_string(),
+                description: "Expanding ring of frost.".to_string(),
+                level: 2,
+                fire_rate: 2.0,
+                base_damage: 15.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut pulse_query = app.world_mut().query::<&GlacialPulseWave>();
+            let pulses: Vec<_> = pulse_query.iter(app.world()).collect();
+            assert_eq!(pulses.len(), 1);
+            // 15.0 * 2 * 1.25 * 1.1 = 41.25
+            let expected = 15.0 * 2.0 * 1.25 * 1.1;
+            assert!(
+                (pulses[0].damage - expected).abs() < 0.01,
+                "Frost nova damage should be {} with frost attunement, got {}",
+                expected,
+                pulses[0].damage
+            );
+        }
+
+        #[test]
+        fn frost_nova_spawns_at_spell_origin() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            let origin_pos = Vec3::new(5.0, 3.0, 10.0);
+            app.insert_resource(SpellOrigin {
+                position: Some(origin_pos),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let mut spell = Spell::new(SpellType::FrostNova);
+            spell.last_fired = -10.0;
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut pulse_query = app.world_mut().query::<&GlacialPulseWave>();
+            let pulses: Vec<_> = pulse_query.iter(app.world()).collect();
+            assert_eq!(pulses.len(), 1);
+            // Pulse should be centered at origin position on XZ plane
+            assert_eq!(pulses[0].center, Vec2::new(5.0, 10.0));
+        }
+    }
+
     mod miasma_tests {
         use super::*;
         use crate::spells::poison::toxic_glob::ToxicGlobProjectile;
@@ -1408,6 +1529,16 @@ pub fn spell_casting_system(
                     final_damage,
                     origin_pos,
                     target_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
+            SpellType::FrostNova => {
+                crate::spells::frost::glacial_pulse::fire_glacial_pulse_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
                     game_meshes.as_deref(),
                     game_materials.as_deref(),
                 );
