@@ -1042,6 +1042,163 @@ mod tests {
             assert_eq!(cones[0].origin, Vec2::new(5.0, 10.0));
         }
     }
+
+    mod miasma_tests {
+        use super::*;
+        use crate::spells::poison::toxic_glob::ToxicGlobProjectile;
+
+        #[test]
+        fn miasma_spawns_toxic_glob_from_spell_list() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::Miasma,
+                element: Element::Poison,
+                name: "Miasma".to_string(),
+                description: "Toxic glob.".to_string(),
+                level: 2,
+                fire_rate: 2.0,
+                base_damage: 6.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(10.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut glob_query = app.world_mut().query::<&ToxicGlobProjectile>();
+            let globs: Vec<_> = glob_query.iter(app.world()).collect();
+            assert_eq!(globs.len(), 1, "One toxic glob should be spawned");
+            // 6.0 * 2 * 1.25 = 15.0
+            assert_eq!(globs[0].damage, 15.0, "Miasma damage should be 15.0 (6.0 * 2 * 1.25)");
+        }
+
+        #[test]
+        fn miasma_with_poison_attunement() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.insert_resource(WhisperAttunement::with_element(Element::Poison));
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::Miasma,
+                element: Element::Poison,
+                name: "Miasma".to_string(),
+                description: "Toxic glob.".to_string(),
+                level: 2,
+                fire_rate: 2.0,
+                base_damage: 6.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(10.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut glob_query = app.world_mut().query::<&ToxicGlobProjectile>();
+            let globs: Vec<_> = glob_query.iter(app.world()).collect();
+            assert_eq!(globs.len(), 1);
+            // 6.0 * 2 * 1.25 * 1.1 = 16.5
+            let expected = 6.0 * 2.0 * 1.25 * 1.1;
+            assert!(
+                (globs[0].damage - expected).abs() < 0.01,
+                "Miasma damage should be {} with poison attunement, got {}",
+                expected,
+                globs[0].damage
+            );
+        }
+
+        #[test]
+        fn miasma_spawns_at_spell_origin() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            let origin_pos = Vec3::new(5.0, 3.0, 10.0);
+            app.insert_resource(SpellOrigin {
+                position: Some(origin_pos),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let mut spell = Spell::new(SpellType::Miasma);
+            spell.last_fired = -10.0;
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(15.0, 0.375, 10.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut glob_query = app.world_mut().query::<(&Transform, &ToxicGlobProjectile)>();
+            let globs: Vec<_> = glob_query.iter(app.world()).collect();
+            assert_eq!(globs.len(), 1);
+            // Glob should spawn at origin position
+            assert_eq!(globs[0].0.translation, origin_pos);
+        }
+
+        #[test]
+        fn miasma_targets_enemy_direction() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let mut spell = Spell::new(SpellType::Miasma);
+            spell.last_fired = -10.0;
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            // Enemy in +X direction
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(10.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut glob_query = app.world_mut().query::<&ToxicGlobProjectile>();
+            let globs: Vec<_> = glob_query.iter(app.world()).collect();
+            assert_eq!(globs.len(), 1);
+            // Glob should face +X direction
+            assert!(
+                globs[0].direction.x > 0.9,
+                "Glob should face toward enemy (+X), got direction {:?}",
+                globs[0].direction
+            );
+        }
+    }
 }
 
 use crate::inventory::resources::SpellList;
@@ -1235,6 +1392,17 @@ pub fn spell_casting_system(
             }
             SpellType::FlameLance => {
                 crate::spells::fire::cinder_shot::fire_cinder_shot_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
+                    target_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
+            SpellType::Miasma => {
+                crate::spells::poison::toxic_glob::fire_toxic_glob_with_damage(
                     &mut commands,
                     spell,
                     final_damage,

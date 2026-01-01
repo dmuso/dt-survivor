@@ -40,6 +40,10 @@ use crate::spells::poison::venom_spray::{
     cleanup_venom_spray, poison_stack_damage_tick, poison_stack_decay,
     venom_spray_hit_detection,
 };
+use crate::spells::poison::toxic_glob::{
+    poison_puddle_cleanup_system, poison_puddle_damage_system,
+    toxic_glob_collision_system, toxic_glob_lifetime_system, toxic_glob_movement_system,
+};
 use crate::spells::fire::cinder_shot::{
     cinder_shot_collision_detection, cinder_shot_collision_effects,
     cinder_shot_lifetime_system, cinder_shot_movement_system, weakened_debuff_system,
@@ -288,6 +292,34 @@ pub fn plugin(app: &mut App) {
             Update,
             weakened_debuff_system
                 .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Toxic glob systems - movement and lifetime in Movement, collision in Combat, puddle damage in Effects, cleanup in Cleanup
+        .add_systems(
+            Update,
+            (
+                toxic_glob_movement_system,
+                toxic_glob_lifetime_system,
+            )
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            toxic_glob_collision_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            poison_puddle_damage_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            poison_puddle_cleanup_system
+                .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         );
 }
