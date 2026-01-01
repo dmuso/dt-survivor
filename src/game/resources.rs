@@ -376,6 +376,91 @@ impl LevelStats {
     }
 }
 
+/// Materials for spell loot drops by element
+/// Each element has its own emissive material for visual distinction
+#[derive(Resource)]
+pub struct SpellLootMaterials {
+    /// Fire element (Orange with emissive glow)
+    pub fire: Handle<StandardMaterial>,
+    /// Frost element (Ice Blue with emissive glow)
+    pub frost: Handle<StandardMaterial>,
+    /// Poison element (Green with emissive glow)
+    pub poison: Handle<StandardMaterial>,
+    /// Lightning element (Yellow with emissive glow)
+    pub lightning: Handle<StandardMaterial>,
+    /// Light element (White with bright emissive glow)
+    pub light: Handle<StandardMaterial>,
+    /// Dark element (Purple with emissive glow)
+    pub dark: Handle<StandardMaterial>,
+    /// Chaos element (Magenta with emissive glow)
+    pub chaos: Handle<StandardMaterial>,
+    /// Psychic element (Pink with emissive glow)
+    pub psychic: Handle<StandardMaterial>,
+}
+
+impl SpellLootMaterials {
+    pub fn new(materials: &mut Assets<StandardMaterial>) -> Self {
+        Self {
+            fire: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 0.5, 0.0), // Orange
+                emissive: bevy::color::LinearRgba::rgb(2.0, 1.0, 0.0),
+                ..default()
+            }),
+            frost: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.53, 0.81, 0.92), // Ice Blue
+                emissive: bevy::color::LinearRgba::rgb(0.67, 1.0, 1.18),
+                ..default()
+            }),
+            poison: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.0, 1.0, 0.0), // Green
+                emissive: bevy::color::LinearRgba::rgb(0.0, 2.0, 0.0),
+                ..default()
+            }),
+            lightning: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 1.0, 0.0), // Yellow
+                emissive: bevy::color::LinearRgba::rgb(3.0, 3.0, 0.0),
+                unlit: true,
+                ..default()
+            }),
+            light: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 1.0, 0.9), // White with gold tint
+                emissive: bevy::color::LinearRgba::rgb(3.0, 3.0, 2.5),
+                unlit: true,
+                ..default()
+            }),
+            dark: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.5, 0.0, 0.5), // Purple
+                emissive: bevy::color::LinearRgba::rgb(1.0, 0.0, 1.0),
+                ..default()
+            }),
+            chaos: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 0.0, 1.0), // Magenta
+                emissive: bevy::color::LinearRgba::rgb(2.0, 0.0, 2.0),
+                ..default()
+            }),
+            psychic: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 0.71, 0.76), // Pink
+                emissive: bevy::color::LinearRgba::rgb(2.0, 1.4, 1.5),
+                ..default()
+            }),
+        }
+    }
+
+    /// Get material handle for a given element
+    pub fn for_element(&self, element: crate::element::Element) -> Handle<StandardMaterial> {
+        match element {
+            crate::element::Element::Fire => self.fire.clone(),
+            crate::element::Element::Frost => self.frost.clone(),
+            crate::element::Element::Poison => self.poison.clone(),
+            crate::element::Element::Lightning => self.lightning.clone(),
+            crate::element::Element::Light => self.light.clone(),
+            crate::element::Element::Dark => self.dark.clone(),
+            crate::element::Element::Chaos => self.chaos.clone(),
+            crate::element::Element::Psychic => self.psychic.clone(),
+        }
+    }
+}
+
 /// Shared material handles for all game entities
 #[derive(Resource)]
 pub struct GameMaterials {
@@ -1440,6 +1525,121 @@ mod tests {
             stats.record_xp(75);  // Epic
             stats.record_xp(150); // Legendary
             assert_eq!(stats.xp_gained, 280);
+        }
+    }
+
+    mod spell_loot_materials_tests {
+        use super::*;
+        use bevy::asset::Assets;
+        use bevy::pbr::StandardMaterial;
+        use crate::element::Element;
+
+        fn setup_test_app() -> App {
+            let mut app = App::new();
+            app.add_plugins(bevy::asset::AssetPlugin::default());
+            app.init_asset::<StandardMaterial>();
+            app
+        }
+
+        #[test]
+        fn spell_loot_materials_has_all_handles() {
+            let mut app = setup_test_app();
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+
+            let spell_materials = SpellLootMaterials::new(&mut materials);
+
+            // Verify all handles can retrieve their assets
+            assert!(materials.get(&spell_materials.fire).is_some());
+            assert!(materials.get(&spell_materials.frost).is_some());
+            assert!(materials.get(&spell_materials.poison).is_some());
+            assert!(materials.get(&spell_materials.lightning).is_some());
+            assert!(materials.get(&spell_materials.light).is_some());
+            assert!(materials.get(&spell_materials.dark).is_some());
+            assert!(materials.get(&spell_materials.chaos).is_some());
+            assert!(materials.get(&spell_materials.psychic).is_some());
+        }
+
+        #[test]
+        fn spell_loot_materials_colors_are_distinct() {
+            let mut app = setup_test_app();
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+
+            let spell_materials = SpellLootMaterials::new(&mut materials);
+
+            // Verify all 8 materials have distinct colors
+            let fire_color = materials.get(&spell_materials.fire).unwrap().base_color;
+            let frost_color = materials.get(&spell_materials.frost).unwrap().base_color;
+            let poison_color = materials.get(&spell_materials.poison).unwrap().base_color;
+            let lightning_color = materials.get(&spell_materials.lightning).unwrap().base_color;
+            let dark_color = materials.get(&spell_materials.dark).unwrap().base_color;
+            let chaos_color = materials.get(&spell_materials.chaos).unwrap().base_color;
+            let psychic_color = materials.get(&spell_materials.psychic).unwrap().base_color;
+
+            // Check that materials have distinct colors
+            assert_ne!(fire_color, frost_color, "Fire and Frost should have different colors");
+            assert_ne!(fire_color, poison_color, "Fire and Poison should have different colors");
+            assert_ne!(frost_color, poison_color, "Frost and Poison should have different colors");
+            assert_ne!(lightning_color, dark_color, "Lightning and Dark should have different colors");
+            assert_ne!(chaos_color, psychic_color, "Chaos and Psychic should have different colors");
+        }
+
+        #[test]
+        fn spell_loot_materials_all_have_emissive() {
+            let mut app = setup_test_app();
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+
+            let spell_materials = SpellLootMaterials::new(&mut materials);
+
+            // All spell loot materials should have emissive for visibility
+            for handle in [
+                &spell_materials.fire,
+                &spell_materials.frost,
+                &spell_materials.poison,
+                &spell_materials.lightning,
+                &spell_materials.light,
+                &spell_materials.dark,
+                &spell_materials.chaos,
+                &spell_materials.psychic,
+            ] {
+                let mat = materials.get(handle).unwrap();
+                let emissive = mat.emissive;
+                assert!(
+                    emissive.red > 0.0 || emissive.green > 0.0 || emissive.blue > 0.0,
+                    "Spell loot material should have emissive glow"
+                );
+            }
+        }
+
+        #[test]
+        fn for_element_returns_correct_material() {
+            let mut app = setup_test_app();
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+
+            let spell_materials = SpellLootMaterials::new(&mut materials);
+
+            // Test each element returns the corresponding material
+            assert_eq!(spell_materials.for_element(Element::Fire), spell_materials.fire);
+            assert_eq!(spell_materials.for_element(Element::Frost), spell_materials.frost);
+            assert_eq!(spell_materials.for_element(Element::Poison), spell_materials.poison);
+            assert_eq!(spell_materials.for_element(Element::Lightning), spell_materials.lightning);
+            assert_eq!(spell_materials.for_element(Element::Light), spell_materials.light);
+            assert_eq!(spell_materials.for_element(Element::Dark), spell_materials.dark);
+            assert_eq!(spell_materials.for_element(Element::Chaos), spell_materials.chaos);
+            assert_eq!(spell_materials.for_element(Element::Psychic), spell_materials.psychic);
+        }
+
+        #[test]
+        fn for_element_covers_all_elements() {
+            let mut app = setup_test_app();
+            let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+
+            let spell_materials = SpellLootMaterials::new(&mut materials);
+
+            // Verify for_element returns valid handles for all 8 elements
+            for element in Element::all() {
+                let handle = spell_materials.for_element(*element);
+                assert!(materials.get(&handle).is_some(), "Element {:?} should have a valid material", element);
+            }
         }
     }
 }

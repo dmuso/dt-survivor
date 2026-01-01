@@ -11,7 +11,7 @@ use crate::inventory::bag::InventoryBag;
 use bevy_kira_audio::prelude::*;
 use crate::audio::plugin::*;
 use crate::game::components::Level;
-use crate::game::resources::{GameMaterials, GameMeshes, ScreenTintEffect, XpOrbMaterials};
+use crate::game::resources::{GameMaterials, GameMeshes, ScreenTintEffect, SpellLootMaterials, XpOrbMaterials};
 use crate::game::events::LootDropEvent;
 use crate::whisper::components::{LightningSpawnTimer, WhisperCompanion, WhisperOuterGlow};
 use crate::whisper::resources::WhisperState;
@@ -56,6 +56,7 @@ pub fn loot_drop_system(
     mut loot_drop_events: MessageReader<LootDropEvent>,
     game_meshes: Res<GameMeshes>,
     game_materials: Res<GameMaterials>,
+    spell_loot_materials: Res<SpellLootMaterials>,
     xp_orb_model: Res<XpOrbModel>,
     xp_materials: Res<XpOrbMaterials>,
 ) {
@@ -118,9 +119,10 @@ pub fn loot_drop_system(
 
         // 5% chance to drop a random spell (equal chance for all 64 spells)
         if rng.gen_bool(0.05) {
-            let all_spells = SpellType::all();
-            let spell_index = rng.gen_range(0..all_spells.len());
-            loot_drops.push(ItemData::Spell(all_spells[spell_index]));
+            let spell_index = rng.gen_range(0..64);
+            // from_index is guaranteed to return Some for 0..64
+            let spell_type = SpellType::from_index(spell_index).unwrap();
+            loot_drops.push(ItemData::Spell(spell_type));
         }
 
         // 3% chance to drop health regen (health pack)
@@ -138,13 +140,8 @@ pub fn loot_drop_system(
             // Select mesh and material based on item type (emissive materials handle glow via bloom)
             let (mesh, material, y_height) = match &item_data {
                 ItemData::Spell(spell_type) => {
-                    // Use element-based coloring for spell drops
-                    let material = match spell_type.element() {
-                        crate::element::Element::Fire => game_materials.fireball.clone(),
-                        crate::element::Element::Lightning => game_materials.thunder_strike.clone(),
-                        crate::element::Element::Light => game_materials.radiant_beam.clone(),
-                        _ => game_materials.powerup.clone(), // Other elements use magenta
-                    };
+                    // Use element-based coloring for spell drops (all 8 elements have distinct materials)
+                    let material = spell_loot_materials.for_element(spell_type.element());
                     (game_meshes.loot_large.clone(), material, LOOT_LARGE_Y_HEIGHT)
                 }
                 ItemData::HealthPack { .. } => (
@@ -2048,6 +2045,132 @@ mod tests {
                     assert_eq!(a, b, "Cloned spell type should match original");
                 }
                 _ => panic!("Expected Spell item data"),
+            }
+        }
+    }
+
+    mod spell_drop_distribution_tests {
+        use super::*;
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+        use std::collections::HashMap;
+
+        #[test]
+        fn test_all_spell_types_can_drop() {
+            // Verify all 64 spell types are in the drop pool via from_index
+            let mut seen = std::collections::HashSet::new();
+            for index in 0..64 {
+                let spell = SpellType::from_index(index).unwrap();
+                seen.insert(spell);
+            }
+            assert_eq!(seen.len(), 64, "All 64 spell types should be droppable");
+        }
+
+        #[test]
+        fn test_spell_drop_uses_uniform_random_selection() {
+            // Simulate many spell drops and verify roughly equal distribution
+            let mut rng = StdRng::seed_from_u64(42);
+            let mut counts: HashMap<SpellType, u32> = HashMap::new();
+
+            let num_samples = 64000; // 1000 samples per spell type
+
+            for _ in 0..num_samples {
+                let index = rng.gen_range(0..64);
+                let spell = SpellType::from_index(index).unwrap();
+                *counts.entry(spell).or_insert(0) += 1;
+            }
+
+            // All 64 spells should have been selected
+            assert_eq!(counts.len(), 64, "All 64 spells should appear in sample");
+
+            // Each spell should appear roughly 1000 times (1000 * 64 / 64 = 1000)
+            // Allow for statistical variance: expect count between 800 and 1200 (±20%)
+            for (spell, count) in counts.iter() {
+                assert!(
+                    *count >= 800 && *count <= 1200,
+                    "Spell {:?} has count {} which is outside expected range [800, 1200]",
+                    spell,
+                    count
+                );
+            }
+        }
+
+        #[test]
+        fn test_spell_drop_visual_matches_element() {
+            // Verify each spell type returns a valid element for material selection
+            for index in 0..64 {
+                let spell = SpellType::from_index(index).unwrap();
+                let element = spell.element();
+                // Element should be one of the 8 valid elements
+                let valid_elements = crate::element::Element::all();
+                assert!(
+                    valid_elements.contains(&element),
+                    "Spell {:?} should return a valid element, got {:?}",
+                    spell,
+                    element
+                );
+            }
+        }
+
+        #[test]
+        fn test_each_element_has_spells_in_drop_pool() {
+            // Verify each element has at least one spell in the drop pool
+            let mut element_counts: HashMap<crate::element::Element, u32> = HashMap::new();
+
+            for index in 0..64 {
+                let spell = SpellType::from_index(index).unwrap();
+                let element = spell.element();
+                *element_counts.entry(element).or_insert(0) += 1;
+            }
+
+            // Each element should have exactly 8 spells
+            for element in crate::element::Element::all() {
+                let count = element_counts.get(element).unwrap_or(&0);
+                assert_eq!(
+                    *count, 8,
+                    "Element {:?} should have 8 spells in drop pool, got {}",
+                    element, count
+                );
+            }
+        }
+
+        #[test]
+        fn test_spell_count_is_64() {
+            // Verify the constant for spell count matches actual count
+            let count = SpellType::all().len();
+            assert_eq!(count, 64, "Total spell count should be 64");
+        }
+
+        #[test]
+        fn test_from_index_covers_all_spells_exactly_once() {
+            // Verify from_index returns each spell exactly once for indices 0..63
+            let mut seen = std::collections::HashSet::new();
+            for index in 0..64 {
+                let spell = SpellType::from_index(index).unwrap();
+                let was_new = seen.insert(spell);
+                assert!(was_new, "Index {} returned duplicate spell {:?}", index, spell);
+            }
+            assert_eq!(seen.len(), 64, "from_index should return 64 unique spells");
+        }
+
+        #[test]
+        fn test_health_and_xp_drops_unchanged() {
+            // Verify ItemData variants for health and XP still work correctly
+            let health_item = ItemData::HealthPack { heal_amount: 25.0 };
+            let xp_item = ItemData::Experience { amount: 100 };
+
+            match health_item {
+                ItemData::HealthPack { heal_amount } => {
+                    assert_eq!(heal_amount, 25.0);
+                }
+                _ => panic!("Expected HealthPack item data"),
+            }
+
+            match xp_item {
+                ItemData::Experience { amount } => {
+                    assert_eq!(amount, 100);
+                }
+                _ => panic!("Expected Experience item data"),
             }
         }
     }

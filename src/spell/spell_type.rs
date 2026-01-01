@@ -604,6 +604,16 @@ impl SpellType {
         ]
     }
 
+    /// Creates a SpellType from its index (0-63).
+    /// Returns None if index is out of range.
+    pub fn from_index(index: usize) -> Option<SpellType> {
+        if index < 64 {
+            Some(Self::all()[index])
+        } else {
+            None
+        }
+    }
+
     /// Returns all spells for a given element.
     pub fn by_element(element: Element) -> &'static [SpellType] {
         match element {
@@ -966,6 +976,69 @@ mod tests {
                 SpellType::Cataclysm.fire_rate() <= 0.2,
                 "Cataclysm should have low fire rate"
             );
+        }
+    }
+
+    mod from_index_tests {
+        use super::*;
+
+        #[test]
+        fn from_index_returns_correct_spell_at_index_0() {
+            let spell = SpellType::from_index(0);
+            assert_eq!(spell, Some(SpellType::Fireball));
+        }
+
+        #[test]
+        fn from_index_returns_correct_spell_at_index_63() {
+            let spell = SpellType::from_index(63);
+            assert_eq!(spell, Some(SpellType::PsychicShatter));
+        }
+
+        #[test]
+        fn from_index_returns_none_for_index_64() {
+            let spell = SpellType::from_index(64);
+            assert_eq!(spell, None);
+        }
+
+        #[test]
+        fn from_index_returns_none_for_large_index() {
+            let spell = SpellType::from_index(1000);
+            assert_eq!(spell, None);
+        }
+
+        #[test]
+        fn from_index_round_trips_with_id() {
+            for index in 0..64 {
+                let spell = SpellType::from_index(index).unwrap();
+                assert_eq!(
+                    spell.id() as usize, index,
+                    "Spell at index {} should have matching id",
+                    index
+                );
+            }
+        }
+
+        #[test]
+        fn from_index_covers_all_spells() {
+            let mut covered = HashSet::new();
+            for index in 0..64 {
+                let spell = SpellType::from_index(index).unwrap();
+                covered.insert(spell);
+            }
+            assert_eq!(covered.len(), 64, "from_index should cover all 64 spells");
+        }
+
+        #[test]
+        fn from_index_matches_all_array() {
+            let all = SpellType::all();
+            for (index, expected_spell) in all.iter().enumerate() {
+                let actual_spell = SpellType::from_index(index).unwrap();
+                assert_eq!(
+                    actual_spell, *expected_spell,
+                    "from_index({}) should return {:?}",
+                    index, expected_spell
+                );
+            }
         }
     }
 

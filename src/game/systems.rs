@@ -10,7 +10,7 @@ use rand::Rng;
 use crate::combat::components::Health;
 use crate::enemies::components::*;
 use crate::game::components::*;
-use crate::game::resources::{DamageFlashMaterial, EnemyLevelMaterials, GameLevel, GameMaterials, GameMeshes, LevelStats, PlayerDamageTimer, ScreenTintEffect, SurvivalTime, XpOrbMaterials};
+use crate::game::resources::{DamageFlashMaterial, EnemyLevelMaterials, GameLevel, GameMaterials, GameMeshes, LevelStats, PlayerDamageTimer, ScreenTintEffect, SpellLootMaterials, SurvivalTime, XpOrbMaterials};
 use crate::game::events::*;
 use crate::movement::components::from_xz;
 use crate::player::components::*;
@@ -132,6 +132,7 @@ pub fn setup_game_assets(
     commands.insert_resource(GameMaterials::new(&mut materials));
     commands.insert_resource(EnemyLevelMaterials::new(&mut materials));
     commands.insert_resource(XpOrbMaterials::new(&mut materials));
+    commands.insert_resource(SpellLootMaterials::new(&mut materials));
 
     // Create damage flash material - bright white emissive for visual feedback
     let flash_material = materials.add(StandardMaterial {
