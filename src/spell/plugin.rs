@@ -118,6 +118,10 @@ use crate::spells::dark::nightfall::{
 use crate::spells::dark::soul_drain::{
     soul_drain_system, soul_drain_pulse_visual_system,
 };
+use crate::spells::dark::wraith_form::{
+    wraith_form_cleanup_system, wraith_form_damage_system,
+    wraith_form_duration_system, wraith_form_expiration_system,
+};
 use crate::spells::dark::void_pulse::{
     void_pulse_cleanup_system, void_pulse_collision_system,
     void_pulse_expansion_system, void_pulse_visual_system,
@@ -843,6 +847,29 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             nightfall_zone_cleanup_system
+                .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Wraith Form (Nightmare) systems - duration in Effects, damage in Combat, expiration and cleanup in Cleanup
+        .add_systems(
+            Update,
+            wraith_form_duration_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            wraith_form_damage_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                wraith_form_expiration_system,
+                wraith_form_cleanup_system,
+            )
+                .chain()
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )

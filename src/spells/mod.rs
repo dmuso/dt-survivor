@@ -15,6 +15,7 @@ pub use dark::shadow_bolt;
 pub use dark::soul_drain;
 pub use dark::soul_rend;
 pub use dark::void_pulse;
+pub use dark::wraith_form;
 pub use fire::fireball;
 pub use frost::ice_shard;
 pub use frost::ice_shards;

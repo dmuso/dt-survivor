@@ -2683,6 +2683,17 @@ pub fn spell_casting_system(
                     game_materials.as_deref(),
                 );
             }
+            SpellType::Nightmare => {
+                // Wraith Form applies effect to the player (becomes intangible and damages enemies on pass-through)
+                if let Ok((player_entity, _, _)) = player_query.single() {
+                    crate::spells::dark::wraith_form::fire_wraith_form_with_damage(
+                        &mut commands,
+                        spell,
+                        final_damage,
+                        player_entity,
+                    );
+                }
+            }
             _ => {
                 // Other spell types not implemented yet
             }

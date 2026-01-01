@@ -174,14 +174,20 @@ pub fn cleanup_game(
 
 /// System that detects player-enemy collisions and fires events.
 /// Uses XZ plane for collision detection in 3D space (Y axis is height).
+/// Does not fire collision events when player has WraithForm (intangible).
 pub fn player_enemy_collision_detection(
-    player_query: Query<(Entity, &Transform), With<Player>>,
+    player_query: Query<(Entity, &Transform, Option<&crate::spells::dark::wraith_form::WraithForm>), With<Player>>,
     enemy_query: Query<(Entity, &Transform), With<Enemy>>,
     mut collision_events: MessageWriter<PlayerEnemyCollisionEvent>,
 ) {
-    let Ok((player_entity, player_transform)) = player_query.single() else {
+    let Ok((player_entity, player_transform, wraith_form)) = player_query.single() else {
         return;
     };
+
+    // Skip collision detection if player is in Wraith Form (intangible)
+    if wraith_form.is_some() {
+        return;
+    }
 
     // Use XZ plane for 3D collision detection
     let player_pos = from_xz(player_transform.translation);
