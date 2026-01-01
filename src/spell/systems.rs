@@ -9,6 +9,7 @@ use crate::audio::plugin::*;
 use crate::audio::plugin::SoundLimiter;
 use crate::game::resources::{GameMeshes, GameMaterials};
 use crate::movement::components::from_xz;
+use crate::player::components::Player;
 use crate::whisper::resources::SpellOrigin;
 
 #[cfg(test)]
@@ -1562,6 +1563,207 @@ mod tests {
             assert_eq!(waves[0].center, Vec2::new(5.0, 10.0));
         }
     }
+
+    mod flashstep_tests {
+        use super::*;
+        use crate::combat::Health;
+        use crate::spells::lightning::flashstep::FlashstepTeleport;
+
+        #[test]
+        fn flashstep_queues_teleport_from_spell_list() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::Flashstep,
+                element: Element::Lightning,
+                name: "Flashstep".to_string(),
+                description: "Teleport with lightning burst.".to_string(),
+                level: 1,
+                fire_rate: 3.0,
+                base_damage: 20.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            // Create player - needed for Flashstep
+            let player_entity = app.world_mut().spawn((
+                Player {
+                    speed: 200.0,
+                    regen_rate: 1.0,
+                    pickup_radius: 50.0,
+                    last_movement_direction: Vec3::new(1.0, 0.0, 0.0), // Moving +X
+                },
+                Health::new(100.0),
+                Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+            )).id();
+
+            // Create enemy to trigger spell casting
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(10.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            // Player should have FlashstepTeleport component queued
+            let teleport = app.world().get::<FlashstepTeleport>(player_entity);
+            assert!(teleport.is_some(), "Flashstep should queue a teleport on the player");
+
+            let teleport = teleport.unwrap();
+            // Destination should be in +X direction (player's movement direction)
+            assert!(teleport.destination.x > teleport.origin.x, "Destination should be in +X direction");
+        }
+
+        #[test]
+        fn flashstep_uses_movement_direction() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let mut spell = Spell::new(SpellType::Flashstep);
+            spell.last_fired = -10.0;
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            // Create player moving in +Z direction
+            let player_entity = app.world_mut().spawn((
+                Player {
+                    speed: 200.0,
+                    regen_rate: 1.0,
+                    pickup_radius: 50.0,
+                    last_movement_direction: Vec3::new(0.0, 0.0, 1.0), // Moving +Z
+                },
+                Health::new(100.0),
+                Transform::from_translation(Vec3::new(5.0, 0.5, 5.0)),
+            )).id();
+
+            // Create enemy (needed for spell to fire)
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(15.0, 0.375, 5.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let teleport = app.world().get::<FlashstepTeleport>(player_entity).unwrap();
+            // With movement in +Z, destination Y (which maps from Z) should be greater
+            assert!(teleport.destination.y > teleport.origin.y, "Destination should be in +Z direction (Y in 2D)");
+        }
+
+        #[test]
+        fn flashstep_with_lightning_attunement() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.insert_resource(WhisperAttunement::with_element(Element::Lightning));
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::Flashstep,
+                element: Element::Lightning,
+                name: "Flashstep".to_string(),
+                description: "Teleport with lightning burst.".to_string(),
+                level: 2,
+                fire_rate: 3.0,
+                base_damage: 20.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            let player_entity = app.world_mut().spawn((
+                Player {
+                    speed: 200.0,
+                    regen_rate: 1.0,
+                    pickup_radius: 50.0,
+                    last_movement_direction: Vec3::new(1.0, 0.0, 0.0),
+                },
+                Health::new(100.0),
+                Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+            )).id();
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(10.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let teleport = app.world().get::<FlashstepTeleport>(player_entity).unwrap();
+            // 20.0 * 2 * 1.25 * 1.1 = 55.0
+            let expected = 20.0 * 2.0 * 1.25 * 1.1;
+            assert!(
+                (teleport.burst_damage - expected).abs() < 0.01,
+                "Flashstep damage should be {} with lightning attunement, got {}",
+                expected,
+                teleport.burst_damage
+            );
+        }
+
+        #[test]
+        fn flashstep_targets_enemy_when_stationary() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let mut spell = Spell::new(SpellType::Flashstep);
+            spell.last_fired = -10.0;
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            // Create stationary player (no movement direction)
+            let player_entity = app.world_mut().spawn((
+                Player {
+                    speed: 200.0,
+                    regen_rate: 1.0,
+                    pickup_radius: 50.0,
+                    last_movement_direction: Vec3::ZERO, // Stationary
+                },
+                Health::new(100.0),
+                Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+            )).id();
+
+            // Create enemy in +X direction
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(10.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let teleport = app.world().get::<FlashstepTeleport>(player_entity).unwrap();
+            // Should teleport toward enemy (+X direction)
+            assert!(
+                teleport.destination.x > teleport.origin.x,
+                "Stationary player should teleport toward enemy"
+            );
+        }
+    }
 }
 
 use crate::inventory::resources::SpellList;
@@ -1581,6 +1783,7 @@ pub fn spell_casting_system(
     mut spell_list: ResMut<SpellList>,
     attunement: Res<WhisperAttunement>,
     mut damage_events: Option<MessageWriter<DamageEvent>>,
+    player_query: Query<(Entity, &Transform, &Player)>,
 ) {
     let current_time = time.elapsed_secs();
 
@@ -1839,6 +2042,32 @@ pub fn spell_casting_system(
                     game_meshes.as_deref(),
                     game_materials.as_deref(),
                 );
+            }
+            SpellType::Flashstep => {
+                // Flashstep requires player entity and position
+                if let Ok((player_entity, player_transform, player)) = player_query.single() {
+                    // Use player's last movement direction, or direction toward nearest enemy if stationary
+                    let direction = if player.last_movement_direction.length() > 0.1 {
+                        // Convert 3D direction to 2D on XZ plane
+                        Vec2::new(
+                            player.last_movement_direction.x,
+                            player.last_movement_direction.z,
+                        ).normalize()
+                    } else {
+                        // Stationary: teleport toward nearest enemy
+                        let player_pos_xz = from_xz(player_transform.translation);
+                        (target_pos - player_pos_xz).normalize()
+                    };
+
+                    crate::spells::lightning::flashstep::fire_flashstep_with_damage(
+                        &mut commands,
+                        spell,
+                        final_damage,
+                        player_entity,
+                        player_transform.translation,
+                        direction,
+                    );
+                }
             }
             _ => {
                 // Other spell types not implemented yet

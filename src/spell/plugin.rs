@@ -84,6 +84,9 @@ use crate::spells::lightning::ion_field::{
     ion_field_cleanup_markers_system, ion_field_damage_system,
     ion_field_duration_system, ion_field_track_enemies_system,
 };
+use crate::spells::lightning::flashstep::{
+    execute_flashstep_system, lightning_burst_damage_system, update_lightning_bursts,
+};
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -545,6 +548,23 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             ion_field_cleanup_markers_system
+                .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Flashstep systems - teleport execution in Combat, burst damage in Combat, cleanup in Cleanup
+        .add_systems(
+            Update,
+            (
+                execute_flashstep_system,
+                lightning_burst_damage_system,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            update_lightning_bursts
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         );
