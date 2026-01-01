@@ -117,6 +117,10 @@ use crate::spells::dark::soul_drain::{
 use crate::spells::psychic::mind_lash::{
     mind_lash_collision_system, render_mind_lash_system, update_mind_lash_system,
 };
+use crate::spells::psychic::psionic_burst::{
+    psionic_burst_cleanup_system, psionic_burst_collision_system,
+    psionic_burst_expansion_system, psionic_burst_visual_system,
+};
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -743,6 +747,29 @@ pub fn plugin(app: &mut App) {
                 update_mind_lash_system,
             )
                 .chain()
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Psionic Burst systems - expansion in Movement, collision and cleanup in Combat, visual in Effects
+        .add_systems(
+            Update,
+            psionic_burst_expansion_system
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                psionic_burst_collision_system,
+                psionic_burst_cleanup_system,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            psionic_burst_visual_system
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         );

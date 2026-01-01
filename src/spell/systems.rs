@@ -2258,6 +2258,16 @@ pub fn spell_casting_system(
                     game_materials.as_deref(),
                 );
             }
+            SpellType::PsychicWave => {
+                crate::spells::psychic::psionic_burst::fire_psionic_burst_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
             _ => {
                 // Other spell types not implemented yet
             }
