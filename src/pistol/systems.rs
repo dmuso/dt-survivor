@@ -106,7 +106,7 @@ pub fn fire_spell(
     game_meshes: Option<&GameMeshes>,
     game_materials: Option<&GameMaterials>,
 ) {
-    if let crate::spell::components::SpellType::Fireball { .. } = &spell.spell_type {
+    if spell.spell_type == crate::spell::SpellType::Fireball {
         let config = PistolConfig::default();
         // Extract XZ position from spawn_position for direction calculation
         let spawn_xz = from_xz(spawn_position);

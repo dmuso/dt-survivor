@@ -85,10 +85,7 @@ mod tests {
     use super::*;
 
     fn create_fireball_spell() -> Spell {
-        Spell::new(SpellType::Fireball {
-            bullet_count: 1,
-            spread_angle: 0.0,
-        })
+        Spell::new(SpellType::Fireball)
     }
 
     fn create_radiant_beam_spell() -> Spell {

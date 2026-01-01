@@ -31,9 +31,8 @@ mod tests {
     use super::*;
     use crate::player::components::Player;
     use crate::combat::components::Health;
-    use crate::spell::components::{Spell, SpellType};
+    use crate::spell::{Spell, SpellType};
     use crate::inventory::components::EquippedSpell;
-    use crate::element::Element;
 
     #[test]
     fn test_spell_plugin_can_be_added_to_app() {
@@ -99,17 +98,8 @@ mod tests {
 
         // Create spell entity at (0, 0)
         let spell_entity = app.world_mut().spawn((
-            Spell {
-                spell_type: SpellType::Fireball { bullet_count: 5, spread_angle: 15.0 },
-                element: Element::Fire,
-                name: "Fireball".to_string(),
-                description: "A blazing projectile.".to_string(),
-                level: 1,
-                fire_rate: 2.0,
-                base_damage: 1.0,
-                last_fired: 0.0,
-            },
-            EquippedSpell { spell_type: SpellType::Fireball { bullet_count: 5, spread_angle: 15.0 } },
+            Spell::new(SpellType::Fireball),
+            EquippedSpell { spell_type: SpellType::Fireball },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 
@@ -166,17 +156,8 @@ mod tests {
 
         // Create spell entity at (0, 0)
         let spell_entity = app.world_mut().spawn((
-            Spell {
-                spell_type: SpellType::Fireball { bullet_count: 5, spread_angle: 15.0 },
-                element: Element::Fire,
-                name: "Fireball".to_string(),
-                description: "A blazing projectile.".to_string(),
-                level: 1,
-                fire_rate: 2.0,
-                base_damage: 1.0,
-                last_fired: 0.0,
-            },
-            EquippedSpell { spell_type: SpellType::Fireball { bullet_count: 5, spread_angle: 15.0 } },
+            Spell::new(SpellType::Fireball),
+            EquippedSpell { spell_type: SpellType::Fireball },
             Transform::from_translation(Vec3::new(0.0, 0.0, 0.0)),
         )).id();
 

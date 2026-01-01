@@ -79,17 +79,17 @@ mod tests {
 
     #[test]
     fn test_prelude_exports_spell_type() {
-        // SpellType enum
+        // SpellType enum with 64 variants
         let spell_type = SpellType::RadiantBeam;
-        assert_eq!(spell_type.id(), "radiant_beam");
+        assert_eq!(spell_type.id(), 33);
         assert_eq!(spell_type.element(), Element::Light);
 
-        let fireball = SpellType::Fireball {
-            bullet_count: 1,
-            spread_angle: 0.0,
-        };
-        assert_eq!(fireball.id(), "fireball");
+        let fireball = SpellType::Fireball;
+        assert_eq!(fireball.id(), 0);
         assert_eq!(fireball.element(), Element::Fire);
+
+        // Test all 64 spells exist
+        assert_eq!(SpellType::all().len(), 64);
     }
 
     #[test]

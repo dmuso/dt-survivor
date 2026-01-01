@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use crate::spell::components::SpellType;
+use crate::spell::SpellType;
 use crate::weapon::components::WeaponType;
 
 #[derive(Component)]
@@ -20,12 +20,9 @@ mod tests {
     #[test]
     fn equipped_spell_uses_spell_type_enum() {
         let equipped = EquippedSpell {
-            spell_type: SpellType::Fireball {
-                bullet_count: 5,
-                spread_angle: 15.0,
-            },
+            spell_type: SpellType::Fireball,
         };
-        assert_eq!(equipped.spell_type.id(), "fireball");
+        assert_eq!(equipped.spell_type.id(), 0);
     }
 
     #[test]
@@ -33,7 +30,7 @@ mod tests {
         let equipped = EquippedSpell {
             spell_type: SpellType::RadiantBeam,
         };
-        assert_eq!(equipped.spell_type.id(), "radiant_beam");
+        assert_eq!(equipped.spell_type.id(), 33);
     }
 
     #[test]

@@ -3,6 +3,7 @@ use bevy_kira_audio::prelude::*;
 use bevy_hanabi::prelude::*;
 use rand::Rng;
 use crate::spell::components::*;
+use crate::spell::SpellType;
 
 use crate::enemies::components::*;
 use crate::audio::plugin::*;
@@ -39,17 +40,8 @@ mod tests {
 
         // Create a spell entity
         app.world_mut().spawn((
-            Spell {
-                spell_type: SpellType::Fireball { bullet_count: 5, spread_angle: 15.0 },
-                element: Element::Fire,
-                name: "Fireball".to_string(),
-                description: "A blazing projectile.".to_string(),
-                level: 1,
-                fire_rate: 0.1,
-                base_damage: 1.0,
-                last_fired: 10.0,
-            },
-            EquippedSpell { spell_type: SpellType::Fireball { bullet_count: 5, spread_angle: 15.0 } },
+            Spell::new(SpellType::Fireball),
+            EquippedSpell { spell_type: SpellType::Fireball },
             Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
         ));
 
@@ -119,31 +111,13 @@ mod tests {
         }
 
         app.world_mut().spawn((
-            Spell {
-                spell_type: SpellType::Fireball { bullet_count: 5, spread_angle: 15.0 },
-                element: Element::Fire,
-                name: "Fireball".to_string(),
-                description: "A blazing projectile.".to_string(),
-                level: 1,
-                fire_rate: 0.1,
-                base_damage: 1.0,
-                last_fired: 10.0,
-            },
-            EquippedSpell { spell_type: SpellType::Fireball { bullet_count: 5, spread_angle: 15.0 } },
+            Spell::new(SpellType::Fireball),
+            EquippedSpell { spell_type: SpellType::Fireball },
             Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
         ));
 
         app.world_mut().spawn((
-            Spell {
-                spell_type: SpellType::RadiantBeam,
-                element: Element::Light,
-                name: "Radiant Beam".to_string(),
-                description: "A beam of light.".to_string(),
-                level: 1,
-                fire_rate: 0.1,
-                base_damage: 15.0,
-                last_fired: 10.0,
-            },
+            Spell::new(SpellType::RadiantBeam),
             EquippedSpell { spell_type: SpellType::RadiantBeam },
             Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
         ));
@@ -165,17 +139,8 @@ mod tests {
         ));
 
         app.world_mut().spawn((
-            Spell {
-                spell_type: SpellType::Fireball { bullet_count: 5, spread_angle: 15.0 },
-                element: Element::Fire,
-                name: "Fireball".to_string(),
-                description: "A blazing projectile.".to_string(),
-                level: 1,
-                fire_rate: 0.1,
-                base_damage: 1.0,
-                last_fired: 10.0,
-            },
-            EquippedSpell { spell_type: SpellType::Fireball { bullet_count: 5, spread_angle: 15.0 } },
+            Spell::new(SpellType::Fireball),
+            EquippedSpell { spell_type: SpellType::Fireball },
             Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
         ));
 
@@ -435,7 +400,7 @@ pub fn spell_casting_system(
             let base_direction = (target_pos - origin_xz).normalize();
 
             match &spell.spell_type {
-                SpellType::Fireball { .. } => {
+                SpellType::Fireball => {
                     // Delegate fireball casting to pistol module (reusing existing logic)
                     crate::pistol::systems::fire_spell(
                         &mut commands,

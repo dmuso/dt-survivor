@@ -110,10 +110,7 @@ mod tests {
     use super::*;
 
     fn create_fireball_spell() -> Spell {
-        Spell::new(SpellType::Fireball {
-            bullet_count: 1,
-            spread_angle: 0.0,
-        })
+        Spell::new(SpellType::Fireball)
     }
 
     fn create_radiant_beam_spell() -> Spell {
@@ -128,8 +125,8 @@ mod tests {
         Spell::new(SpellType::FrostNova)
     }
 
-    fn create_void_orb_spell() -> Spell {
-        Spell::new(SpellType::VoidOrb)
+    fn create_void_rift_spell() -> Spell {
+        Spell::new(SpellType::VoidRift)
     }
 
     mod spell_list_equip_tests {
@@ -166,7 +163,7 @@ mod tests {
             spell_list.equip(create_radiant_beam_spell());
             spell_list.equip(create_thunder_strike_spell());
             spell_list.equip(create_frost_nova_spell());
-            spell_list.equip(create_void_orb_spell());
+            spell_list.equip(create_void_rift_spell());
             // SpellList is now full (5 spells)
             let result = spell_list.equip(create_fireball_spell());
             assert_eq!(result, None);
@@ -197,7 +194,7 @@ mod tests {
             spell_list.equip(create_radiant_beam_spell());
             spell_list.equip(create_thunder_strike_spell());
             spell_list.equip(create_frost_nova_spell());
-            spell_list.equip(create_void_orb_spell());
+            spell_list.equip(create_void_rift_spell());
             assert_eq!(spell_list.find_empty_slot(), None);
         }
     }
@@ -208,10 +205,7 @@ mod tests {
         #[test]
         fn has_spell_returns_true_for_equipped_spell() {
             let mut spell_list = SpellList::default();
-            let spell_type = SpellType::Fireball {
-                bullet_count: 1,
-                spread_angle: 0.0,
-            };
+            let spell_type = SpellType::Fireball;
             spell_list.equip(create_fireball_spell());
             assert!(spell_list.has_spell(&spell_type));
         }
@@ -219,26 +213,18 @@ mod tests {
         #[test]
         fn has_spell_returns_false_for_missing_spell() {
             let spell_list = SpellList::default();
-            let spell_type = SpellType::Fireball {
-                bullet_count: 1,
-                spread_angle: 0.0,
-            };
+            let spell_type = SpellType::Fireball;
             assert!(!spell_list.has_spell(&spell_type));
         }
 
         #[test]
-        fn has_spell_ignores_spell_type_params() {
+        fn has_spell_compares_by_spell_type() {
             let mut spell_list = SpellList::default();
-            spell_list.equip(Spell::new(SpellType::Fireball {
-                bullet_count: 1,
-                spread_angle: 0.0,
-            }));
-            // Different params, same spell type
-            let query_type = SpellType::Fireball {
-                bullet_count: 5,
-                spread_angle: 15.0,
-            };
-            assert!(spell_list.has_spell(&query_type));
+            spell_list.equip(create_fireball_spell());
+            // Same spell type matches
+            assert!(spell_list.has_spell(&SpellType::Fireball));
+            // Different spell type does not match
+            assert!(!spell_list.has_spell(&SpellType::IceShard));
         }
     }
 
@@ -376,13 +362,7 @@ mod tests {
             spell_list.equip(create_fireball_spell());
             let removed = spell_list.remove(0);
             assert!(removed.is_some());
-            assert_eq!(
-                removed.unwrap().spell_type,
-                SpellType::Fireball {
-                    bullet_count: 1,
-                    spread_angle: 0.0
-                }
-            );
+            assert_eq!(removed.unwrap().spell_type, SpellType::Fireball);
         }
 
         #[test]
