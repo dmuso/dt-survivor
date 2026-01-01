@@ -131,10 +131,14 @@ mod tests {
 
     #[test]
     fn test_game_state_enum_variants() {
-        // Test that both game states exist and are distinct
+        // Test that game states exist and are distinct
         assert_ne!(GameState::Intro, GameState::InGame);
+        assert_ne!(GameState::AttunementSelect, GameState::InGame);
+        assert_ne!(GameState::InventoryOpen, GameState::InGame);
         assert_eq!(GameState::Intro as u8, 0);
-        assert_eq!(GameState::InGame as u8, 1);
+        assert_eq!(GameState::AttunementSelect as u8, 1);
+        assert_eq!(GameState::InGame as u8, 2);
+        assert_eq!(GameState::InventoryOpen as u8, 3);
     }
 
     #[test]
