@@ -171,6 +171,9 @@ use crate::spells::chaos::warp_rift::{
     warp_rift_cleanup_system, warp_rift_damage_system,
     warp_rift_pull_system, warp_rift_tick_system,
 };
+use crate::spells::chaos::disorder_pulse::{
+    disorder_pulse_duration_system, disorder_pulse_effect_system,
+};
 use crate::spells::light::solar_flare::{
     blinded_debuff_tick_system, solar_flare_collision_system,
     solar_flare_explosion_cleanup_system, solar_flare_explosion_damage_system,
@@ -1175,6 +1178,19 @@ pub fn plugin(app: &mut App) {
             Update,
             warp_rift_cleanup_system
                 .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Disorder Pulse (Mayhem) systems - duration tick in Effects, effect in Combat
+        .add_systems(
+            Update,
+            disorder_pulse_duration_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            disorder_pulse_effect_system
+                .in_set(GameSet::Combat)
                 .run_if(in_state(GameState::InGame)),
         )
         // Judgment (Light) systems - caster targeting in Combat, strike updates in Combat, beam damage in Combat, beam cleanup in Cleanup

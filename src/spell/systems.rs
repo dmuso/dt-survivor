@@ -2705,6 +2705,17 @@ pub fn spell_casting_system(
                     );
                 }
             }
+            SpellType::Mayhem => {
+                // Disorder Pulse creates a pulsing chaotic aura with random effects
+                crate::spells::chaos::disorder_pulse::fire_disorder_pulse_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
             _ => {
                 // Other spell types not implemented yet
             }
