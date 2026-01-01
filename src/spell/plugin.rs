@@ -44,6 +44,9 @@ use crate::spells::frost::frozen_orb::{
     frozen_orb_cleanup_system, frozen_orb_damage_system,
     frozen_orb_movement_system, frozen_orb_tick_system,
 };
+use crate::spells::frost::hoarfrost::{
+    hoarfrost_cleanup_system, hoarfrost_duration_system, hoarfrost_tracking_system,
+};
 use crate::spells::poison::venom_spray::{
     cleanup_venom_spray, poison_stack_damage_tick, poison_stack_decay,
     venom_spray_hit_detection,
@@ -475,6 +478,25 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             cleanup_inferno_pulse_wave_system
+                .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Hoarfrost aura systems - duration tick in Effects, tracking in Combat, cleanup in Cleanup
+        .add_systems(
+            Update,
+            hoarfrost_duration_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            hoarfrost_tracking_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            hoarfrost_cleanup_system
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         );
