@@ -1,3 +1,4 @@
+pub mod acid_rain;
 pub mod blight_zone;
 pub mod corrode;
 pub mod neurotoxin;
@@ -6,6 +7,7 @@ pub mod toxic_glob;
 pub mod venom_spray;
 pub mod virulence;
 
+pub use acid_rain::*;
 pub use blight_zone::*;
 pub use corrode::*;
 pub use neurotoxin::*;

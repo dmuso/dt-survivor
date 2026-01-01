@@ -1770,6 +1770,126 @@ mod tests {
             );
         }
     }
+
+    mod corrosive_pool_tests {
+        use super::*;
+        use crate::spells::poison::acid_rain::AcidRainZone;
+
+        #[test]
+        fn corrosive_pool_spawns_acid_rain_zone_from_spell_list() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::CorrosivePool,
+                element: Element::Poison,
+                name: "Corrosive Pool".to_string(),
+                description: "Creates a pool of acid.".to_string(),
+                level: 2,
+                fire_rate: 2.0,
+                base_damage: 12.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(10.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut zone_query = app.world_mut().query::<&AcidRainZone>();
+            let zones: Vec<_> = zone_query.iter(app.world()).collect();
+            assert_eq!(zones.len(), 1, "One acid rain zone should be spawned");
+        }
+
+        #[test]
+        fn corrosive_pool_with_poison_attunement() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.insert_resource(WhisperAttunement::with_element(Element::Poison));
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::CorrosivePool,
+                element: Element::Poison,
+                name: "Corrosive Pool".to_string(),
+                description: "Creates a pool of acid.".to_string(),
+                level: 2,
+                fire_rate: 2.0,
+                base_damage: 12.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(10.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut zone_query = app.world_mut().query::<&AcidRainZone>();
+            let zones: Vec<_> = zone_query.iter(app.world()).collect();
+            assert_eq!(zones.len(), 1, "Zone should fire with poison attunement");
+            // 12.0 * 2 * 1.25 * 1.1 * 0.15 (damage ratio) = 4.95
+            let expected_droplet_damage = 12.0 * 2.0 * 1.25 * 1.1 * 0.15;
+            assert!(
+                (zones[0].damage_per_droplet - expected_droplet_damage).abs() < 0.1,
+                "Acid rain damage should be {} with poison attunement, got {}",
+                expected_droplet_damage,
+                zones[0].damage_per_droplet
+            );
+        }
+
+        #[test]
+        fn corrosive_pool_spawns_ahead_of_origin() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            let origin_pos = Vec3::new(0.0, 3.0, 0.0);
+            app.insert_resource(SpellOrigin {
+                position: Some(origin_pos),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let mut spell = Spell::new(SpellType::CorrosivePool);
+            spell.last_fired = -10.0;
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            // Enemy is to the right (positive X)
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut zone_query = app.world_mut().query::<&AcidRainZone>();
+            let zones: Vec<_> = zone_query.iter(app.world()).collect();
+            assert_eq!(zones.len(), 1);
+            // Zone should be spawned ahead of origin in direction of enemy
+            assert!(zones[0].center.x > 0.0, "Zone should be ahead in X direction");
+        }
+    }
 }
 
 use crate::inventory::resources::SpellList;
@@ -2085,6 +2205,16 @@ pub fn spell_casting_system(
                         direction,
                     );
                 }
+            }
+            SpellType::CorrosivePool => {
+                crate::spells::poison::acid_rain::spawn_acid_rain_zone_with_damage(
+                    &mut commands,
+                    final_damage,
+                    origin_pos,
+                    target_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
             }
             _ => {
                 // Other spell types not implemented yet

@@ -98,6 +98,11 @@ use crate::spells::lightning::ion_field::{
 use crate::spells::lightning::flashstep::{
     execute_flashstep_system, lightning_burst_damage_system, update_lightning_bursts,
 };
+use crate::spells::poison::acid_rain::{
+    acid_rain_cleanup_droplets_system, acid_rain_cleanup_zone_system,
+    acid_rain_droplet_collision_system, acid_rain_move_droplets_system,
+    acid_rain_spawn_droplets_system,
+};
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -634,6 +639,32 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             update_lightning_bursts
+                .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Acid Rain systems - spawning in Effects, movement/collision in Combat, cleanup in Cleanup
+        .add_systems(
+            Update,
+            acid_rain_spawn_droplets_system
+                .in_set(GameSet::Spawning)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                acid_rain_move_droplets_system,
+                acid_rain_droplet_collision_system,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                acid_rain_cleanup_droplets_system,
+                acid_rain_cleanup_zone_system,
+            )
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         );
