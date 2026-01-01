@@ -1,4 +1,3 @@
-use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy_hanabi::prelude::*;
 use bevy_kira_audio::prelude::*;
@@ -33,8 +32,6 @@ fn main() {
             }))
         .add_plugins(AudioPlugin)
         .add_plugins(HanabiPlugin)
-        .add_plugins(PhysicsPlugins::default())
-        .insert_resource(Gravity(Vec3::NEG_Y * 15.0)) // Match existing gravity
         .init_state::<GameState>()
         .add_plugins((audio_plugin, combat_plugin, experience_plugin, game_plugin, inventory_plugin, ui_plugin));
 

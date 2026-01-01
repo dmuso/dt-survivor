@@ -1,4 +1,3 @@
-use avian3d::prelude::*;
 use bevy::gltf::{Gltf, GltfMesh};
 use bevy::prelude::*;
 use crate::states::*;
@@ -10,12 +9,11 @@ use crate::game::events::LootDropEvent;
 #[derive(Resource)]
 pub struct XpOrbGltfHandle(pub Handle<Gltf>);
 
-/// Resource holding the XP orb 3D model mesh and physics collider
+/// Resource holding the XP orb 3D model mesh
 /// Materials are provided by XpOrbMaterials resource (defined in game/resources.rs)
 #[derive(Resource)]
 pub struct XpOrbModel {
     pub mesh: Handle<Mesh>,
-    pub collider: Collider,
 }
 
 /// Starts loading the XP orb GLB model
@@ -34,22 +32,21 @@ pub fn setup_xp_orb_model(
     commands.insert_resource(XpOrbGltfHandle(gltf_handle));
 }
 
-/// Extracts mesh and computes physics collider from the loaded GLTF
+/// Extracts mesh from the loaded GLTF
 /// Runs each frame until the GLTF is loaded, then creates the XpOrbModel resource
 pub fn init_xp_orb_materials(
     mut commands: Commands,
     gltf_handle: Option<Res<XpOrbGltfHandle>>,
     gltfs: Option<Res<Assets<Gltf>>>,
     gltf_meshes: Option<Res<Assets<GltfMesh>>>,
-    meshes: Option<Res<Assets<Mesh>>>,
     xp_orb_model: Option<Res<XpOrbModel>>,
 ) {
     // Skip if already initialized or resources not available
     if xp_orb_model.is_some() {
         return;
     }
-    let (Some(gltf_handle), Some(gltfs), Some(gltf_meshes), Some(meshes)) =
-        (gltf_handle, gltfs, gltf_meshes, meshes)
+    let (Some(gltf_handle), Some(gltfs), Some(gltf_meshes)) =
+        (gltf_handle, gltfs, gltf_meshes)
     else {
         return;
     };
@@ -77,21 +74,8 @@ pub fn init_xp_orb_materials(
         return;
     };
 
-    // Get the actual mesh asset to compute the collider
-    let Some(mesh) = meshes.get(&primitive.mesh) else {
-        // Mesh not loaded yet, wait for next frame
-        return;
-    };
-
-    // Compute convex hull collider from the mesh
-    let collider = Collider::convex_hull_from_mesh(mesh).unwrap_or_else(|| {
-        warn!("Failed to create convex hull from XP orb mesh, using sphere fallback");
-        Collider::sphere(0.5)
-    });
-
     commands.insert_resource(XpOrbModel {
         mesh: primitive.mesh.clone(),
-        collider,
     });
 
     // Remove the temporary GLTF handle resource
@@ -154,8 +138,8 @@ pub fn plugin(app: &mut App) {
             loot_drop_system
                 .run_if(in_state(GameState::InGame))
                 .run_if(resource_exists::<XpOrbModel>),
-            // Remove physics from settled loot to reduce simulation overhead
-            remove_physics_when_settled.run_if(in_state(GameState::InGame)),
+            // Animate falling XP orbs (custom physics simulation)
+            animate_falling.run_if(in_state(GameState::InGame)),
 
             // ECS-based pickup systems - ordered pipeline
             // 1. Detect when items enter pickup radius

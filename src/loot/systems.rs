@@ -1,8 +1,7 @@
-use avian3d::prelude::*;
 use bevy::prelude::*;
 use rand::Rng;
 use crate::combat::components::Health;
-use crate::loot::components::{DroppedItem, ItemData, PickupState, PopUpAnimation};
+use crate::loot::components::{DroppedItem, FallingAnimation, ItemData, PickupState, PopUpAnimation};
 use crate::loot::events::*;
 use crate::loot::plugin::XpOrbModel;
 use crate::weapon::components::{Weapon, WeaponType};
@@ -89,7 +88,7 @@ pub fn loot_drop_system(
             );
 
             // Spawn XP orb using the GLB mesh with level-appropriate material
-            // Uses Avian physics for realistic falling and tumbling
+            // Uses custom falling animation for realistic falling and tumbling
             commands.spawn((
                 Mesh3d(xp_orb_model.mesh.clone()),
                 MeshMaterial3d(orb_material),
@@ -100,12 +99,8 @@ pub fn loot_drop_system(
                 ))
                 .with_rotation(random_rotation)
                 .with_scale(Vec3::splat(0.1)),
-                // Physics components for realistic falling
-                RigidBody::Dynamic,
-                xp_orb_model.collider.clone(),
-                Restitution::new(0.3),  // Slight bounce
-                Friction::new(0.8),      // Grip when settling
-                ColliderDensity(1.0),    // Mass based on volume
+                // Custom falling animation
+                FallingAnimation::random(),
                 // Game components
                 DroppedItem {
                     pickup_state: PickupState::Idle,
@@ -344,21 +339,19 @@ pub fn update_item_movement(
 
 /// System that starts the pop-up animation when a pickup event is received.
 /// Transitions items from Idle to PopUp state and adds the PopUpAnimation component.
+/// If the item is still falling (has FallingAnimation), skip popup and go directly to BeingAttracted.
 /// Sets rotation based on player's movement direction when pickup was triggered.
-/// Removes physics components so we control the item's movement.
 pub fn start_popup_animation(
     mut commands: Commands,
     mut pickup_events: MessageReader<PickupEvent>,
-    mut item_query: Query<(&Transform, &mut DroppedItem)>,
+    mut item_query: Query<(&Transform, &mut DroppedItem, Option<&FallingAnimation>)>,
     player_query: Query<&Player>,
 ) {
     use crate::loot::components::BASE_ROTATION_SPEED;
 
     for event in pickup_events.read() {
-        if let Ok((transform, mut item)) = item_query.get_mut(event.item_entity) {
+        if let Ok((transform, mut item, falling_anim)) = item_query.get_mut(event.item_entity) {
             if item.pickup_state == PickupState::Idle {
-                item.pickup_state = PickupState::PopUp;
-
                 // Set rotation based on player's last movement direction
                 if let Ok(player) = player_query.get(event.player_entity) {
                     item.rotation_speed = BASE_ROTATION_SPEED;
@@ -372,16 +365,18 @@ pub fn start_popup_animation(
                     };
                 }
 
-                // Remove physics components so we control the item's movement
-                // during popup and attraction phases
-                if let Ok(mut entity_commands) = commands.get_entity(event.item_entity) {
-                    entity_commands
-                        .remove::<RigidBody>()
-                        .remove::<Collider>()
-                        .remove::<Restitution>()
-                        .remove::<Friction>()
-                        .remove::<ColliderDensity>()
-                        .insert(PopUpAnimation::new(transform.translation.y));
+                // If item is still falling, skip popup and go directly to BeingAttracted
+                if falling_anim.is_some() {
+                    item.pickup_state = PickupState::BeingAttracted;
+                    if let Ok(mut entity_commands) = commands.get_entity(event.item_entity) {
+                        entity_commands.remove::<FallingAnimation>();
+                    }
+                } else {
+                    // Settled item - do the popup animation
+                    item.pickup_state = PickupState::PopUp;
+                    if let Ok(mut entity_commands) = commands.get_entity(event.item_entity) {
+                        entity_commands.insert(PopUpAnimation::new(transform.translation.y));
+                    }
                 }
             }
         }
@@ -443,6 +438,48 @@ pub fn animate_popup(
 
         // Update Y position (only while ascending)
         transform.translation.y += anim.vertical_velocity * delta;
+    }
+}
+
+/// System that animates falling XP orbs with physics-like behavior.
+/// Applies gravity, horizontal movement, rotation, bouncing, and settling.
+/// Removes FallingAnimation when orb has settled.
+pub fn animate_falling(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut item_query: Query<(Entity, &mut Transform, &mut FallingAnimation), With<DroppedItem>>,
+) {
+    let delta = time.delta_secs();
+
+    for (entity, mut transform, mut anim) in item_query.iter_mut() {
+        if anim.settled {
+            commands.entity(entity).remove::<FallingAnimation>();
+            continue;
+        }
+
+        // Apply physics via tick
+        let still_animating = anim.tick(delta, transform.translation.y);
+
+        // Update position
+        transform.translation.x += anim.horizontal_velocity.x * delta;
+        transform.translation.z += anim.horizontal_velocity.y * delta;
+        transform.translation.y += anim.vertical_velocity * delta;
+
+        // Clamp to ground
+        if transform.translation.y < FallingAnimation::ground_y() {
+            transform.translation.y = FallingAnimation::ground_y();
+        }
+
+        // Apply rotation (tumbling effect)
+        let rot_delta = anim.rotation_velocity * delta;
+        transform.rotate_x(rot_delta.x);
+        transform.rotate_y(rot_delta.y);
+        transform.rotate_z(rot_delta.z);
+
+        // Remove component if settled
+        if !still_animating {
+            commands.entity(entity).remove::<FallingAnimation>();
+        }
     }
 }
 
@@ -648,45 +685,6 @@ pub fn cleanup_consumed_items(
     for (entity, item) in item_query.iter() {
         if item.pickup_state == PickupState::Consumed {
             commands.entity(entity).despawn();
-        }
-    }
-}
-
-/// Velocity threshold below which an item is considered settled (units per second)
-const SETTLED_VELOCITY_THRESHOLD: f32 = 0.1;
-
-/// System that removes physics components from dropped items once they stop moving.
-/// This reduces physics simulation overhead for settled items while keeping them pickable.
-/// Only applies to Idle items with LinearVelocity (physics-enabled loot like XP orbs).
-pub fn remove_physics_when_settled(
-    mut commands: Commands,
-    item_query: Query<
-        (Entity, &DroppedItem, &LinearVelocity, Option<&AngularVelocity>),
-        With<DroppedItem>,
-    >,
-) {
-    for (entity, item, linear_vel, angular_vel) in item_query.iter() {
-        // Only process Idle items (not being picked up)
-        if item.pickup_state != PickupState::Idle {
-            continue;
-        }
-
-        // Check if both linear and angular velocities are below threshold
-        let linear_speed = linear_vel.0.length();
-        let angular_speed = angular_vel.map(|v| v.0.length()).unwrap_or(0.0);
-
-        if linear_speed < SETTLED_VELOCITY_THRESHOLD && angular_speed < SETTLED_VELOCITY_THRESHOLD {
-            // Remove all physics components
-            if let Ok(mut entity_commands) = commands.get_entity(entity) {
-                entity_commands
-                    .remove::<RigidBody>()
-                    .remove::<Collider>()
-                    .remove::<LinearVelocity>()
-                    .remove::<AngularVelocity>()
-                    .remove::<Restitution>()
-                    .remove::<Friction>()
-                    .remove::<ColliderDensity>();
-            }
         }
     }
 }
@@ -1631,15 +1629,221 @@ mod tests {
         );
     }
 
-    mod remove_physics_when_settled_tests {
+    mod falling_to_pickup_transition_tests {
         use super::*;
+        use crate::loot::components::FallingAnimation;
 
         #[test]
-        fn test_removes_physics_components_when_velocity_is_low() {
+        fn test_falling_item_skips_popup_and_goes_directly_to_attracted() {
+            // When an item has FallingAnimation (still falling) and enters pickup radius,
+            // it should skip the PopUp animation and go directly to BeingAttracted
             let mut app = App::new();
-            app.add_systems(Update, remove_physics_when_settled);
+            app.add_message::<PickupEvent>();
+            app.add_systems(Update, (detect_pickup_collisions, start_popup_animation).chain());
 
-            // Create XP orb with physics components and very low velocity (settled)
+            // Create player at origin with pickup radius
+            app.world_mut().spawn((
+                Player {
+                    speed: 200.0,
+                    regen_rate: 1.0,
+                    pickup_radius: 50.0,
+                    last_movement_direction: Vec3::X,
+                },
+                Transform::from_translation(Vec3::ZERO),
+            ));
+
+            // Create falling item WITH FallingAnimation within pickup range
+            let item_entity = app.world_mut().spawn((
+                DroppedItem {
+                    pickup_state: PickupState::Idle,
+                    item_data: ItemData::Experience { amount: 10 },
+                    velocity: Vec3::ZERO,
+                    rotation_speed: 0.0,
+                    rotation_direction: 1.0,
+                },
+                Transform::from_translation(Vec3::new(10.0, 1.0, 10.0)),
+                FallingAnimation::random(),
+            )).id();
+
+            // Run pickup detection and animation start
+            app.update();
+
+            // Verify item skipped PopUp and went directly to BeingAttracted
+            let item = app.world().get::<DroppedItem>(item_entity).unwrap();
+            assert_eq!(
+                item.pickup_state, PickupState::BeingAttracted,
+                "Falling items should skip PopUp and go directly to BeingAttracted"
+            );
+
+            // Verify PopUpAnimation was NOT added
+            let popup = app.world().get::<PopUpAnimation>(item_entity);
+            assert!(popup.is_none(), "Falling items should not get PopUpAnimation");
+
+            // Verify FallingAnimation was removed
+            let falling = app.world().get::<FallingAnimation>(item_entity);
+            assert!(falling.is_none(), "FallingAnimation should be removed");
+        }
+
+        #[test]
+        fn test_settled_item_still_does_popup() {
+            // Items without FallingAnimation (settled) should still do the normal PopUp animation
+            let mut app = App::new();
+            app.add_message::<PickupEvent>();
+            app.add_systems(Update, (detect_pickup_collisions, start_popup_animation).chain());
+
+            // Create player at origin with pickup radius
+            app.world_mut().spawn((
+                Player {
+                    speed: 200.0,
+                    regen_rate: 1.0,
+                    pickup_radius: 50.0,
+                    last_movement_direction: Vec3::X,
+                },
+                Transform::from_translation(Vec3::ZERO),
+            ));
+
+            // Create item WITHOUT FallingAnimation within pickup range (settled item)
+            let item_entity = app.world_mut().spawn((
+                DroppedItem {
+                    pickup_state: PickupState::Idle,
+                    item_data: ItemData::Experience { amount: 10 },
+                    velocity: Vec3::ZERO,
+                    rotation_speed: 0.0,
+                    rotation_direction: 1.0,
+                },
+                Transform::from_translation(Vec3::new(10.0, 0.2, 10.0)),
+                // No FallingAnimation - settled item
+            )).id();
+
+            // Run pickup detection and animation start
+            app.update();
+
+            // Verify item goes through normal PopUp state
+            let item = app.world().get::<DroppedItem>(item_entity).unwrap();
+            assert_eq!(
+                item.pickup_state, PickupState::PopUp,
+                "Settled items should go through PopUp state"
+            );
+
+            // Verify PopUpAnimation was added
+            let popup = app.world().get::<PopUpAnimation>(item_entity);
+            assert!(popup.is_some(), "Settled items should get PopUpAnimation");
+        }
+
+        #[test]
+        fn test_falling_item_gets_rotation_set_on_pickup() {
+            // When a falling item is picked up, rotation should still be set based on player direction
+            use crate::loot::components::BASE_ROTATION_SPEED;
+
+            let mut app = App::new();
+            app.add_message::<PickupEvent>();
+            app.add_systems(Update, (detect_pickup_collisions, start_popup_animation).chain());
+
+            // Create player moving right
+            app.world_mut().spawn((
+                Player {
+                    speed: 200.0,
+                    regen_rate: 1.0,
+                    pickup_radius: 50.0,
+                    last_movement_direction: Vec3::new(1.0, 0.0, 0.0), // Moving right
+                },
+                Transform::from_translation(Vec3::ZERO),
+            ));
+
+            // Create falling item with FallingAnimation within pickup range
+            let item_entity = app.world_mut().spawn((
+                DroppedItem {
+                    pickup_state: PickupState::Idle,
+                    item_data: ItemData::Experience { amount: 10 },
+                    velocity: Vec3::ZERO,
+                    rotation_speed: 0.0,
+                    rotation_direction: 1.0,
+                },
+                Transform::from_translation(Vec3::new(10.0, 1.0, 10.0)),
+                FallingAnimation::random(),
+            )).id();
+
+            app.update();
+
+            // Verify rotation was set
+            let item = app.world().get::<DroppedItem>(item_entity).unwrap();
+            assert_eq!(item.rotation_speed, BASE_ROTATION_SPEED);
+            assert_eq!(item.rotation_direction, -1.0); // Moving right = clockwise
+        }
+    }
+
+    mod animate_falling_tests {
+        use super::*;
+        use std::time::Duration;
+        use bevy::time::TimePlugin;
+        use crate::loot::components::FallingAnimation;
+
+        #[test]
+        fn test_falling_animation_tick_applies_gravity() {
+            // Test the FallingAnimation::tick() method directly
+            let mut anim = FallingAnimation::new(Vec2::X);
+            let initial_velocity = anim.vertical_velocity;
+
+            // Tick with a large delta to see gravity effect
+            anim.tick(0.1, 2.0); // At height 2.0, well above ground
+
+            // Velocity should decrease due to gravity
+            assert!(
+                anim.vertical_velocity < initial_velocity,
+                "Gravity should reduce vertical velocity"
+            );
+        }
+
+        #[test]
+        fn test_falling_animation_bounces_at_ground() {
+            let mut anim = FallingAnimation::new(Vec2::X);
+            // Force downward velocity
+            anim.vertical_velocity = -5.0;
+
+            // Tick at ground level with downward velocity
+            anim.tick(0.016, 0.1); // Just below ground threshold
+
+            // Should have bounced (positive velocity now)
+            assert!(
+                anim.vertical_velocity > 0.0,
+                "Item should bounce at ground level, got velocity: {}",
+                anim.vertical_velocity
+            );
+        }
+
+        #[test]
+        fn test_falling_animation_settles_after_bounces() {
+            let mut anim = FallingAnimation::new(Vec2::X);
+
+            // Simulate many ticks until settled
+            let mut current_y = 2.0;
+            for _ in 0..500 {
+                if anim.settled {
+                    break;
+                }
+                let delta = 0.016;
+                anim.tick(delta, current_y);
+                current_y += anim.vertical_velocity * delta;
+                if current_y < FallingAnimation::ground_y() {
+                    current_y = FallingAnimation::ground_y();
+                }
+            }
+
+            assert!(anim.settled, "Animation should eventually settle");
+            assert_eq!(anim.vertical_velocity, 0.0, "Velocity should be zero when settled");
+            assert_eq!(anim.horizontal_velocity, Vec2::ZERO, "Horizontal velocity should be zero when settled");
+        }
+
+        #[test]
+        fn test_animate_falling_removes_component_when_settled() {
+            let mut app = App::new();
+            app.add_plugins(TimePlugin);
+            app.add_systems(Update, animate_falling);
+
+            // Create falling item that's already settled
+            let mut anim = FallingAnimation::random();
+            anim.settled = true;
+
             let item_entity = app.world_mut().spawn((
                 DroppedItem {
                     pickup_state: PickupState::Idle,
@@ -1649,116 +1853,48 @@ mod tests {
                     rotation_direction: 1.0,
                 },
                 Transform::from_translation(Vec3::new(0.0, LOOT_SMALL_Y_HEIGHT, 0.0)),
-                RigidBody::Dynamic,
-                Collider::sphere(0.1),
-                LinearVelocity(Vec3::new(0.01, 0.0, 0.01)), // Very slow
-                AngularVelocity(Vec3::new(0.01, 0.01, 0.01)), // Very slow rotation
-                Restitution::new(0.3),
-                Friction::new(0.8),
-                ColliderDensity(1.0),
+                anim,
             )).id();
 
             app.update();
 
-            // Verify physics components were removed
-            assert!(app.world().get::<RigidBody>(item_entity).is_none(), "RigidBody should be removed");
-            assert!(app.world().get::<Collider>(item_entity).is_none(), "Collider should be removed");
-            assert!(app.world().get::<LinearVelocity>(item_entity).is_none(), "LinearVelocity should be removed");
-            assert!(app.world().get::<AngularVelocity>(item_entity).is_none(), "AngularVelocity should be removed");
-            assert!(app.world().get::<Restitution>(item_entity).is_none(), "Restitution should be removed");
-            assert!(app.world().get::<Friction>(item_entity).is_none(), "Friction should be removed");
-            assert!(app.world().get::<ColliderDensity>(item_entity).is_none(), "ColliderDensity should be removed");
+            // Verify FallingAnimation was removed
+            let falling = app.world().get::<FallingAnimation>(item_entity);
+            assert!(falling.is_none(), "FallingAnimation should be removed when settled");
 
-            // Verify the entity and DroppedItem still exist
-            assert!(app.world().get::<DroppedItem>(item_entity).is_some(), "DroppedItem should still exist");
-        }
-
-        #[test]
-        fn test_keeps_physics_components_when_moving() {
-            let mut app = App::new();
-            app.add_systems(Update, remove_physics_when_settled);
-
-            // Create XP orb with physics components and significant velocity (still moving)
-            let item_entity = app.world_mut().spawn((
-                DroppedItem {
-                    pickup_state: PickupState::Idle,
-                    item_data: ItemData::Experience { amount: 10 },
-                    velocity: Vec3::ZERO,
-                    rotation_speed: 0.0,
-                    rotation_direction: 1.0,
-                },
-                Transform::from_translation(Vec3::new(0.0, 1.0, 0.0)), // Falling
-                RigidBody::Dynamic,
-                Collider::sphere(0.1),
-                LinearVelocity(Vec3::new(0.0, -5.0, 0.0)), // Falling fast
-                AngularVelocity(Vec3::new(1.0, 2.0, 0.5)), // Tumbling
-                Restitution::new(0.3),
-                Friction::new(0.8),
-                ColliderDensity(1.0),
-            )).id();
-
-            app.update();
-
-            // Verify physics components are still present (item is still moving)
-            assert!(app.world().get::<RigidBody>(item_entity).is_some(), "RigidBody should still exist");
-            assert!(app.world().get::<Collider>(item_entity).is_some(), "Collider should still exist");
-            assert!(app.world().get::<LinearVelocity>(item_entity).is_some(), "LinearVelocity should still exist");
-        }
-
-        #[test]
-        fn test_ignores_non_idle_items() {
-            let mut app = App::new();
-            app.add_systems(Update, remove_physics_when_settled);
-
-            // Create item being attracted (not idle) with low velocity
-            let item_entity = app.world_mut().spawn((
-                DroppedItem {
-                    pickup_state: PickupState::BeingAttracted,
-                    item_data: ItemData::Experience { amount: 10 },
-                    velocity: Vec3::ZERO,
-                    rotation_speed: 0.0,
-                    rotation_direction: 1.0,
-                },
-                Transform::from_translation(Vec3::new(0.0, LOOT_SMALL_Y_HEIGHT, 0.0)),
-                RigidBody::Dynamic,
-                Collider::sphere(0.1),
-                LinearVelocity(Vec3::new(0.01, 0.0, 0.01)),
-                AngularVelocity(Vec3::ZERO),
-            )).id();
-
-            app.update();
-
-            // Physics should still exist because item isn't idle
-            assert!(app.world().get::<RigidBody>(item_entity).is_some(), "Should ignore non-idle items");
-        }
-
-        #[test]
-        fn test_ignores_items_without_linear_velocity() {
-            let mut app = App::new();
-            app.add_systems(Update, remove_physics_when_settled);
-
-            // Create item without LinearVelocity (non-physics loot like weapons)
-            let item_entity = app.world_mut().spawn((
-                DroppedItem {
-                    pickup_state: PickupState::Idle,
-                    item_data: ItemData::Weapon(Weapon {
-                        weapon_type: WeaponType::Laser,
-                        level: 1,
-                        fire_rate: 3.0,
-                        base_damage: 15.0,
-                        last_fired: 0.0,
-                    }),
-                    velocity: Vec3::ZERO,
-                    rotation_speed: 0.0,
-                    rotation_direction: 1.0,
-                },
-                Transform::from_translation(Vec3::new(0.0, LOOT_LARGE_Y_HEIGHT, 0.0)),
-            )).id();
-
-            app.update();
-
-            // Should not panic or fail - just skip items without physics
+            // Verify entity still exists
             assert!(app.world().get::<DroppedItem>(item_entity).is_some(), "Item should still exist");
+        }
+
+        #[test]
+        fn test_animate_falling_applies_rotation() {
+            let mut app = App::new();
+            app.add_plugins(TimePlugin);
+            app.add_systems(Update, animate_falling);
+
+            // Create falling item
+            let item_entity = app.world_mut().spawn((
+                DroppedItem {
+                    pickup_state: PickupState::Idle,
+                    item_data: ItemData::Experience { amount: 10 },
+                    velocity: Vec3::ZERO,
+                    rotation_speed: 0.0,
+                    rotation_direction: 1.0,
+                },
+                Transform::from_translation(Vec3::new(0.0, XP_ORB_SPAWN_HEIGHT, 0.0)),
+                FallingAnimation::random(),
+            )).id();
+
+            let initial_rotation = app.world().get::<Transform>(item_entity).unwrap().rotation;
+
+            // Run a few frames
+            app.update();
+            app.world_mut().resource_mut::<Time<()>>().advance_by(Duration::from_secs_f32(0.1));
+            app.update();
+
+            // Verify rotation changed (tumbling effect)
+            let new_rotation = app.world().get::<Transform>(item_entity).unwrap().rotation;
+            assert_ne!(initial_rotation, new_rotation, "Item should rotate during falling");
         }
     }
 

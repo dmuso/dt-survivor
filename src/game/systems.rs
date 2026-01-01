@@ -1,4 +1,3 @@
-use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy::camera::ScalingMode;
 use bevy::core_pipeline::tonemapping::Tonemapping;
@@ -87,9 +86,6 @@ pub fn setup_game(
             })),
             Transform::from_translation(Vec3::ZERO),
             GroundPlane,
-            // Physics collider for dropped items to land on
-            RigidBody::Static,
-            Collider::half_space(Vec3::Y),
         ));
     }
     // If camera exists, we reuse it (no action needed)
