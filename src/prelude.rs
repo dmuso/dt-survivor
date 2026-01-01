@@ -24,6 +24,9 @@ pub use crate::movement::{Knockback, Speed, Velocity};
 // Re-export weapon types
 pub use crate::weapon::WeaponType;
 
+// Re-export element types
+pub use crate::element::Element;
+
 // Re-export whisper module types
 pub use crate::whisper::{WeaponOrigin, WhisperState};
 
@@ -69,5 +72,16 @@ mod tests {
             spread_angle: 0.0,
         };
         assert_eq!(pistol.id(), "pistol");
+    }
+
+    #[test]
+    fn test_prelude_exports_element() {
+        // Element enum
+        let fire = Element::Fire;
+        assert_eq!(fire.name(), "Fire");
+
+        // Test color method is accessible
+        let color = Element::Frost.color();
+        assert_eq!(color, bevy::prelude::Color::srgb_u8(135, 206, 235));
     }
 }

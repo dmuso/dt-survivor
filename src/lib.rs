@@ -2,6 +2,7 @@ pub mod audio;
 pub mod bullets;
 pub mod camera;
 pub mod combat;
+pub mod element;
 pub mod enemies;
 pub mod enemy_death;
 pub mod experience;
