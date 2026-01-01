@@ -168,3 +168,16 @@ pub fn weapon_follow_player_system(
         }
     }
 }
+
+/// Spell follow player system - spells follow the player just like weapons
+pub fn spell_follow_player_system(
+    mut spell_query: Query<(&mut Transform, &crate::spell::components::Spell), Without<Player>>,
+    player_query: Query<&Transform, With<Player>>,
+) {
+    if let Ok(player_transform) = player_query.single() {
+        for (mut spell_transform, _) in spell_query.iter_mut() {
+            // Keep spell entities positioned at the player
+            spell_transform.translation = player_transform.translation;
+        }
+    }
+}

@@ -1,6 +1,13 @@
 use bevy::prelude::*;
+use crate::spell::components::SpellType;
 use crate::weapon::components::WeaponType;
 
+#[derive(Component)]
+pub struct EquippedSpell {
+    pub spell_type: SpellType,
+}
+
+/// Type alias for backward compatibility during migration
 #[derive(Component)]
 pub struct EquippedWeapon {
     pub weapon_type: WeaponType,
@@ -9,6 +16,25 @@ pub struct EquippedWeapon {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn equipped_spell_uses_spell_type_enum() {
+        let equipped = EquippedSpell {
+            spell_type: SpellType::Fireball {
+                bullet_count: 5,
+                spread_angle: 15.0,
+            },
+        };
+        assert_eq!(equipped.spell_type.id(), "fireball");
+    }
+
+    #[test]
+    fn equipped_spell_with_radiant_beam() {
+        let equipped = EquippedSpell {
+            spell_type: SpellType::RadiantBeam,
+        };
+        assert_eq!(equipped.spell_type.id(), "radiant_beam");
+    }
 
     #[test]
     fn equipped_weapon_uses_weapon_type_enum() {

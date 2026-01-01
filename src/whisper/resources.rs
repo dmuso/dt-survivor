@@ -12,20 +12,23 @@ pub struct WhisperAnimations {
     pub animation_nodes: Vec<AnimationNodeIndex>,
 }
 
-/// Resource tracking the weapon origin position.
-/// When Whisper is not collected, weapons are disabled.
+/// Resource tracking the spell origin position.
+/// When Whisper is not collected, spells are disabled.
 /// When Whisper is collected, this contains Whisper's 3D position.
 #[derive(Resource, Default)]
-pub struct WeaponOrigin {
-    /// None = weapons disabled, Some(pos) = fire from this 3D position
+pub struct SpellOrigin {
+    /// None = spells disabled, Some(pos) = cast from this 3D position
     pub position: Option<Vec3>,
 }
 
-impl WeaponOrigin {
+impl SpellOrigin {
     pub fn is_active(&self) -> bool {
         self.position.is_some()
     }
 }
+
+/// Type alias for backward compatibility during migration
+pub type WeaponOrigin = SpellOrigin;
 
 /// Resource tracking whether Whisper has been collected this game
 #[derive(Resource, Default)]
@@ -38,19 +41,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_weapon_origin_default() {
-        let origin = WeaponOrigin::default();
+    fn test_spell_origin_default() {
+        let origin = SpellOrigin::default();
         assert!(origin.position.is_none());
         assert!(!origin.is_active());
     }
 
     #[test]
-    fn test_weapon_origin_active() {
-        let origin = WeaponOrigin {
+    fn test_spell_origin_active() {
+        let origin = SpellOrigin {
             position: Some(Vec3::new(10.0, 3.0, 20.0)),
         };
         assert!(origin.is_active());
         assert_eq!(origin.position.unwrap(), Vec3::new(10.0, 3.0, 20.0));
+    }
+
+    #[test]
+    fn test_weapon_origin_alias_works() {
+        // WeaponOrigin is now an alias for SpellOrigin
+        let origin: WeaponOrigin = SpellOrigin::default();
+        assert!(origin.position.is_none());
     }
 
     #[test]

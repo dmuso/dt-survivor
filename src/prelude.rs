@@ -21,14 +21,17 @@ pub use crate::combat::{
 // Re-export movement module types
 pub use crate::movement::{Knockback, Speed, Velocity};
 
-// Re-export weapon types
+// Re-export weapon types (deprecated, use spell types instead)
 pub use crate::weapon::WeaponType;
+
+// Re-export spell types
+pub use crate::spell::{Spell, SpellType};
 
 // Re-export element types
 pub use crate::element::Element;
 
 // Re-export whisper module types
-pub use crate::whisper::{WeaponOrigin, WhisperState};
+pub use crate::whisper::{SpellOrigin, WeaponOrigin, WhisperState};
 
 #[cfg(test)]
 mod tests {
@@ -63,7 +66,7 @@ mod tests {
 
     #[test]
     fn test_prelude_exports_weapon_type() {
-        // WeaponType enum
+        // WeaponType enum (deprecated)
         let weapon = WeaponType::Laser;
         assert_eq!(weapon.id(), "laser");
 
@@ -75,6 +78,30 @@ mod tests {
     }
 
     #[test]
+    fn test_prelude_exports_spell_type() {
+        // SpellType enum
+        let spell_type = SpellType::RadiantBeam;
+        assert_eq!(spell_type.id(), "radiant_beam");
+        assert_eq!(spell_type.element(), Element::Light);
+
+        let fireball = SpellType::Fireball {
+            bullet_count: 1,
+            spread_angle: 0.0,
+        };
+        assert_eq!(fireball.id(), "fireball");
+        assert_eq!(fireball.element(), Element::Fire);
+    }
+
+    #[test]
+    fn test_prelude_exports_spell() {
+        // Spell component
+        let spell = Spell::new(SpellType::ThunderStrike);
+        assert_eq!(spell.spell_type, SpellType::ThunderStrike);
+        assert_eq!(spell.element, Element::Lightning);
+        assert_eq!(spell.name, "Thunder Strike");
+    }
+
+    #[test]
     fn test_prelude_exports_element() {
         // Element enum
         let fire = Element::Fire;
@@ -83,5 +110,17 @@ mod tests {
         // Test color method is accessible
         let color = Element::Frost.color();
         assert_eq!(color, bevy::prelude::Color::srgb_u8(135, 206, 235));
+    }
+
+    #[test]
+    fn test_prelude_exports_spell_origin() {
+        // SpellOrigin resource
+        let origin = SpellOrigin::default();
+        assert!(origin.position.is_none());
+        assert!(!origin.is_active());
+
+        // WeaponOrigin is an alias for SpellOrigin
+        let weapon_origin: WeaponOrigin = SpellOrigin::default();
+        assert!(weapon_origin.position.is_none());
     }
 }

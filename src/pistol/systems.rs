@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use crate::weapon::components::Weapon;
+use crate::spell::components::Spell;
 use crate::bullets::components::Bullet;
 use crate::audio::plugin::*;
 use bevy_kira_audio::prelude::*;
@@ -79,6 +80,83 @@ pub fn fire_pistol(
         }
 
         // Play weapon sound effect
+        if let (Some(asset_server), Some(weapon_channel), Some(sound_limiter)) =
+            (asset_server, weapon_channel, sound_limiter) {
+            play_limited_sound(
+                weapon_channel,
+                asset_server,
+                "sounds/143610__dwoboyle__weapons-synth-blast-02.wav",
+                sound_limiter,
+            );
+        }
+    }
+}
+
+/// Cast fireball spell (renamed from fire_pistol for spell system)
+/// `spawn_position` is Whisper's full 3D position, `target_pos` is enemy position on XZ plane
+#[allow(clippy::too_many_arguments)]
+pub fn fire_spell(
+    commands: &mut Commands,
+    spell: &Spell,
+    spawn_position: Vec3,
+    target_pos: Vec2,
+    asset_server: Option<&Res<AssetServer>>,
+    weapon_channel: Option<&mut ResMut<AudioChannel<WeaponSoundChannel>>>,
+    sound_limiter: Option<&mut ResMut<SoundLimiter>>,
+    game_meshes: Option<&GameMeshes>,
+    game_materials: Option<&GameMaterials>,
+) {
+    if let crate::spell::components::SpellType::Fireball { .. } = &spell.spell_type {
+        let config = PistolConfig::default();
+        // Extract XZ position from spawn_position for direction calculation
+        let spawn_xz = from_xz(spawn_position);
+        let base_direction = (target_pos - spawn_xz).normalize();
+
+        // Get projectile count based on spell level (1 at level 1-4, 2 at 5-9, 3 at 10)
+        let projectile_count = spell.projectile_count();
+        let spread_angle_rad = config.spread_angle.to_radians();
+
+        // Create projectiles in a spread pattern centered around the target direction
+        for i in 0..projectile_count {
+            let angle_offset = if projectile_count == 1 {
+                0.0
+            } else {
+                let half_spread = (projectile_count - 1) as f32 / 2.0;
+                (i as f32 - half_spread) * spread_angle_rad
+            };
+
+            let cos_offset = angle_offset.cos();
+            let sin_offset = angle_offset.sin();
+            let direction = Vec2::new(
+                base_direction.x * cos_offset - base_direction.y * sin_offset,
+                base_direction.x * sin_offset + base_direction.y * cos_offset,
+            );
+
+            // Spawn fireball at Whisper's full 3D position
+            if let (Some(meshes), Some(materials)) = (game_meshes, game_materials) {
+                commands.spawn((
+                    Mesh3d(meshes.bullet.clone()),
+                    MeshMaterial3d(materials.bullet.clone()),
+                    Transform::from_translation(spawn_position),
+                    Bullet {
+                        direction,
+                        speed: config.bullet_speed,
+                        lifetime: Timer::from_seconds(config.bullet_lifetime, TimerMode::Once),
+                    },
+                ));
+            } else {
+                commands.spawn((
+                    Transform::from_translation(spawn_position),
+                    Bullet {
+                        direction,
+                        speed: config.bullet_speed,
+                        lifetime: Timer::from_seconds(config.bullet_lifetime, TimerMode::Once),
+                    },
+                ));
+            }
+        }
+
+        // Play spell sound effect
         if let (Some(asset_server), Some(weapon_channel), Some(sound_limiter)) =
             (asset_server, weapon_channel, sound_limiter) {
             play_limited_sound(
