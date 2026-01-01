@@ -40,6 +40,10 @@ use crate::spells::frost::glacial_pulse::{
     glacial_pulse_cleanup_system, glacial_pulse_collision_system,
     glacial_pulse_expansion_system, glacial_pulse_visual_system,
 };
+use crate::spells::frost::frozen_orb::{
+    frozen_orb_cleanup_system, frozen_orb_damage_system,
+    frozen_orb_movement_system, frozen_orb_tick_system,
+};
 use crate::spells::poison::venom_spray::{
     cleanup_venom_spray, poison_stack_damage_tick, poison_stack_decay,
     venom_spray_hit_detection,
@@ -280,6 +284,28 @@ pub fn plugin(app: &mut App) {
             Update,
             glacial_pulse_visual_system
                 .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Frozen orb systems - movement and tick in Movement, damage in Combat, cleanup in Cleanup
+        .add_systems(
+            Update,
+            (
+                frozen_orb_movement_system,
+                frozen_orb_tick_system,
+            )
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            frozen_orb_damage_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            frozen_orb_cleanup_system
+                .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )
         // Venom spray systems - hit detection in Combat, DOT damage in Effects, cleanup in Cleanup

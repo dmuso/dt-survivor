@@ -1688,6 +1688,16 @@ pub fn spell_casting_system(
                     game_materials.as_deref(),
                 );
             }
+            SpellType::Blizzard => {
+                crate::spells::frost::frozen_orb::fire_frozen_orb_with_damage(
+                    &mut commands,
+                    final_damage,
+                    origin_pos,
+                    target_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
             _ => {
                 // Other spell types not implemented yet
             }
