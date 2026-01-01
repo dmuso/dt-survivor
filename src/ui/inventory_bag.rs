@@ -756,117 +756,310 @@ mod tests {
     mod handle_inventory_input_tests {
         use super::*;
 
+        fn setup_app_with_keyboard() -> App {
+            let mut app = setup_test_app();
+            // Initialize keyboard resource to track input properly
+            app.init_resource::<ButtonInput<KeyCode>>();
+            app
+        }
+
         #[test]
         fn i_key_transitions_to_ingame() {
-            let mut app = setup_test_app();
+            let mut app = setup_app_with_keyboard();
+            app.add_systems(Update, handle_inventory_input);
 
-            // Set initial state
+            // Set initial state to InventoryOpen
             app.world_mut()
                 .resource_mut::<NextState<GameState>>()
                 .set(GameState::InventoryOpen);
-
-            // Simulate I key press
-            let mut keyboard = ButtonInput::<KeyCode>::default();
-            keyboard.press(KeyCode::KeyI);
-            app.insert_resource(keyboard);
-
-            // Run the handler
-            app.add_systems(Update, handle_inventory_input);
             app.update();
 
-            // Note: We can't directly check NextState, but we verify the system doesn't panic
-            // In real tests, we'd check the actual state transition
+            // Simulate I key just_pressed
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::KeyI);
+
+            // Run the handler (state transition happens next frame)
+            app.update();
+            // Apply state transition
+            app.update();
+
+            // Verify state is now InGame
+            let state = app.world().resource::<State<GameState>>();
+            assert_eq!(
+                *state.get(),
+                GameState::InGame,
+                "I key should transition to InGame"
+            );
         }
 
         #[test]
         fn escape_key_transitions_to_ingame() {
-            let mut app = setup_test_app();
+            let mut app = setup_app_with_keyboard();
+            app.add_systems(Update, handle_inventory_input);
 
-            // Set initial state
+            // Set initial state to InventoryOpen
             app.world_mut()
                 .resource_mut::<NextState<GameState>>()
                 .set(GameState::InventoryOpen);
-
-            // Simulate Escape key press
-            let mut keyboard = ButtonInput::<KeyCode>::default();
-            keyboard.press(KeyCode::Escape);
-            app.insert_resource(keyboard);
-
-            // Run the handler
-            app.add_systems(Update, handle_inventory_input);
             app.update();
 
-            // System should not panic
+            // Simulate Escape key just_pressed
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::Escape);
+
+            // Run the handler (state transition happens next frame)
+            app.update();
+            // Apply state transition
+            app.update();
+
+            // Verify state is now InGame
+            let state = app.world().resource::<State<GameState>>();
+            assert_eq!(
+                *state.get(),
+                GameState::InGame,
+                "Escape key should transition to InGame"
+            );
+        }
+
+        #[test]
+        fn no_key_pressed_does_not_change_state() {
+            let mut app = setup_app_with_keyboard();
+            app.add_systems(Update, handle_inventory_input);
+
+            // Set initial state to InventoryOpen
+            app.world_mut()
+                .resource_mut::<NextState<GameState>>()
+                .set(GameState::InventoryOpen);
+            app.update();
+
+            // No key pressed - just run update
+            app.update();
+
+            // State should remain InventoryOpen
+            let state = app.world().resource::<State<GameState>>();
+            assert_eq!(
+                *state.get(),
+                GameState::InventoryOpen,
+                "No key pressed should not change state"
+            );
+        }
+
+        #[test]
+        fn just_pressed_not_held_does_not_trigger_transition() {
+            let mut app = setup_app_with_keyboard();
+            app.add_systems(Update, handle_inventory_input);
+
+            // Set initial state to InventoryOpen
+            app.world_mut()
+                .resource_mut::<NextState<GameState>>()
+                .set(GameState::InventoryOpen);
+            app.update();
+
+            // Simulate key press
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::KeyI);
+            // First update processes the just_pressed
+            app.update();
+            // Clear just_pressed but keep pressed state
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .clear_just_pressed(KeyCode::KeyI);
+
+            // Now run again - key is still pressed but not just_pressed
+            // Reset state back to InventoryOpen to test the held behavior
+            app.world_mut()
+                .resource_mut::<NextState<GameState>>()
+                .set(GameState::InventoryOpen);
+            app.update();
+            app.update();
+
+            // State should remain InventoryOpen because key wasn't just_pressed on this update
+            let state = app.world().resource::<State<GameState>>();
+            assert_eq!(
+                *state.get(),
+                GameState::InventoryOpen,
+                "Held key (not just_pressed) should not trigger transition"
+            );
         }
     }
 
     mod handle_inventory_toggle_tests {
         use super::*;
 
+        fn setup_app_with_keyboard() -> App {
+            let mut app = setup_test_app();
+            // Initialize keyboard resource to track input properly
+            app.init_resource::<ButtonInput<KeyCode>>();
+            app
+        }
+
         #[test]
         fn i_key_from_ingame_opens_inventory() {
-            let mut app = setup_test_app();
+            let mut app = setup_app_with_keyboard();
+            app.add_systems(Update, handle_inventory_toggle);
 
             // Set state to InGame
             app.world_mut()
                 .resource_mut::<NextState<GameState>>()
                 .set(GameState::InGame);
-            app.update(); // Apply state change
-
-            // Simulate I key press
-            let mut keyboard = ButtonInput::<KeyCode>::default();
-            keyboard.press(KeyCode::KeyI);
-            app.insert_resource(keyboard);
-
-            // Run the handler
-            app.add_systems(Update, handle_inventory_toggle);
             app.update();
 
-            // System should not panic and state transition should be triggered
+            // Simulate I key just_pressed
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::KeyI);
+
+            // Run the handler (state transition happens next frame)
+            app.update();
+            // Apply state transition
+            app.update();
+
+            // Verify state is now InventoryOpen
+            let state = app.world().resource::<State<GameState>>();
+            assert_eq!(
+                *state.get(),
+                GameState::InventoryOpen,
+                "I key from InGame should open inventory"
+            );
         }
 
         #[test]
-        fn i_key_from_attunement_select_does_nothing() {
-            let mut app = setup_test_app();
+        fn i_key_from_attunement_select_does_not_open_inventory() {
+            let mut app = setup_app_with_keyboard();
+            app.add_systems(Update, handle_inventory_toggle);
 
             // Set state to AttunementSelect
             app.world_mut()
                 .resource_mut::<NextState<GameState>>()
                 .set(GameState::AttunementSelect);
-            app.update(); // Apply state change
-
-            // Simulate I key press
-            let mut keyboard = ButtonInput::<KeyCode>::default();
-            keyboard.press(KeyCode::KeyI);
-            app.insert_resource(keyboard);
-
-            // Run the handler
-            app.add_systems(Update, handle_inventory_toggle);
             app.update();
 
-            // System should not panic - state should remain unchanged
+            // Simulate I key just_pressed
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::KeyI);
+            app.update();
+            app.update();
+
+            // State should remain AttunementSelect
+            let state = app.world().resource::<State<GameState>>();
+            assert_eq!(
+                *state.get(),
+                GameState::AttunementSelect,
+                "I key from AttunementSelect should not change state"
+            );
         }
 
         #[test]
-        fn i_key_from_game_over_does_nothing() {
-            let mut app = setup_test_app();
+        fn i_key_from_game_over_does_not_open_inventory() {
+            let mut app = setup_app_with_keyboard();
+            app.add_systems(Update, handle_inventory_toggle);
 
             // Set state to GameOver
             app.world_mut()
                 .resource_mut::<NextState<GameState>>()
                 .set(GameState::GameOver);
-            app.update(); // Apply state change
-
-            // Simulate I key press
-            let mut keyboard = ButtonInput::<KeyCode>::default();
-            keyboard.press(KeyCode::KeyI);
-            app.insert_resource(keyboard);
-
-            // Run the handler
-            app.add_systems(Update, handle_inventory_toggle);
             app.update();
 
-            // System should not panic - state should remain unchanged
+            // Simulate I key just_pressed
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::KeyI);
+            app.update();
+            app.update();
+
+            // State should remain GameOver
+            let state = app.world().resource::<State<GameState>>();
+            assert_eq!(
+                *state.get(),
+                GameState::GameOver,
+                "I key from GameOver should not change state"
+            );
+        }
+
+        #[test]
+        fn i_key_from_intro_does_not_open_inventory() {
+            let mut app = setup_app_with_keyboard();
+            app.add_systems(Update, handle_inventory_toggle);
+
+            // State starts as Intro by default
+            app.update();
+
+            // Simulate I key just_pressed
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::KeyI);
+            app.update();
+            app.update();
+
+            // State should remain Intro
+            let state = app.world().resource::<State<GameState>>();
+            assert_eq!(
+                *state.get(),
+                GameState::Intro,
+                "I key from Intro should not change state"
+            );
+        }
+
+        #[test]
+        fn i_key_from_level_complete_does_not_open_inventory() {
+            let mut app = setup_app_with_keyboard();
+            app.add_systems(Update, handle_inventory_toggle);
+
+            // Set state to LevelComplete
+            app.world_mut()
+                .resource_mut::<NextState<GameState>>()
+                .set(GameState::LevelComplete);
+            app.update();
+
+            // Simulate I key just_pressed
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::KeyI);
+            app.update();
+            app.update();
+
+            // State should remain LevelComplete
+            let state = app.world().resource::<State<GameState>>();
+            assert_eq!(
+                *state.get(),
+                GameState::LevelComplete,
+                "I key from LevelComplete should not change state"
+            );
+        }
+
+        #[test]
+        fn held_key_does_not_trigger_repeated_transitions() {
+            let mut app = setup_app_with_keyboard();
+            app.add_systems(Update, handle_inventory_toggle);
+
+            // Set state to InGame
+            app.world_mut()
+                .resource_mut::<NextState<GameState>>()
+                .set(GameState::InGame);
+            app.update();
+
+            // Simulate I key just_pressed
+            app.world_mut()
+                .resource_mut::<ButtonInput<KeyCode>>()
+                .press(KeyCode::KeyI);
+
+            // First update - key just pressed, should open inventory
+            app.update();
+            app.update();
+
+            let state = app.world().resource::<State<GameState>>();
+            assert_eq!(
+                *state.get(),
+                GameState::InventoryOpen,
+                "First press should open inventory"
+            );
+
+            // Note: Additional transitions would require the key to be released
+            // and pressed again, which is the behavior we want for just_pressed
         }
     }
 
