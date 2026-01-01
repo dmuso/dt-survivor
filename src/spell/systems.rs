@@ -399,7 +399,7 @@ mod tests {
             app.init_resource::<WhisperAttunement>();
 
             let mut spell_list = SpellList::default();
-            let mut beam = Spell {
+            let beam = Spell {
                 spell_type: SpellType::RadiantBeam,
                 element: Element::Light,
                 name: "Radiant Beam".to_string(),
@@ -437,7 +437,7 @@ mod tests {
             app.insert_resource(WhisperAttunement::with_element(Element::Light));
 
             let mut spell_list = SpellList::default();
-            let mut beam = Spell {
+            let beam = Spell {
                 spell_type: SpellType::RadiantBeam,
                 element: Element::Light,
                 name: "Radiant Beam".to_string(),
@@ -557,6 +557,127 @@ mod tests {
                 expected,
                 markers[0].damage
             );
+        }
+    }
+
+    mod inferno_tests {
+        use super::*;
+        use crate::spells::fire::fire_nova::FireNovaRing;
+
+        #[test]
+        fn inferno_spawns_fire_nova_from_spell_list() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::Inferno,
+                element: Element::Fire,
+                name: "Inferno".to_string(),
+                description: "Expanding ring of flames.".to_string(),
+                level: 2,
+                fire_rate: 2.0,
+                base_damage: 20.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut nova_query = app.world_mut().query::<&FireNovaRing>();
+            let novas: Vec<_> = nova_query.iter(app.world()).collect();
+            assert_eq!(novas.len(), 1, "One fire nova should be spawned");
+            // 20.0 * 2 * 1.25 = 50.0
+            assert_eq!(novas[0].damage, 50.0, "Inferno damage should be 50.0 (20.0 * 2 * 1.25)");
+        }
+
+        #[test]
+        fn inferno_with_fire_attunement() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.insert_resource(WhisperAttunement::with_element(Element::Fire));
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::Inferno,
+                element: Element::Fire,
+                name: "Inferno".to_string(),
+                description: "Expanding ring of flames.".to_string(),
+                level: 2,
+                fire_rate: 2.0,
+                base_damage: 20.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut nova_query = app.world_mut().query::<&FireNovaRing>();
+            let novas: Vec<_> = nova_query.iter(app.world()).collect();
+            assert_eq!(novas.len(), 1);
+            // 20.0 * 2 * 1.25 * 1.1 = 55.0
+            let expected = 20.0 * 2.0 * 1.25 * 1.1;
+            assert!(
+                (novas[0].damage - expected).abs() < 0.01,
+                "Inferno damage should be {} with fire attunement, got {}",
+                expected,
+                novas[0].damage
+            );
+        }
+
+        #[test]
+        fn inferno_spawns_at_spell_origin() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            let origin_pos = Vec3::new(5.0, 3.0, 10.0);
+            app.insert_resource(SpellOrigin {
+                position: Some(origin_pos),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let mut spell = Spell::new(SpellType::Inferno);
+            spell.last_fired = -10.0;
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(100.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut nova_query = app.world_mut().query::<&FireNovaRing>();
+            let novas: Vec<_> = nova_query.iter(app.world()).collect();
+            assert_eq!(novas.len(), 1);
+            // Nova should be centered at origin position on XZ plane
+            assert_eq!(novas[0].center, Vec2::new(5.0, 10.0));
         }
     }
 }
@@ -679,6 +800,16 @@ pub fn spell_casting_system(
                     final_damage,
                     origin_pos,
                     target_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
+            SpellType::Inferno => {
+                crate::spells::fire::fire_nova::fire_fire_nova_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
                     game_meshes.as_deref(),
                     game_materials.as_deref(),
                 );

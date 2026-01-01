@@ -429,6 +429,8 @@ pub struct GameMaterials {
     pub thunder_strike: Handle<StandardMaterial>,
     /// Thunder strike target marker material (yellow with transparency)
     pub thunder_strike_marker: Handle<StandardMaterial>,
+    /// Fire nova (Inferno) material (orange-red with strong emissive glow)
+    pub fire_nova: Handle<StandardMaterial>,
 }
 
 impl GameMaterials {
@@ -562,6 +564,12 @@ impl GameMaterials {
             thunder_strike_marker: materials.add(StandardMaterial {
                 base_color: Color::srgba(1.0, 1.0, 0.0, 0.5), // Yellow with 50% transparency
                 emissive: bevy::color::LinearRgba::rgb(1.0, 1.0, 0.0),
+                alpha_mode: AlphaMode::Blend,
+                ..default()
+            }),
+            fire_nova: materials.add(StandardMaterial {
+                base_color: Color::srgba(1.0, 0.3, 0.0, 0.7), // Orange-red with 70% opacity
+                emissive: bevy::color::LinearRgba::rgb(2.5, 0.6, 0.0), // Bright orange glow
                 alpha_mode: AlphaMode::Blend,
                 ..default()
             }),

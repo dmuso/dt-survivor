@@ -12,6 +12,10 @@ use crate::spells::fire::fireball::{
 use crate::spells::light::radiant_beam::{
     radiant_beam_collision_system, render_radiant_beams, update_radiant_beams,
 };
+use crate::spells::fire::fire_nova::{
+    fire_nova_cleanup_system, fire_nova_collision_system, fire_nova_expansion_system,
+    fire_nova_visual_system,
+};
 use crate::spells::lightning::thunder_strike::{
     thunder_strike_damage_system, update_thunder_strike_markers, update_thunder_strikes,
 };
@@ -95,6 +99,29 @@ pub fn plugin(app: &mut App) {
             )
                 .chain()
                 .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Fire nova systems - expansion in Movement, collision and cleanup in Combat, visual in Effects
+        .add_systems(
+            Update,
+            fire_nova_expansion_system
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                fire_nova_collision_system,
+                fire_nova_cleanup_system,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            fire_nova_visual_system
+                .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         );
 }
