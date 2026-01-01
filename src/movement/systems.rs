@@ -1,10 +1,12 @@
 use bevy::prelude::*;
 use bevy::math::Ray3d;
+use rand::Rng;
 
 use crate::enemies::components::Enemy;
 use crate::game::resources::PlayerPosition;
 use crate::movement::components::{from_xz, to_xz, Knockback, Velocity};
 use crate::player::components::{Player, SlowModifier};
+use crate::spells::chaos::pandemonium::ConfusedEnemy;
 use crate::spells::frost::hoarfrost::InHoarfrost;
 use crate::spells::frost::ice_shard::SlowedDebuff;
 use crate::spells::frost::permafrost::FrozenStatus;
@@ -125,7 +127,7 @@ pub fn player_movement(
 /// System that moves enemies towards the player position on the XZ plane.
 /// PlayerPosition stores XZ coordinates as Vec2, enemies chase on ground plane.
 /// Takes into account SlowedDebuff for frost spell slow effects, InHoarfrost for aura slows,
-/// and FrozenStatus which completely prevents movement.
+/// FrozenStatus which completely prevents movement, and ConfusedEnemy which uses different AI.
 /// When multiple slow effects are present, uses the stronger slow (lower multiplier).
 #[allow(clippy::type_complexity)]
 pub fn enemy_movement_system(
@@ -135,16 +137,22 @@ pub fn enemy_movement_system(
         Option<&SlowedDebuff>,
         Option<&InHoarfrost>,
         Option<&FrozenStatus>,
+        Option<&ConfusedEnemy>,
     )>,
     player_position: Res<PlayerPosition>,
     time: Res<Time>,
 ) {
     let player_pos = player_position.0; // Vec2 representing XZ coordinates
 
-    for (mut transform, enemy, slowed_debuff, in_hoarfrost, frozen_status) in enemy_query.iter_mut()
+    for (mut transform, enemy, slowed_debuff, in_hoarfrost, frozen_status, confused) in enemy_query.iter_mut()
     {
         // Frozen enemies cannot move at all
         if frozen_status.is_some() {
+            continue;
+        }
+
+        // Confused enemies use their own movement system (confused_enemy_movement_system)
+        if confused.is_some() {
             continue;
         }
 
@@ -167,6 +175,44 @@ pub fn enemy_movement_system(
         let movement = direction * effective_speed * time.delta_secs();
         transform.translation += to_xz(movement);
     }
+}
+
+/// System that moves confused enemies towards their current target (another enemy).
+/// Confused enemies move erratically towards their target, or wander randomly if no target.
+pub fn confused_enemy_movement_system(
+    mut confused_query: Query<(&mut Transform, &Enemy, &ConfusedEnemy)>,
+    enemy_query: Query<&Transform, (With<Enemy>, Without<ConfusedEnemy>)>,
+    time: Res<Time>,
+) {
+    let mut rng = rand::thread_rng();
+
+    for (mut transform, enemy, confused) in confused_query.iter_mut() {
+        let my_pos = from_xz(transform.translation);
+
+        let direction = if let Some(target) = confused.current_target {
+            // Move towards target enemy
+            if let Ok(target_transform) = enemy_query.get(target) {
+                let target_pos = from_xz(target_transform.translation);
+                (target_pos - my_pos).normalize_or_zero()
+            } else {
+                // Target no longer exists, wander randomly
+                random_direction(&mut rng)
+            }
+        } else {
+            // No target, wander randomly
+            random_direction(&mut rng)
+        };
+
+        let effective_speed = enemy.speed * confused.speed_multiplier;
+        let movement = direction * effective_speed * time.delta_secs();
+        transform.translation += to_xz(movement);
+    }
+}
+
+/// Generate a random 2D direction for wandering enemies.
+fn random_direction(rng: &mut impl Rng) -> Vec2 {
+    let angle = rng.gen_range(0.0..std::f32::consts::TAU);
+    Vec2::new(angle.cos(), angle.sin())
 }
 
 #[cfg(test)]

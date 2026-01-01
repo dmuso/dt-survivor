@@ -1012,6 +1012,7 @@ mod tests {
     use crate::combat::components::Health;
     use crate::spell::{Spell, SpellType};
     use crate::inventory::components::EquippedSpell;
+    use crate::game::resources::PlayerPosition;
 
     #[test]
     fn test_spell_plugin_can_be_added_to_app() {
@@ -1060,6 +1061,9 @@ mod tests {
                 .chain()
                 .run_if(in_state(GameState::InGame)),
         );
+
+        // Add required resource for systems like cast_dominate_system
+        app.init_resource::<PlayerPosition>();
 
         app.add_plugins(plugin);
 
