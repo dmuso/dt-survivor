@@ -9,13 +9,14 @@ pub fn plugin(app: &mut App) {
         .add_systems(OnEnter(GameState::Intro), setup_intro)
         .add_systems(Update, button_interactions.run_if(in_state(GameState::Intro)))
         .add_systems(OnExit(GameState::Intro), cleanup_intro)
-        .add_systems(OnEnter(GameState::InGame), (setup_score_display, setup_game_ui, setup_weapon_slots, setup_debug_hud))
+        .add_systems(OnEnter(GameState::InGame), (setup_score_display, setup_game_ui, setup_spell_slots, setup_debug_hud))
         .add_systems(Update, (
             update_score_display,
             update_health_display,
             update_screen_tint,
-            update_weapon_icons,
-            update_weapon_level_displays,
+            update_spell_icons,
+            update_spell_slot_backgrounds,
+            update_spell_level_displays,
             update_game_level_display,
             update_kill_progress_display,
             update_xp_progress_bar,
@@ -27,7 +28,7 @@ pub fn plugin(app: &mut App) {
                 .run_if(in_state(GameState::InGame))
                 .run_if(debug_hud_enabled)
         )
-        .add_systems(PostUpdate, update_weapon_slots.run_if(in_state(GameState::InGame)))
+        .add_systems(PostUpdate, update_spell_cooldowns.run_if(in_state(GameState::InGame)))
         // Level Complete state systems
         .add_systems(OnEnter(GameState::LevelComplete), (
             setup_level_complete_screen,

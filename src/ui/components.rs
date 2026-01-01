@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use crate::weapon::components::WeaponType;
 
 #[derive(Component)]
 pub struct MenuButton;
@@ -19,31 +18,40 @@ pub struct HealthBar;
 #[derive(Component)]
 pub struct ScreenTint;
 
+/// Marker component for a spell slot in the spell bar UI.
 #[derive(Component)]
-pub struct WeaponSlot {
+pub struct SpellSlot {
     pub slot_index: usize,
 }
 
+/// Marker component for a spell icon in the spell bar.
+/// The slot_index links this to the corresponding spell in SpellList.
 #[derive(Component)]
-pub struct WeaponIcon {
-    pub weapon_type: WeaponType,
+pub struct SpellIcon {
+    pub slot_index: usize,
 }
 
+/// Marker component for the cooldown timer overlay.
 #[derive(Component)]
-pub struct WeaponTimer;
-
-#[derive(Component)]
-pub struct WeaponTimerFill;
-
-#[derive(Component)]
-pub struct WeaponTimerType {
-    pub weapon_type: WeaponType,
+pub struct SpellCooldownTimer {
+    pub slot_index: usize,
 }
 
+/// Marker component for the cooldown timer fill (the growing circle).
 #[derive(Component)]
-pub struct WeaponLevelDisplay {
-    pub weapon_type: WeaponType,
+pub struct SpellCooldownTimerFill {
+    pub slot_index: usize,
 }
+
+/// Marker component for spell level display text.
+#[derive(Component)]
+pub struct SpellLevelDisplay {
+    pub slot_index: usize,
+}
+
+/// Marker component for the spell bar container
+#[derive(Component)]
+pub struct SpellBar;
 
 // Debug HUD components
 #[derive(Component)]
@@ -128,45 +136,55 @@ mod tests {
     }
 
     #[test]
-    fn weapon_icon_uses_weapon_type_enum() {
-        let icon = WeaponIcon {
-            weapon_type: WeaponType::Pistol {
-                bullet_count: 5,
-                spread_angle: 15.0,
-            },
-        };
-        assert_eq!(icon.weapon_type.id(), "pistol");
+    fn spell_slot_is_a_component() {
+        fn assert_component<T: Component>() {}
+        assert_component::<SpellSlot>();
     }
 
     #[test]
-    fn weapon_level_display_uses_weapon_type_enum() {
-        let display = WeaponLevelDisplay {
-            weapon_type: WeaponType::Laser,
-        };
-        assert_eq!(display.weapon_type.id(), "laser");
+    fn spell_slot_stores_index() {
+        let slot = SpellSlot { slot_index: 2 };
+        assert_eq!(slot.slot_index, 2);
     }
 
     #[test]
-    fn weapon_icon_compares_by_id_not_variant_data() {
-        let icon1 = WeaponIcon {
-            weapon_type: WeaponType::Pistol {
-                bullet_count: 5,
-                spread_angle: 15.0,
-            },
-        };
-        let icon2 = WeaponIcon {
-            weapon_type: WeaponType::Pistol {
-                bullet_count: 10, // Different values
-                spread_angle: 30.0,
-            },
-        };
-        // WeaponType equality is based on id(), so these should be equal
-        assert_eq!(icon1.weapon_type, icon2.weapon_type);
+    fn spell_icon_is_a_component() {
+        fn assert_component<T: Component>() {}
+        assert_component::<SpellIcon>();
+    }
+
+    #[test]
+    fn spell_icon_stores_slot_index() {
+        let icon = SpellIcon { slot_index: 3 };
+        assert_eq!(icon.slot_index, 3);
+    }
+
+    #[test]
+    fn spell_cooldown_timer_is_a_component() {
+        fn assert_component<T: Component>() {}
+        assert_component::<SpellCooldownTimer>();
+    }
+
+    #[test]
+    fn spell_cooldown_timer_fill_is_a_component() {
+        fn assert_component<T: Component>() {}
+        assert_component::<SpellCooldownTimerFill>();
+    }
+
+    #[test]
+    fn spell_level_display_is_a_component() {
+        fn assert_component<T: Component>() {}
+        assert_component::<SpellLevelDisplay>();
+    }
+
+    #[test]
+    fn spell_bar_is_a_component() {
+        fn assert_component<T: Component>() {}
+        assert_component::<SpellBar>();
     }
 
     #[test]
     fn debug_fps_display_is_a_component() {
-        // Verify DebugFpsDisplay can be used as a component marker
         fn assert_component<T: Component>() {}
         assert_component::<DebugFpsDisplay>();
     }

@@ -6,8 +6,7 @@ use crate::enemies::components::Enemy;
 use crate::states::*;
 use crate::ui::components::*;
 use crate::player::components::*;
-use crate::weapon::components::*;
-use crate::inventory::{Inventory, EquippedWeapon};
+use crate::inventory::SpellList;
 
 /// Resource to track debug HUD visibility
 #[derive(Resource, Default)]
@@ -453,148 +452,142 @@ pub fn setup_game_over_ui(
     });
 }
 
-pub fn setup_weapon_slots(
-    mut commands: Commands,
-) {
-    // Create weapon slots container at bottom center
-    commands.spawn((
-        Node {
-            position_type: PositionType::Absolute,
-            bottom: Val::Px(20.0),
-            left: Val::Percent(50.0),
-            flex_direction: FlexDirection::Row,
-            align_items: AlignItems::Center,
-            justify_content: JustifyContent::Center,
-            column_gap: Val::Px(10.0),
-            ..default()
-        },
-    ))
-    .with_children(|container| {
-        // Create slots for each weapon type (pistol, laser, rocket_launcher)
-        let weapon_types = [
-            WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 },
-            WeaponType::Laser,
-            WeaponType::RocketLauncher,
-        ];
-
-        for (i, weapon_type) in weapon_types.iter().enumerate() {
-            container.spawn((
-                Node {
-                    width: Val::Px(50.0),
-                    height: Val::Px(50.0),
-                    justify_content: JustifyContent::Center,
-                    align_items: AlignItems::Center,
-                    flex_direction: FlexDirection::Column,
-                    ..default()
-                },
-                BackgroundColor(Color::srgb(0.2, 0.2, 0.2)),
-                WeaponSlot { slot_index: i },
-            ))
-            .with_children(|slot| {
-                // Level box at top center (absolute positioned, on top)
-                slot.spawn((
-                    Node {
-                        position_type: PositionType::Absolute,
-                        top: Val::Px(-8.0),
-                        left: Val::Percent(50.0),
-                        padding: UiRect::axes(Val::Px(4.0), Val::Px(1.0)),
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        border: UiRect::all(Val::Px(1.0)),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgb(0.0, 0.0, 0.0)), // Black background
-                    BorderColor::all(Color::srgb(1.0, 1.0, 1.0)), // White border
-                    BorderRadius::all(Val::Px(2.0)),
-                    ZIndex(10), // Render on top of everything
-                ))
-                .with_children(|level_box| {
-                    // Level number only
-                    level_box.spawn((
-                        Text::new(""),
-                        TextFont {
-                            font_size: 10.0,
-                            ..default()
-                        },
-                        TextColor(Color::srgb(1.0, 1.0, 1.0)),
-                        TextLayout::new_with_justify(bevy::text::Justify::Center),
-                        WeaponLevelDisplay { weapon_type: weapon_type.clone() },
-                    ));
-                });
-
-                // Weapon icon
-                slot.spawn((
-                    Node {
-                        width: Val::Px(30.0),
-                        height: Val::Px(30.0),
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgba(0.3, 0.3, 0.3, 0.5)), // Initially gray/transparent
-                    WeaponIcon { weapon_type: weapon_type.clone() },
-                ));
-
-                // Circular timer overlay for all weapons
-                slot.spawn((
-                    Node {
-                        position_type: PositionType::Absolute,
-                        width: Val::Px(35.0),
-                        height: Val::Px(35.0),
-                        justify_content: JustifyContent::Center,
-                        align_items: AlignItems::Center,
-                        ..default()
-                    },
-                    BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.8)), // Dark background ring
-                    WeaponTimer,
-                    WeaponTimerType { weapon_type: weapon_type.clone() },
-                ))
-                .with_children(|timer_container| {
-                    // Inner fill circle that grows with progress
-                    timer_container.spawn((
+/// Set up the spell bar UI with 5 spell slots at the bottom of the screen.
+pub fn setup_spell_slots(mut commands: Commands) {
+    // Create spell bar container at bottom center
+    commands
+        .spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(20.0),
+                left: Val::Percent(50.0),
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                justify_content: JustifyContent::Center,
+                column_gap: Val::Px(10.0),
+                // Center the container by translating left by half its width
+                // This is approximated; with 5 slots of 50px + 4 gaps of 10px = 290px
+                // So translate left by ~145px
+                margin: UiRect::left(Val::Px(-145.0)),
+                ..default()
+            },
+            SpellBar,
+        ))
+        .with_children(|container| {
+            // Create 5 spell slots
+            for slot_index in 0..5 {
+                container
+                    .spawn((
                         Node {
-                            width: Val::Px(25.0), // Will be scaled
-                            height: Val::Px(25.0), // Will be scaled
+                            width: Val::Px(50.0),
+                            height: Val::Px(50.0),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            flex_direction: FlexDirection::Column,
                             ..default()
                         },
-                        BackgroundColor(Color::srgba(0.5, 0.7, 1.0, 0.0)), // Initially transparent
-                        WeaponTimerFill,
-                        WeaponTimerType { weapon_type: weapon_type.clone() },
-                    ));
-                });
-            });
-        }
-    });
+                        BackgroundColor(Color::srgba(0.2, 0.2, 0.2, 0.8)),
+                        SpellSlot { slot_index },
+                    ))
+                    .with_children(|slot| {
+                        // Level box at top center (absolute positioned, on top)
+                        slot.spawn((
+                            Node {
+                                position_type: PositionType::Absolute,
+                                top: Val::Px(-8.0),
+                                left: Val::Percent(50.0),
+                                margin: UiRect::left(Val::Px(-12.0)), // Center the level box
+                                padding: UiRect::axes(Val::Px(4.0), Val::Px(1.0)),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                border: UiRect::all(Val::Px(1.0)),
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgb(0.0, 0.0, 0.0)),
+                            BorderColor::all(Color::srgb(1.0, 1.0, 1.0)),
+                            BorderRadius::all(Val::Px(2.0)),
+                            ZIndex(10),
+                        ))
+                        .with_children(|level_box| {
+                            level_box.spawn((
+                                Text::new(""),
+                                TextFont {
+                                    font_size: 10.0,
+                                    ..default()
+                                },
+                                TextColor(Color::srgb(1.0, 1.0, 1.0)),
+                                TextLayout::new_with_justify(bevy::text::Justify::Center),
+                                SpellLevelDisplay { slot_index },
+                            ));
+                        });
+
+                        // Spell icon (inner colored square)
+                        slot.spawn((
+                            Node {
+                                width: Val::Px(30.0),
+                                height: Val::Px(30.0),
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgba(0.3, 0.3, 0.3, 0.3)),
+                            SpellIcon { slot_index },
+                        ));
+
+                        // Circular cooldown timer overlay
+                        slot.spawn((
+                            Node {
+                                position_type: PositionType::Absolute,
+                                width: Val::Px(35.0),
+                                height: Val::Px(35.0),
+                                justify_content: JustifyContent::Center,
+                                align_items: AlignItems::Center,
+                                ..default()
+                            },
+                            BackgroundColor(Color::srgba(0.1, 0.1, 0.1, 0.8)),
+                            SpellCooldownTimer { slot_index },
+                        ))
+                        .with_children(|timer_container| {
+                            // Inner fill circle that grows with cooldown progress
+                            timer_container.spawn((
+                                Node {
+                                    width: Val::Px(0.0),
+                                    height: Val::Px(0.0),
+                                    ..default()
+                                },
+                                BackgroundColor(Color::srgba(0.5, 0.7, 1.0, 0.0)),
+                                SpellCooldownTimerFill { slot_index },
+                            ));
+                        });
+                    });
+            }
+        });
 }
 
-pub fn update_weapon_slots(
+/// Update spell slot cooldown timers based on SpellList.
+pub fn update_spell_cooldowns(
     time: Res<Time>,
-    weapon_query: Query<(&Weapon, &EquippedWeapon)>,
-    mut timer_query: Query<(&mut BackgroundColor, &mut Node, &WeaponTimerType), With<WeaponTimerFill>>,
+    spell_list: Res<SpellList>,
+    mut timer_query: Query<(&mut BackgroundColor, &mut Node, &SpellCooldownTimerFill)>,
 ) {
-    // Update timer for each weapon type
-    for (mut bg_color, mut node, timer_type) in timer_query.iter_mut() {
-        // Find the matching weapon
-        let weapon_opt = weapon_query
-            .iter()
-            .find(|(_, equipped)| equipped.weapon_type == timer_type.weapon_type);
-
-        if let Some((weapon, _)) = weapon_opt {
-            let time_since_fired = time.elapsed_secs() - weapon.last_fired;
-            let progress = (time_since_fired / weapon.fire_rate).clamp(0.0, 1.0);
+    for (mut bg_color, mut node, timer_fill) in timer_query.iter_mut() {
+        if let Some(spell) = spell_list.get_spell(timer_fill.slot_index) {
+            let time_since_fired = time.elapsed_secs() - spell.last_fired;
+            let effective_rate = spell.effective_fire_rate();
+            let progress = (time_since_fired / effective_rate).clamp(0.0, 1.0);
 
             // Circular progress timer: scale the inner circle and change color based on progress
             let min_size = 0.0;
             let max_size = 25.0;
             let current_size = min_size + (max_size - min_size) * progress;
 
-            // Update size
             node.width = Val::Px(current_size);
             node.height = Val::Px(current_size);
 
-            // Update color alpha based on progress
-            let alpha = progress * 0.8; // Max 80% opacity
-            *bg_color = BackgroundColor(Color::srgba(0.5, 0.7, 1.0, alpha));
+            // Use element color for the timer, with alpha based on progress
+            let element_color = spell.element.color();
+            let alpha = progress * 0.8;
+            *bg_color = BackgroundColor(element_color.with_alpha(alpha));
         } else {
-            // Weapon not equipped - hide the timer
+            // No spell in this slot - hide the timer
             node.width = Val::Px(0.0);
             node.height = Val::Px(0.0);
             *bg_color = BackgroundColor(Color::srgba(0.5, 0.7, 1.0, 0.0));
@@ -602,34 +595,48 @@ pub fn update_weapon_slots(
     }
 }
 
-pub fn update_weapon_icons(
-    inventory: Res<Inventory>,
-    mut icon_query: Query<(&mut BackgroundColor, &WeaponIcon)>,
+/// Update spell icon colors based on SpellList.
+/// Uses the spell's element color for equipped spells, gray for empty slots.
+pub fn update_spell_icons(
+    spell_list: Res<SpellList>,
+    mut icon_query: Query<(&mut BackgroundColor, &SpellIcon)>,
 ) {
     for (mut bg_color, icon) in icon_query.iter_mut() {
-        if let Some(weapon) = inventory.get_weapon(&icon.weapon_type) {
-            // Set color based on weapon type
-            *bg_color = BackgroundColor(match weapon.weapon_type {
-                WeaponType::Pistol { .. } => Color::srgb(1.0, 1.0, 0.0), // Yellow for pistol
-                WeaponType::Laser => Color::srgb(0.0, 0.0, 1.0), // Blue for laser
-                WeaponType::RocketLauncher => Color::srgb(1.0, 0.5, 0.0), // Orange for rocket launcher
-                _ => Color::srgb(0.5, 0.5, 0.5), // Gray for other weapons
-            });
+        if let Some(spell) = spell_list.get_spell(icon.slot_index) {
+            // Use element color for the spell icon
+            *bg_color = BackgroundColor(spell.element.color());
         } else {
-            // No weapon of this type - make it transparent
+            // Empty slot - make it transparent gray
             *bg_color = BackgroundColor(Color::srgba(0.3, 0.3, 0.3, 0.3));
         }
     }
 }
 
-pub fn update_weapon_level_displays(
-    inventory: Res<Inventory>,
-    mut text_query: Query<(&mut Text, &WeaponLevelDisplay)>,
+/// Update spell slot background colors based on element.
+pub fn update_spell_slot_backgrounds(
+    spell_list: Res<SpellList>,
+    mut slot_query: Query<(&mut BackgroundColor, &SpellSlot)>,
+) {
+    for (mut bg_color, slot) in slot_query.iter_mut() {
+        if let Some(spell) = spell_list.get_spell(slot.slot_index) {
+            // Tint background with element color at low opacity
+            let element_color = spell.element.color();
+            *bg_color = BackgroundColor(element_color.with_alpha(0.3));
+        } else {
+            // Empty slot - dark gray background
+            *bg_color = BackgroundColor(Color::srgba(0.2, 0.2, 0.2, 0.8));
+        }
+    }
+}
+
+/// Update spell level displays based on SpellList.
+pub fn update_spell_level_displays(
+    spell_list: Res<SpellList>,
+    mut text_query: Query<(&mut Text, &SpellLevelDisplay)>,
 ) {
     for (mut text, display) in text_query.iter_mut() {
-        if let Some(weapon) = inventory.get_weapon(&display.weapon_type) {
-            // Just show the number
-            **text = format!("{}", weapon.level);
+        if let Some(spell) = spell_list.get_spell(display.slot_index) {
+            **text = format!("{}", spell.level);
         } else {
             **text = "".to_string();
         }
@@ -1408,6 +1415,304 @@ mod tests {
 
             let has_correct_text = texts.iter().any(|t| t.0.contains("Level 2 Complete"));
             assert!(has_correct_text, "Should show 'Level 2 Complete!' for completing level 2");
+        }
+    }
+
+    mod spell_bar_tests {
+        use super::*;
+        use crate::spell::{Spell, SpellType};
+        use crate::element::Element;
+        use bevy::ecs::system::RunSystemOnce;
+
+        fn setup_test_app() -> App {
+            let mut app = App::new();
+            app.add_plugins(bevy::state::app::StatesPlugin);
+            app.init_resource::<SpellList>();
+            app.init_resource::<Time>();
+            app
+        }
+
+        #[test]
+        fn setup_spell_slots_creates_5_slots() {
+            let mut app = setup_test_app();
+
+            // Run the setup system
+            let _ = app.world_mut().run_system_once(setup_spell_slots);
+
+            // Count SpellSlot components
+            let slot_count = app
+                .world_mut()
+                .query::<&SpellSlot>()
+                .iter(app.world())
+                .count();
+            assert_eq!(slot_count, 5, "Should spawn exactly 5 spell slots");
+        }
+
+        #[test]
+        fn setup_spell_slots_creates_5_icons() {
+            let mut app = setup_test_app();
+
+            let _ = app.world_mut().run_system_once(setup_spell_slots);
+
+            let icon_count = app
+                .world_mut()
+                .query::<&SpellIcon>()
+                .iter(app.world())
+                .count();
+            assert_eq!(icon_count, 5, "Should spawn exactly 5 spell icons");
+        }
+
+        #[test]
+        fn setup_spell_slots_creates_5_level_displays() {
+            let mut app = setup_test_app();
+
+            let _ = app.world_mut().run_system_once(setup_spell_slots);
+
+            let display_count = app
+                .world_mut()
+                .query::<&SpellLevelDisplay>()
+                .iter(app.world())
+                .count();
+            assert_eq!(display_count, 5, "Should spawn exactly 5 spell level displays");
+        }
+
+        #[test]
+        fn setup_spell_slots_creates_5_cooldown_timers() {
+            let mut app = setup_test_app();
+
+            let _ = app.world_mut().run_system_once(setup_spell_slots);
+
+            let timer_count = app
+                .world_mut()
+                .query::<&SpellCooldownTimerFill>()
+                .iter(app.world())
+                .count();
+            assert_eq!(timer_count, 5, "Should spawn exactly 5 cooldown timer fills");
+        }
+
+        #[test]
+        fn setup_spell_slots_creates_spell_bar() {
+            let mut app = setup_test_app();
+
+            let _ = app.world_mut().run_system_once(setup_spell_slots);
+
+            let bar_count = app
+                .world_mut()
+                .query::<&SpellBar>()
+                .iter(app.world())
+                .count();
+            assert_eq!(bar_count, 1, "Should spawn exactly 1 spell bar container");
+        }
+
+        #[test]
+        fn spell_slots_have_sequential_indices() {
+            let mut app = setup_test_app();
+
+            let _ = app.world_mut().run_system_once(setup_spell_slots);
+
+            let mut indices: Vec<usize> = app
+                .world_mut()
+                .query::<&SpellSlot>()
+                .iter(app.world())
+                .map(|s| s.slot_index)
+                .collect();
+            indices.sort();
+            assert_eq!(indices, vec![0, 1, 2, 3, 4], "Slots should have indices 0-4");
+        }
+
+        #[test]
+        fn update_spell_icons_shows_element_color_for_equipped_spell() {
+            let mut app = setup_test_app();
+
+            // Equip a fireball spell
+            {
+                let mut spell_list = app.world_mut().resource_mut::<SpellList>();
+                spell_list.equip(Spell::new(SpellType::Fireball));
+            }
+
+            // Spawn a spell icon for slot 0
+            app.world_mut().spawn((
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+                SpellIcon { slot_index: 0 },
+            ));
+
+            // Run the update system
+            let _ = app.world_mut().run_system_once(update_spell_icons);
+
+            // Check the background color matches fire element
+            let (bg, _) = app
+                .world_mut()
+                .query::<(&BackgroundColor, &SpellIcon)>()
+                .iter(app.world())
+                .next()
+                .unwrap();
+
+            let fire_color = Element::Fire.color();
+            assert_eq!(bg.0, fire_color, "Icon should use fire element color");
+        }
+
+        #[test]
+        fn update_spell_icons_shows_gray_for_empty_slot() {
+            let mut app = setup_test_app();
+
+            // SpellList is empty by default
+
+            // Spawn a spell icon for slot 0
+            app.world_mut().spawn((
+                BackgroundColor(Color::srgb(1.0, 1.0, 1.0)),
+                SpellIcon { slot_index: 0 },
+            ));
+
+            let _ = app.world_mut().run_system_once(update_spell_icons);
+
+            let (bg, _) = app
+                .world_mut()
+                .query::<(&BackgroundColor, &SpellIcon)>()
+                .iter(app.world())
+                .next()
+                .unwrap();
+
+            // Empty slot should be transparent gray
+            assert_eq!(
+                bg.0,
+                Color::srgba(0.3, 0.3, 0.3, 0.3),
+                "Empty slot should be transparent gray"
+            );
+        }
+
+        #[test]
+        fn update_spell_level_displays_shows_level_for_equipped_spell() {
+            let mut app = setup_test_app();
+
+            // Equip a spell and level it up
+            {
+                let mut spell_list = app.world_mut().resource_mut::<SpellList>();
+                let mut spell = Spell::new(SpellType::FrostNova);
+                spell.level = 5;
+                spell_list.equip(spell);
+            }
+
+            // Spawn a level display for slot 0
+            app.world_mut().spawn((
+                Text::new(""),
+                SpellLevelDisplay { slot_index: 0 },
+            ));
+
+            let _ = app.world_mut().run_system_once(update_spell_level_displays);
+
+            let text = app
+                .world_mut()
+                .query::<&Text>()
+                .iter(app.world())
+                .next()
+                .unwrap();
+
+            assert_eq!(text.0, "5", "Should display spell level");
+        }
+
+        #[test]
+        fn update_spell_level_displays_shows_empty_for_no_spell() {
+            let mut app = setup_test_app();
+
+            // Spawn a level display for slot 0 (no spell equipped)
+            app.world_mut().spawn((
+                Text::new("X"),
+                SpellLevelDisplay { slot_index: 0 },
+            ));
+
+            let _ = app.world_mut().run_system_once(update_spell_level_displays);
+
+            let text = app
+                .world_mut()
+                .query::<&Text>()
+                .iter(app.world())
+                .next()
+                .unwrap();
+
+            assert_eq!(text.0, "", "Should be empty for no spell");
+        }
+
+        #[test]
+        fn update_spell_slot_backgrounds_shows_element_tint() {
+            let mut app = setup_test_app();
+
+            // Equip a lightning spell
+            {
+                let mut spell_list = app.world_mut().resource_mut::<SpellList>();
+                spell_list.equip(Spell::new(SpellType::ThunderStrike));
+            }
+
+            // Spawn a slot for index 0
+            app.world_mut().spawn((
+                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
+                SpellSlot { slot_index: 0 },
+            ));
+
+            let _ = app.world_mut().run_system_once(update_spell_slot_backgrounds);
+
+            let (bg, _) = app
+                .world_mut()
+                .query::<(&BackgroundColor, &SpellSlot)>()
+                .iter(app.world())
+                .next()
+                .unwrap();
+
+            let lightning_color = Element::Lightning.color().with_alpha(0.3);
+            assert_eq!(bg.0, lightning_color, "Slot should have lightning element tint");
+        }
+
+        #[test]
+        fn update_spell_slot_backgrounds_shows_gray_for_empty() {
+            let mut app = setup_test_app();
+
+            // Spawn a slot for index 0 (no spell equipped)
+            app.world_mut().spawn((
+                BackgroundColor(Color::srgb(1.0, 1.0, 1.0)),
+                SpellSlot { slot_index: 0 },
+            ));
+
+            let _ = app.world_mut().run_system_once(update_spell_slot_backgrounds);
+
+            let (bg, _) = app
+                .world_mut()
+                .query::<(&BackgroundColor, &SpellSlot)>()
+                .iter(app.world())
+                .next()
+                .unwrap();
+
+            assert_eq!(
+                bg.0,
+                Color::srgba(0.2, 0.2, 0.2, 0.8),
+                "Empty slot should have dark gray background"
+            );
+        }
+
+        #[test]
+        fn update_spell_cooldowns_hides_timer_for_empty_slot() {
+            let mut app = setup_test_app();
+
+            // Spawn a cooldown timer fill for slot 0 (no spell)
+            app.world_mut().spawn((
+                BackgroundColor(Color::srgb(1.0, 1.0, 1.0)),
+                Node {
+                    width: Val::Px(25.0),
+                    height: Val::Px(25.0),
+                    ..default()
+                },
+                SpellCooldownTimerFill { slot_index: 0 },
+            ));
+
+            let _ = app.world_mut().run_system_once(update_spell_cooldowns);
+
+            let (_, node, _) = app
+                .world_mut()
+                .query::<(&BackgroundColor, &Node, &SpellCooldownTimerFill)>()
+                .iter(app.world())
+                .next()
+                .unwrap();
+
+            assert_eq!(node.width, Val::Px(0.0), "Timer should be hidden for empty slot");
+            assert_eq!(node.height, Val::Px(0.0), "Timer should be hidden for empty slot");
         }
     }
 }

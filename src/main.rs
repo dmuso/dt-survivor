@@ -59,7 +59,7 @@ mod tests {
     use donny_tango_survivor::weapon::components::{Weapon, WeaponType};
     use donny_tango_survivor::inventory::components::EquippedWeapon;
     use donny_tango_survivor::enemies::components::Enemy;
-    use donny_tango_survivor::ui::components::{WeaponSlot, WeaponIcon, WeaponTimerFill};
+    use donny_tango_survivor::ui::components::{SpellSlot, SpellIcon, SpellCooldownTimerFill};
     use bevy::app::App;
     use bevy::ecs::system::RunSystemOnce;
 
@@ -167,8 +167,8 @@ mod tests {
         app.init_resource::<Inventory>();
         app.init_resource::<ScreenTintEffect>();
 
-        // Add our plugins (combat_plugin required for damage system)
-        app.add_plugins((combat_plugin, game_plugin, ui_plugin));
+        // Add our plugins (combat_plugin required for damage system, inventory_plugin for SpellList)
+        app.add_plugins((combat_plugin, game_plugin, inventory_plugin, ui_plugin));
 
         // Verify initial state is Intro
         assert_eq!(*app.world().get_resource::<State<GameState>>().unwrap(), GameState::Intro);
@@ -255,8 +255,8 @@ mod tests {
         app.init_resource::<Inventory>();
         app.init_resource::<ScreenTintEffect>();
 
-        // Add our plugins (combat_plugin required for damage system)
-        app.add_plugins((combat_plugin, game_plugin, ui_plugin));
+        // Add our plugins (combat_plugin required for damage system, inventory_plugin for SpellList)
+        app.add_plugins((combat_plugin, game_plugin, inventory_plugin, ui_plugin));
 
         // Run initial update to set up intro
         app.update();
@@ -470,18 +470,18 @@ mod tests {
         app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
         app.update();
 
-        // Check that weapon slots are created
+        // Check that spell slots are created
         let world = app.world_mut();
-        let slot_count = world.query::<&WeaponSlot>().iter(world).count();
-        assert_eq!(slot_count, 3, "Should have 3 weapon slots (pistol, laser, rocket_launcher)");
+        let slot_count = world.query::<&SpellSlot>().iter(world).count();
+        assert_eq!(slot_count, 5, "Should have 5 spell slots");
 
-        // Check that weapon icons exist for all slots
-        let icon_count = world.query::<&WeaponIcon>().iter(world).count();
-        assert_eq!(icon_count, 3, "Should have 3 weapon icons for all slots");
+        // Check that spell icons exist for all slots
+        let icon_count = world.query::<&SpellIcon>().iter(world).count();
+        assert_eq!(icon_count, 5, "Should have 5 spell icons for all slots");
 
-        // Check that weapon timer fill exists for all weapon types
-        let timer_fill_count = world.query::<&WeaponTimerFill>().iter(world).count();
-        assert_eq!(timer_fill_count, 3, "Should have 3 weapon timer fill elements (one for each weapon type)");
+        // Check that spell cooldown timer fill exists for all slots
+        let timer_fill_count = world.query::<&SpellCooldownTimerFill>().iter(world).count();
+        assert_eq!(timer_fill_count, 5, "Should have 5 spell cooldown timer fill elements");
     }
 
     #[test]
