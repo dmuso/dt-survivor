@@ -431,6 +431,10 @@ pub struct GameMaterials {
     pub thunder_strike_marker: Handle<StandardMaterial>,
     /// Fire nova (Inferno) material (orange-red with strong emissive glow)
     pub fire_nova: Handle<StandardMaterial>,
+    /// Poison cloud projectile material (toxic green with emissive glow)
+    pub poison_projectile: Handle<StandardMaterial>,
+    /// Poison cloud zone material (translucent green toxic fog)
+    pub poison_cloud: Handle<StandardMaterial>,
 }
 
 impl GameMaterials {
@@ -570,6 +574,17 @@ impl GameMaterials {
             fire_nova: materials.add(StandardMaterial {
                 base_color: Color::srgba(1.0, 0.3, 0.0, 0.7), // Orange-red with 70% opacity
                 emissive: bevy::color::LinearRgba::rgb(2.5, 0.6, 0.0), // Bright orange glow
+                alpha_mode: AlphaMode::Blend,
+                ..default()
+            }),
+            poison_projectile: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.0, 1.0, 0.0), // Toxic green (Poison element color)
+                emissive: bevy::color::LinearRgba::rgb(0.0, 2.0, 0.0), // Bright green glow
+                ..default()
+            }),
+            poison_cloud: materials.add(StandardMaterial {
+                base_color: Color::srgba(0.0, 0.8, 0.0, 0.5), // Translucent green
+                emissive: bevy::color::LinearRgba::rgb(0.0, 1.0, 0.0), // Green glow
                 alpha_mode: AlphaMode::Blend,
                 ..default()
             }),

@@ -19,6 +19,10 @@ use crate::spells::fire::fire_nova::{
 use crate::spells::lightning::thunder_strike::{
     thunder_strike_damage_system, update_thunder_strike_markers, update_thunder_strikes,
 };
+use crate::spells::poison::poison_cloud::{
+    poison_cloud_cleanup_system, poison_cloud_damage_system,
+    poison_cloud_projectile_movement_system, poison_cloud_spawn_zone_system,
+};
 use crate::whisper::resources::{SpellOrigin, WhisperAttunement};
 
 /// Re-export spell_follow_player_system from inventory for now
@@ -122,6 +126,29 @@ pub fn plugin(app: &mut App) {
             Update,
             fire_nova_visual_system
                 .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Poison cloud systems - projectile movement in Movement, spawn zone and damage in Combat, cleanup in Cleanup
+        .add_systems(
+            Update,
+            poison_cloud_projectile_movement_system
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            (
+                poison_cloud_spawn_zone_system,
+                poison_cloud_damage_system,
+            )
+                .chain()
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            poison_cloud_cleanup_system
+                .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         );
 }

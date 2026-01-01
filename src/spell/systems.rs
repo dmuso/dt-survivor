@@ -680,6 +680,127 @@ mod tests {
             assert_eq!(novas[0].center, Vec2::new(5.0, 10.0));
         }
     }
+
+    mod plague_cloud_tests {
+        use super::*;
+        use crate::spells::poison::poison_cloud::PoisonCloudProjectile;
+
+        #[test]
+        fn plague_cloud_spawns_projectile_from_spell_list() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::PlagueCloud,
+                element: Element::Poison,
+                name: "Plague Cloud".to_string(),
+                description: "Arcing poison cloud.".to_string(),
+                level: 2,
+                fire_rate: 2.0,
+                base_damage: 25.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(10.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut projectile_query = app.world_mut().query::<&PoisonCloudProjectile>();
+            let projectiles: Vec<_> = projectile_query.iter(app.world()).collect();
+            assert_eq!(projectiles.len(), 1, "One poison cloud projectile should be spawned");
+            // 25.0 * 2 * 1.25 = 62.5
+            assert_eq!(projectiles[0].damage, 62.5, "Plague cloud damage should be 62.5 (25.0 * 2 * 1.25)");
+        }
+
+        #[test]
+        fn plague_cloud_with_poison_attunement() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            app.insert_resource(SpellOrigin {
+                position: Some(Vec3::new(0.0, 3.0, 0.0)),
+            });
+            app.insert_resource(WhisperAttunement::with_element(Element::Poison));
+
+            let mut spell_list = SpellList::default();
+            let spell = Spell {
+                spell_type: SpellType::PlagueCloud,
+                element: Element::Poison,
+                name: "Plague Cloud".to_string(),
+                description: "Arcing poison cloud.".to_string(),
+                level: 2,
+                fire_rate: 2.0,
+                base_damage: 25.0,
+                last_fired: -10.0,
+            };
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(10.0, 0.375, 0.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut projectile_query = app.world_mut().query::<&PoisonCloudProjectile>();
+            let projectiles: Vec<_> = projectile_query.iter(app.world()).collect();
+            assert_eq!(projectiles.len(), 1);
+            // 25.0 * 2 * 1.25 * 1.1 = 68.75
+            let expected = 25.0 * 2.0 * 1.25 * 1.1;
+            assert!(
+                (projectiles[0].damage - expected).abs() < 0.01,
+                "Plague cloud damage should be {} with poison attunement, got {}",
+                expected,
+                projectiles[0].damage
+            );
+        }
+
+        #[test]
+        fn plague_cloud_spawns_at_spell_origin() {
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            let origin_pos = Vec3::new(5.0, 3.0, 10.0);
+            app.insert_resource(SpellOrigin {
+                position: Some(origin_pos),
+            });
+            app.init_resource::<WhisperAttunement>();
+
+            let mut spell_list = SpellList::default();
+            let mut spell = Spell::new(SpellType::PlagueCloud);
+            spell.last_fired = -10.0;
+            spell_list.equip(spell);
+            app.insert_resource(spell_list);
+
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(15.0, 0.375, 10.0)),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            let mut projectile_query = app.world_mut().query::<&PoisonCloudProjectile>();
+            let projectiles: Vec<_> = projectile_query.iter(app.world()).collect();
+            assert_eq!(projectiles.len(), 1);
+            // Projectile should start from origin position on XZ plane
+            assert_eq!(projectiles[0].start_pos, Vec2::new(5.0, 10.0));
+        }
+    }
 }
 
 use crate::inventory::resources::SpellList;
@@ -810,6 +931,17 @@ pub fn spell_casting_system(
                     spell,
                     final_damage,
                     origin_pos,
+                    game_meshes.as_deref(),
+                    game_materials.as_deref(),
+                );
+            }
+            SpellType::PlagueCloud => {
+                crate::spells::poison::poison_cloud::fire_poison_cloud_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
+                    target_pos,
                     game_meshes.as_deref(),
                     game_materials.as_deref(),
                 );
