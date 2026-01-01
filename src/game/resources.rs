@@ -423,6 +423,8 @@ pub struct GameMaterials {
     pub orbital_particle: Handle<StandardMaterial>,
     /// Fireball projectile material (orange with emissive)
     pub fireball: Handle<StandardMaterial>,
+    /// Radiant beam material (white/gold with strong emissive glow)
+    pub radiant_beam: Handle<StandardMaterial>,
 }
 
 impl GameMaterials {
@@ -539,6 +541,12 @@ impl GameMaterials {
             fireball: materials.add(StandardMaterial {
                 base_color: Color::srgb(1.0, 0.5, 0.0), // Orange (Fire element color)
                 emissive: bevy::color::LinearRgba::rgb(2.0, 1.0, 0.0),
+                ..default()
+            }),
+            radiant_beam: materials.add(StandardMaterial {
+                base_color: Color::srgb(1.0, 1.0, 0.9), // White with slight gold tint
+                emissive: bevy::color::LinearRgba::rgb(3.0, 3.0, 2.5), // Bright white/gold glow
+                unlit: true,
                 ..default()
             }),
         }
