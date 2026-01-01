@@ -7,6 +7,7 @@ use crate::movement::components::{from_xz, to_xz, Knockback, Velocity};
 use crate::player::components::{Player, SlowModifier};
 use crate::spells::frost::hoarfrost::InHoarfrost;
 use crate::spells::frost::ice_shard::SlowedDebuff;
+use crate::spells::frost::permafrost::FrozenStatus;
 
 /// Intersects a ray with the Y=0 ground plane and returns the XZ coordinates.
 /// Returns None if the ray is parallel to the ground or the intersection is behind the camera.
@@ -123,16 +124,30 @@ pub fn player_movement(
 
 /// System that moves enemies towards the player position on the XZ plane.
 /// PlayerPosition stores XZ coordinates as Vec2, enemies chase on ground plane.
-/// Takes into account SlowedDebuff for frost spell slow effects and InHoarfrost for aura slows.
-/// When both effects are present, uses the stronger slow (lower multiplier).
+/// Takes into account SlowedDebuff for frost spell slow effects, InHoarfrost for aura slows,
+/// and FrozenStatus which completely prevents movement.
+/// When multiple slow effects are present, uses the stronger slow (lower multiplier).
+#[allow(clippy::type_complexity)]
 pub fn enemy_movement_system(
-    mut enemy_query: Query<(&mut Transform, &Enemy, Option<&SlowedDebuff>, Option<&InHoarfrost>)>,
+    mut enemy_query: Query<(
+        &mut Transform,
+        &Enemy,
+        Option<&SlowedDebuff>,
+        Option<&InHoarfrost>,
+        Option<&FrozenStatus>,
+    )>,
     player_position: Res<PlayerPosition>,
     time: Res<Time>,
 ) {
     let player_pos = player_position.0; // Vec2 representing XZ coordinates
 
-    for (mut transform, enemy, slowed_debuff, in_hoarfrost) in enemy_query.iter_mut() {
+    for (mut transform, enemy, slowed_debuff, in_hoarfrost, frozen_status) in enemy_query.iter_mut()
+    {
+        // Frozen enemies cannot move at all
+        if frozen_status.is_some() {
+            continue;
+        }
+
         let enemy_pos = from_xz(transform.translation);
         let direction = (player_pos - enemy_pos).normalize_or_zero();
 
@@ -860,6 +875,92 @@ mod tests {
         assert!(
             (transform.translation.x - 100.0).abs() < 0.01,
             "Expected x=100.0 (no slow), got {}",
+            transform.translation.x
+        );
+    }
+
+    #[test]
+    fn test_frozen_enemy_cannot_move() {
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin::default());
+        app.init_resource::<PlayerPosition>();
+
+        // Set player position in positive X direction
+        {
+            let mut player_pos = app.world_mut().get_resource_mut::<PlayerPosition>().unwrap();
+            player_pos.0 = Vec2::new(100.0, 0.0);
+        }
+
+        // Create frozen enemy
+        let entity = app
+            .world_mut()
+            .spawn((
+                Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+                Enemy {
+                    speed: 100.0,
+                    strength: 10.0,
+                },
+                FrozenStatus::default(),
+            ))
+            .id();
+
+        // Advance time by 1 second
+        {
+            let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+            time.advance_by(Duration::from_secs(1));
+        }
+
+        let _ = app.world_mut().run_system_once(enemy_movement_system);
+
+        // Frozen enemy should NOT have moved at all
+        let transform = app.world().get::<Transform>(entity).unwrap();
+        assert!(
+            transform.translation.x.abs() < 0.01,
+            "Frozen enemy should not move, got x={}",
+            transform.translation.x
+        );
+    }
+
+    #[test]
+    fn test_frozen_enemy_with_slows_still_cannot_move() {
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin::default());
+        app.init_resource::<PlayerPosition>();
+
+        // Set player position
+        {
+            let mut player_pos = app.world_mut().get_resource_mut::<PlayerPosition>().unwrap();
+            player_pos.0 = Vec2::new(100.0, 0.0);
+        }
+
+        // Create frozen enemy with all slow effects
+        let entity = app
+            .world_mut()
+            .spawn((
+                Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+                Enemy {
+                    speed: 100.0,
+                    strength: 10.0,
+                },
+                FrozenStatus::default(),
+                SlowedDebuff::new(5.0, 0.5),
+                InHoarfrost::new(0.4),
+            ))
+            .id();
+
+        // Advance time
+        {
+            let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+            time.advance_by(Duration::from_secs(1));
+        }
+
+        let _ = app.world_mut().run_system_once(enemy_movement_system);
+
+        // Frozen enemy should still not move (frozen takes priority)
+        let transform = app.world().get::<Transform>(entity).unwrap();
+        assert!(
+            transform.translation.x.abs() < 0.01,
+            "Frozen enemy should not move even with slow effects, got x={}",
             transform.translation.x
         );
     }
