@@ -8,4 +8,7 @@ pub mod spawn;
 pub mod systems;
 
 pub use components::*;
-// Re-exports for spawn and systems will be added when those modules have public items
+pub use spawn::{
+    empty_slot, BACKGROUND_ALPHA, BORDER_RADIUS, LEVEL_FONT_SIZE, LEVEL_PADDING_X, LEVEL_PADDING_Y,
+    LEVEL_TOP_OFFSET, SLOT_SIZE,
+};
