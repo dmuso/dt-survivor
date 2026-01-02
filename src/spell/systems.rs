@@ -2325,7 +2325,7 @@ pub fn spell_casting_system(
                     game_materials.as_deref(),
                 );
             }
-            SpellType::RadiantBeam => {
+            SpellType::RadiantBeam | SpellType::HolyBeam => {
                 crate::spells::light::radiant_beam::fire_radiant_beam_with_damage(
                     &mut commands,
                     spell,

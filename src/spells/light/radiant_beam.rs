@@ -314,6 +314,20 @@ mod tests {
             assert_eq!(color, Element::Light.color());
             assert_eq!(color, Color::srgb_u8(255, 255, 255)); // White
         }
+
+        #[test]
+        fn test_holy_beam_uses_radiant_beam_mechanics() {
+            // HolyBeam is implemented via RadiantBeam, verify the spell exists
+            let spell = Spell::new(SpellType::HolyBeam);
+            let direction = Vec2::new(0.0, 1.0);
+
+            // HolyBeam can create a RadiantBeam with its damage
+            let beam = RadiantBeam::from_spell(Vec2::ZERO, direction, &spell, 1.0);
+
+            assert_eq!(beam.direction, direction);
+            assert_eq!(beam.damage, spell.damage());
+            assert!(beam.is_active(), "Beam should be active");
+        }
     }
 
     mod radiant_beam_update_system_tests {
