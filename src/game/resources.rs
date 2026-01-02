@@ -103,9 +103,9 @@ impl Default for EnemySpawnState {
 
 impl EnemySpawnState {
     /// Calculate spawn rate based on game level.
-    /// Level 1: 0.6 enemies/second, then 1.5x per level.
+    /// Level 1: 0.42 enemies/second (30% reduction from 0.6), then 1.35x per level (30% slower ramp).
     pub fn spawn_rate_for_level(game_level: u32) -> f32 {
-        0.6 * 1.5_f32.powi(game_level.saturating_sub(1) as i32)
+        0.42 * 1.35_f32.powi(game_level.saturating_sub(1) as i32)
     }
 }
 
@@ -528,6 +528,8 @@ pub struct GameMaterials {
     pub shadow_bolt: Handle<StandardMaterial>,
     /// Chaos bolt projectile material (multicolor with shifting emissive glow)
     pub chaos_bolt: Handle<StandardMaterial>,
+    /// Hoarfrost aura material (ice blue with low opacity and additive blending)
+    pub hoarfrost_aura: Handle<StandardMaterial>,
 }
 
 impl GameMaterials {
@@ -574,9 +576,9 @@ impl GameMaterials {
                 ..default()
             }),
             explosion: materials.add(StandardMaterial {
-                base_color: Color::srgba(1.0, 0.3, 0.0, 0.5), // 50% transparency
+                base_color: Color::srgba(1.0, 0.3, 0.0, 0.2), // 20% opacity for better visibility
                 emissive: bevy::color::LinearRgba::rgb(1.0, 0.2, 0.0),
-                alpha_mode: AlphaMode::Blend,
+                alpha_mode: AlphaMode::Add,
                 ..default()
             }),
             target_marker: materials.add(StandardMaterial {
@@ -659,15 +661,15 @@ impl GameMaterials {
                 ..default()
             }),
             thunder_strike_marker: materials.add(StandardMaterial {
-                base_color: Color::srgba(1.0, 1.0, 0.0, 0.5), // Yellow with 50% transparency
+                base_color: Color::srgba(1.0, 1.0, 0.0, 0.2), // Yellow with 20% opacity for better visibility
                 emissive: bevy::color::LinearRgba::rgb(1.0, 1.0, 0.0),
-                alpha_mode: AlphaMode::Blend,
+                alpha_mode: AlphaMode::Add,
                 ..default()
             }),
             fire_nova: materials.add(StandardMaterial {
-                base_color: Color::srgba(1.0, 0.3, 0.0, 0.7), // Orange-red with 70% opacity
+                base_color: Color::srgba(1.0, 0.3, 0.0, 0.25), // Orange-red with 25% opacity for better visibility
                 emissive: bevy::color::LinearRgba::rgb(2.5, 0.6, 0.0), // Bright orange glow
-                alpha_mode: AlphaMode::Blend,
+                alpha_mode: AlphaMode::Add,
                 ..default()
             }),
             poison_projectile: materials.add(StandardMaterial {
@@ -676,9 +678,9 @@ impl GameMaterials {
                 ..default()
             }),
             poison_cloud: materials.add(StandardMaterial {
-                base_color: Color::srgba(0.0, 0.8, 0.0, 0.5), // Translucent green
+                base_color: Color::srgba(0.0, 0.8, 0.0, 0.2), // Translucent green with 20% opacity
                 emissive: bevy::color::LinearRgba::rgb(0.0, 1.0, 0.0), // Green glow
-                alpha_mode: AlphaMode::Blend,
+                alpha_mode: AlphaMode::Add,
                 ..default()
             }),
             ice_shard: materials.add(StandardMaterial {
@@ -687,9 +689,9 @@ impl GameMaterials {
                 ..default()
             }),
             glacial_pulse: materials.add(StandardMaterial {
-                base_color: Color::srgba(0.53, 0.81, 0.92, 0.7), // Ice blue with 70% opacity
+                base_color: Color::srgba(0.53, 0.81, 0.92, 0.25), // Ice blue with 25% opacity for better visibility
                 emissive: bevy::color::LinearRgba::rgb(1.0, 1.5, 1.8), // Bright ice blue glow
-                alpha_mode: AlphaMode::Blend,
+                alpha_mode: AlphaMode::Add,
                 ..default()
             }),
             shadow_bolt: materials.add(StandardMaterial {
@@ -700,6 +702,12 @@ impl GameMaterials {
             chaos_bolt: materials.add(StandardMaterial {
                 base_color: Color::srgb(0.8, 0.3, 0.8), // Magenta/chaos color
                 emissive: bevy::color::LinearRgba::rgb(2.0, 0.5, 2.0), // Chaotic purple/pink glow
+                ..default()
+            }),
+            hoarfrost_aura: materials.add(StandardMaterial {
+                base_color: Color::srgba(0.53, 0.81, 0.92, 0.1), // Ice blue with 10% opacity
+                emissive: bevy::color::LinearRgba::rgb(0.3, 0.5, 0.6), // Subtle ice blue glow
+                alpha_mode: AlphaMode::Add,
                 ..default()
             }),
         }
@@ -871,29 +879,30 @@ mod tests {
         #[test]
         fn spawn_rate_at_level_1() {
             let rate = EnemySpawnState::spawn_rate_for_level(1);
-            assert!((rate - 0.6).abs() < 0.001, "Level 1 should have 0.6 enemies/sec, got {}", rate);
+            // 30% reduction from 0.6 = 0.42
+            assert!((rate - 0.42).abs() < 0.001, "Level 1 should have 0.42 enemies/sec, got {}", rate);
         }
 
         #[test]
         fn spawn_rate_at_level_2() {
             let rate = EnemySpawnState::spawn_rate_for_level(2);
-            // 0.6 * 1.5 = 0.9
-            assert!((rate - 0.9).abs() < 0.001, "Level 2 should have 0.9 enemies/sec, got {}", rate);
+            // 0.42 * 1.35 = 0.567
+            assert!((rate - 0.567).abs() < 0.001, "Level 2 should have 0.567 enemies/sec, got {}", rate);
         }
 
         #[test]
         fn spawn_rate_at_level_5() {
             let rate = EnemySpawnState::spawn_rate_for_level(5);
-            // 0.6 * 1.5^4 = 0.6 * 5.0625 = 3.0375
-            let expected = 0.6 * 1.5_f32.powi(4);
+            // 0.42 * 1.35^4 = 0.42 * 3.32150625 = 1.395
+            let expected = 0.42 * 1.35_f32.powi(4);
             assert!((rate - expected).abs() < 0.001, "Level 5 should have {} enemies/sec, got {}", expected, rate);
         }
 
         #[test]
         fn spawn_rate_at_level_10() {
             let rate = EnemySpawnState::spawn_rate_for_level(10);
-            // 0.6 * 1.5^9 = ~23.1 enemies/sec
-            let expected = 0.6 * 1.5_f32.powi(9);
+            // 0.42 * 1.35^9 = ~7.64 enemies/sec (reduced from ~23.1)
+            let expected = 0.42 * 1.35_f32.powi(9);
             assert!((rate - expected).abs() < 0.001, "Level 10 should have {} enemies/sec, got {}", expected, rate);
         }
 
@@ -1049,10 +1058,10 @@ mod tests {
             let rocket_exploding_mat = materials.get(&game_materials.rocket_exploding).unwrap();
             assert_eq!(rocket_exploding_mat.base_color, Color::srgb(1.0, 0.0, 0.0));
 
-            // Verify explosion is orange with 50% transparency
+            // Verify explosion is orange with 20% transparency for better visibility
             let explosion_mat = materials.get(&game_materials.explosion).unwrap();
-            assert_eq!(explosion_mat.base_color, Color::srgba(1.0, 0.3, 0.0, 0.5));
-            assert_eq!(explosion_mat.alpha_mode, AlphaMode::Blend);
+            assert_eq!(explosion_mat.base_color, Color::srgba(1.0, 0.3, 0.0, 0.2));
+            assert_eq!(explosion_mat.alpha_mode, AlphaMode::Add);
 
             // Verify target_marker is red
             let target_marker_mat = materials.get(&game_materials.target_marker).unwrap();

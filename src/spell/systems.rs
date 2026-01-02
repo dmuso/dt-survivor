@@ -2739,6 +2739,19 @@ pub fn spell_casting_system(
                     game_materials.as_deref(),
                 );
             }
+            SpellType::IceBarrier => {
+                // Hoarfrost creates a cold mist aura that slows enemies in range
+                if let Ok((player_entity, player_transform, _)) = player_query.single() {
+                    crate::spells::frost::hoarfrost::activate_hoarfrost(
+                        &mut commands,
+                        player_entity,
+                        player_transform.translation,
+                        spell,
+                        game_meshes.as_deref(),
+                        game_materials.as_deref(),
+                    );
+                }
+            }
             _ => {
                 // Other spell types not implemented yet
             }

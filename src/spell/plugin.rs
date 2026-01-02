@@ -49,6 +49,7 @@ use crate::spells::frost::frozen_orb::{
 };
 use crate::spells::frost::hoarfrost::{
     hoarfrost_cleanup_system, hoarfrost_duration_system, hoarfrost_tracking_system,
+    hoarfrost_visual_system,
 };
 use crate::spells::frost::ice_lance::{
     ice_lance_collision_system, ice_lance_lifetime_system, ice_lance_movement_system,
@@ -675,7 +676,7 @@ pub fn plugin(app: &mut App) {
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )
-        // Hoarfrost aura systems - duration tick in Effects, tracking in Combat, cleanup in Cleanup
+        // Hoarfrost aura systems - duration tick in Effects, tracking in Combat, visual in Effects, cleanup in Cleanup
         .add_systems(
             Update,
             hoarfrost_duration_system
@@ -686,6 +687,12 @@ pub fn plugin(app: &mut App) {
             Update,
             hoarfrost_tracking_system
                 .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            hoarfrost_visual_system
+                .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         )
         .add_systems(
