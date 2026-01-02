@@ -191,6 +191,74 @@ mod tests {
             let spell = spell_list.get_spell(0).unwrap();
             assert!(spell.last_fired >= 0.0, "last_fired should update after casting");
         }
+
+        #[test]
+        fn mind_cage_spawns_at_target_position_not_origin() {
+            use crate::spells::psychic::mind_cage::MindCage;
+
+            let mut app = App::new();
+            app.add_systems(Update, spell_casting_system);
+
+            // Whisper at origin
+            let whisper_pos = Vec3::new(0.0, 3.0, 0.0);
+            app.insert_resource(SpellOrigin {
+                position: Some(whisper_pos),
+            });
+            app.init_resource::<WhisperAttunement>();
+            app.init_resource::<LastSpellCast>();
+
+            // Set up SpellList with Mind Cage (MindBlast spell type)
+            let mut spell_list = SpellList::default();
+            let mut mind_cage = Spell::new(SpellType::MindBlast);
+            mind_cage.last_fired = -10.0; // Ready to fire
+            spell_list.equip(mind_cage);
+            app.insert_resource(spell_list);
+
+            // Create enemy far from whisper at (50, 0.375, 30)
+            let enemy_pos = Vec3::new(50.0, 0.375, 30.0);
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(enemy_pos),
+            ));
+
+            app.init_resource::<Time>();
+            app.update();
+
+            // Mind Cage should spawn
+            let mut cage_query = app.world_mut().query::<(&MindCage, &Transform)>();
+            let cages: Vec<_> = cage_query.iter(app.world()).collect();
+            assert_eq!(cages.len(), 1, "Mind Cage should spawn");
+
+            let (cage, cage_transform) = cages[0];
+
+            // Cage should be at enemy position (XZ), not at whisper position
+            // The cage center is stored in 2D (XZ plane)
+            let enemy_xz = crate::movement::components::from_xz(enemy_pos);
+            let whisper_xz = crate::movement::components::from_xz(whisper_pos);
+
+            // Cage center should match enemy XZ position
+            assert!(
+                (cage.center - enemy_xz).length() < 0.01,
+                "Cage center {:?} should be at enemy XZ position {:?}, not whisper position {:?}",
+                cage.center,
+                enemy_xz,
+                whisper_xz
+            );
+
+            // Transform XZ should also match enemy position
+            assert!(
+                (cage_transform.translation.x - enemy_pos.x).abs() < 0.01,
+                "Cage X position {} should match enemy X {}",
+                cage_transform.translation.x,
+                enemy_pos.x
+            );
+            assert!(
+                (cage_transform.translation.z - enemy_pos.z).abs() < 0.01,
+                "Cage Z position {} should match enemy Z {}",
+                cage_transform.translation.z,
+                enemy_pos.z
+            );
+        }
     }
 
     mod whisper_attunement_tests {
@@ -2675,10 +2743,11 @@ pub fn spell_casting_system(
                 );
             }
             SpellType::MindBlast => {
+                // Mind Cage spawns at target position to trap enemies where they are
                 crate::spells::psychic::mind_cage::fire_mind_cage(
                     &mut commands,
                     spell,
-                    origin_pos,
+                    Vec3::new(target_pos.x, origin_pos.y, target_pos.y),
                     game_meshes.as_deref(),
                     game_materials.as_deref(),
                 );
