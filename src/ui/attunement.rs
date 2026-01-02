@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 
 use crate::element::Element;
+use crate::inventory::SpellList;
+use crate::spell::{Spell, SpellType};
 use crate::states::GameState;
 use crate::whisper::WhisperAttunement;
 
@@ -20,7 +22,15 @@ pub struct AttunementOption {
 }
 
 /// Setup the attunement selection screen when entering AttunementSelect state.
-pub fn setup_attunement_screen(mut commands: Commands) {
+pub fn setup_attunement_screen(
+    mut commands: Commands,
+    camera_query: Query<Entity, With<Camera>>,
+) {
+    // Spawn Camera2d if no camera exists (cleanup_intro despawns Camera2d)
+    if camera_query.is_empty() {
+        commands.spawn(Camera2d);
+    }
+
     // Root container
     commands
         .spawn((
@@ -157,6 +167,7 @@ pub fn handle_attunement_selection(
         Changed<Interaction>,
     >,
     mut attunement: ResMut<WhisperAttunement>,
+    mut spell_list: ResMut<SpellList>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     for (interaction, mut bg_color, mut border_color, option) in &mut interaction_query {
@@ -166,6 +177,11 @@ pub fn handle_attunement_selection(
             Interaction::Pressed => {
                 // Set attunement and transition to game
                 attunement.set_element(option.element);
+
+                // Add default Fireball spell after attunement is selected
+                let fireball = Spell::new(SpellType::Fireball);
+                spell_list.equip(fireball);
+
                 next_state.set(GameState::InGame);
             }
             Interaction::Hovered => {
@@ -208,6 +224,7 @@ mod tests {
         app.add_plugins(bevy::state::app::StatesPlugin);
         app.init_state::<GameState>();
         app.init_resource::<WhisperAttunement>();
+        app.init_resource::<SpellList>();
         app
     }
 
