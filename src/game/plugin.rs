@@ -4,7 +4,7 @@ use crate::arena::plugin as arena_plugin;
 use crate::camera::plugin as camera_plugin;
 use crate::enemies::systems::*;
 use crate::game::systems::{
-    cleanup_game, game_input, mark_fresh_game_start, player_death_system, player_enemy_collision_detection,
+    cleanup_game, mark_fresh_game_start, player_death_system, player_enemy_collision_detection,
     player_enemy_damage_system, player_enemy_effect_system, reset_game_level, reset_level_stats_system,
     reset_survival_time, setup_game, setup_game_assets, track_enemy_kills_system,
     track_level_kills_system, track_level_xp_system, update_level_time_system,
@@ -62,13 +62,6 @@ pub fn plugin(app: &mut App) {
             reset_game_level,
             reset_level_stats_system,
         ).chain())
-        // Input systems
-        .add_systems(
-            Update,
-            game_input
-                .in_set(GameSet::Input)
-                .run_if(in_state(GameState::InGame)),
-        )
         // Movement systems (player_movement and enemy_movement_system are in movement_plugin)
         // spell_follow_player_system is now in spell_plugin
         .add_systems(

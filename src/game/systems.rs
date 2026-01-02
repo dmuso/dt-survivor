@@ -144,16 +144,6 @@ pub fn setup_game_assets(
     commands.insert_resource(DamageFlashMaterial(flash_material));
 }
 
-pub fn game_input(
-    keyboard_input: Res<ButtonInput<KeyCode>>,
-    mut next_state: ResMut<NextState<GameState>>,
-) {
-    if keyboard_input.just_pressed(KeyCode::Escape) {
-        next_state.set(GameState::Intro);
-    }
-}
-
-
 #[allow(clippy::type_complexity)]
 pub fn cleanup_game(
     mut commands: Commands,
