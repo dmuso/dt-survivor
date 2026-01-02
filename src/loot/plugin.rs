@@ -141,22 +141,24 @@ pub fn plugin(app: &mut App) {
             // Animate falling XP orbs (custom physics simulation)
             animate_falling.run_if(in_state(GameState::InGame)),
 
-            // ECS-based pickup systems - ordered pipeline
-            // 1. Detect when items enter pickup radius
-            detect_pickup_collisions.run_if(in_state(GameState::InGame)),
-            // 2. Start pop-up animation when pickup event received
-            start_popup_animation.run_if(in_state(GameState::InGame)),
-            // 3. Animate the pop-up (fly up, then fall)
-            animate_popup.run_if(in_state(GameState::InGame)),
-            // 4. Attract items toward player
-            update_item_attraction.run_if(in_state(GameState::InGame)),
-            // 5. Move items based on velocity
-            update_item_movement.run_if(in_state(GameState::InGame)),
-            // 6. Complete pickup when items reach player
-            complete_pickup_when_close.run_if(in_state(GameState::InGame)),
-            // 7. Apply pickup effects
-            apply_item_effects.run_if(in_state(GameState::InGame)),
-            // 8. Cleanup consumed items
-            cleanup_consumed_items.run_if(in_state(GameState::InGame)),
+            // ECS-based pickup systems - ordered pipeline (chained for deterministic execution)
+            (
+                // 1. Detect when items enter pickup radius
+                detect_pickup_collisions,
+                // 2. Start pop-up animation when pickup event received
+                start_popup_animation,
+                // 3. Animate the pop-up (fly up, then fall)
+                animate_popup,
+                // 4. Attract items toward player
+                update_item_attraction,
+                // 5. Move items based on velocity
+                update_item_movement,
+                // 6. Complete pickup when items reach player
+                complete_pickup_when_close,
+                // 7. Apply pickup effects
+                apply_item_effects,
+                // 8. Cleanup consumed items
+                cleanup_consumed_items,
+            ).chain().run_if(in_state(GameState::InGame)),
         ));
 }

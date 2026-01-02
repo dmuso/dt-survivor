@@ -13,6 +13,7 @@ use crate::audio::plugin::*;
 use crate::game::components::Level;
 use crate::game::resources::{GameMaterials, GameMeshes, ScreenTintEffect, SpellLootMaterials, XpOrbMaterials};
 use crate::game::events::LootDropEvent;
+use crate::states::GameState;
 use crate::whisper::components::{LightningSpawnTimer, WhisperCompanion, WhisperOuterGlow};
 use crate::whisper::resources::WhisperState;
 use crate::whisper::systems::{WHISPER_LIGHT_COLOR, WHISPER_LIGHT_INTENSITY, WHISPER_LIGHT_RADIUS};
@@ -501,6 +502,7 @@ pub fn apply_item_effects(
     mut active_powerups: ResMut<crate::powerup::components::ActivePowerups>,
     mut screen_tint: ResMut<ScreenTintEffect>,
     mut whisper_state: ResMut<WhisperState>,
+    mut next_state: ResMut<NextState<GameState>>,
     game_meshes: Option<Res<GameMeshes>>,
     game_materials: Option<Res<GameMaterials>>,
     asset_server: Option<Res<AssetServer>>,
@@ -521,37 +523,30 @@ pub fn apply_item_effects(
                 // 3. SpellList has empty slot -> Equip to empty slot
                 // 4. InventoryBag has empty slot -> Add to bag
                 // 5. Both full -> Spell is lost
+                // All paths fall through to mark item as Consumed
 
-                // Check SpellList for same spell (level up)
                 if let Some(slot) = spell_list.find_spell_slot(spell_type) {
+                    // Check SpellList for same spell (level up)
                     if let Some(spell) = spell_list.get_spell_mut(slot) {
                         spell.level_up();
                     }
                     play_powerup_sound(&asset_server, &mut audio_channel, &mut sound_limiter, &mut loot_cooldown);
-                    continue;
-                }
-
-                // Check bag for same spell (level up)
-                if let Some(slot) = inventory_bag.find_spell(spell_type) {
+                } else if let Some(slot) = inventory_bag.find_spell(spell_type) {
+                    // Check bag for same spell (level up)
                     if let Some(spell) = inventory_bag.get_spell_mut(slot) {
                         spell.level_up();
                     }
                     play_powerup_sound(&asset_server, &mut audio_channel, &mut sound_limiter, &mut loot_cooldown);
-                    continue;
+                } else {
+                    // Try to equip to SpellList or add to bag
+                    let new_spell = Spell::new(*spell_type);
+                    if spell_list.equip(new_spell.clone()).is_some()
+                        || inventory_bag.add(new_spell).is_some()
+                    {
+                        play_powerup_sound(&asset_server, &mut audio_channel, &mut sound_limiter, &mut loot_cooldown);
+                    }
+                    // Both full -> spell is lost (no sound played)
                 }
-
-                // Try to equip to SpellList
-                let new_spell = Spell::new(*spell_type);
-                if spell_list.equip(new_spell.clone()).is_some() {
-                    play_powerup_sound(&asset_server, &mut audio_channel, &mut sound_limiter, &mut loot_cooldown);
-                    continue;
-                }
-
-                // Try to add to bag
-                if inventory_bag.add(new_spell).is_some() {
-                    play_powerup_sound(&asset_server, &mut audio_channel, &mut sound_limiter, &mut loot_cooldown);
-                }
-                // Both full -> spell is lost (no sound played)
             }
             ItemData::HealthPack { heal_amount } => {
                 // Heal player
@@ -620,13 +615,13 @@ pub fn apply_item_effects(
                 // Mark as collected
                 whisper_state.collected = true;
 
-                // Add default Fireball spell to spell list (if available)
-                if let Some(ref mut spell_list) = spell_list {
-                    let fireball = Spell::new(SpellType::Fireball);
-                    spell_list.equip(fireball);
-                }
+                // Don't add default spell here - let player choose attunement first
+                // The spell will be added after attunement selection
 
                 play_powerup_sound(&asset_server, &mut audio_channel, &mut sound_limiter, &mut loot_cooldown);
+
+                // Transition to attunement selection screen
+                next_state.set(GameState::AttunementSelect);
             }
         }
 
@@ -2172,6 +2167,179 @@ mod tests {
                 }
                 _ => panic!("Expected Experience item data"),
             }
+        }
+    }
+
+    mod pickup_despawn_tests {
+        use super::*;
+        use bevy::state::app::StatesPlugin;
+
+        /// Test that spell pickups transition to Consumed state when leveling up existing spell
+        /// This is a regression test for the bug where items wouldn't despawn after pickup
+        #[test]
+        fn test_spell_level_up_sets_consumed_state() {
+            let mut app = App::new();
+            app.add_plugins(StatesPlugin);
+            app.add_message::<ItemEffectEvent>();
+
+            // Set up required resources
+            let mut spell_list = SpellList::default();
+            spell_list.equip(Spell::new(SpellType::Fireball)); // Already have Fireball
+            app.insert_resource(spell_list);
+            app.insert_resource(InventoryBag::default());
+            app.insert_resource(crate::powerup::components::ActivePowerups::default());
+            app.insert_resource(ScreenTintEffect::default());
+            app.insert_resource(WhisperState::default());
+            app.init_state::<GameState>();
+
+            // Chain complete_pickup_when_close with apply_item_effects to trigger event flow
+            app.add_systems(Update, (complete_pickup_when_close, apply_item_effects).chain());
+
+            // Create a player entity at origin
+            app.world_mut().spawn((
+                Player {
+                    speed: 200.0,
+                    regen_rate: 1.0,
+                    pickup_radius: 50.0,
+                    last_movement_direction: Vec3::ZERO,
+                },
+                Transform::from_translation(Vec3::ZERO),
+                Health::new(100.0),
+            ));
+
+            // Create an item in BeingAttracted state, very close to player (within pickup threshold)
+            let item_entity = app.world_mut().spawn((
+                DroppedItem {
+                    pickup_state: PickupState::BeingAttracted,
+                    item_data: ItemData::Spell(SpellType::Fireball), // Same spell for level up
+                    velocity: Vec3::ZERO,
+                    rotation_speed: 0.0,
+                    rotation_direction: 1.0,
+                },
+                Transform::from_translation(Vec3::new(0.0, PLAYER_HEIGHT * 0.5, 0.0)), // At player pickup point
+            )).id();
+
+            // Run the systems - should trigger pickup and apply effects
+            app.update();
+
+            // Verify item is now in Consumed state (not stuck in PickedUp)
+            let item = app.world().get::<DroppedItem>(item_entity).unwrap();
+            assert_eq!(
+                item.pickup_state,
+                PickupState::Consumed,
+                "Item should be in Consumed state after spell level up, but was in {:?}",
+                item.pickup_state
+            );
+        }
+
+        /// Test that spell pickups transition to Consumed state when equipped to empty slot
+        #[test]
+        fn test_spell_equip_sets_consumed_state() {
+            let mut app = App::new();
+            app.add_plugins(StatesPlugin);
+            app.add_message::<ItemEffectEvent>();
+
+            // Set up required resources with empty spell list
+            app.insert_resource(SpellList::default());
+            app.insert_resource(InventoryBag::default());
+            app.insert_resource(crate::powerup::components::ActivePowerups::default());
+            app.insert_resource(ScreenTintEffect::default());
+            app.insert_resource(WhisperState::default());
+            app.init_state::<GameState>();
+
+            app.add_systems(Update, (complete_pickup_when_close, apply_item_effects).chain());
+
+            // Create a player entity at origin
+            app.world_mut().spawn((
+                Player {
+                    speed: 200.0,
+                    regen_rate: 1.0,
+                    pickup_radius: 50.0,
+                    last_movement_direction: Vec3::ZERO,
+                },
+                Transform::from_translation(Vec3::ZERO),
+                Health::new(100.0),
+            ));
+
+            // Create an item in BeingAttracted state, very close to player
+            let item_entity = app.world_mut().spawn((
+                DroppedItem {
+                    pickup_state: PickupState::BeingAttracted,
+                    item_data: ItemData::Spell(SpellType::Fireball),
+                    velocity: Vec3::ZERO,
+                    rotation_speed: 0.0,
+                    rotation_direction: 1.0,
+                },
+                Transform::from_translation(Vec3::new(0.0, PLAYER_HEIGHT * 0.5, 0.0)),
+            )).id();
+
+            // Run the systems
+            app.update();
+
+            // Verify item is now in Consumed state
+            let item = app.world().get::<DroppedItem>(item_entity).unwrap();
+            assert_eq!(
+                item.pickup_state,
+                PickupState::Consumed,
+                "Item should be in Consumed state after spell equip, but was in {:?}",
+                item.pickup_state
+            );
+        }
+
+        /// Test that spell pickups transition to Consumed state when leveling up spell in bag
+        #[test]
+        fn test_spell_bag_level_up_sets_consumed_state() {
+            let mut app = App::new();
+            app.add_plugins(StatesPlugin);
+            app.add_message::<ItemEffectEvent>();
+
+            // Set up required resources with spell in bag
+            app.insert_resource(SpellList::default());
+            let mut bag = InventoryBag::default();
+            bag.add(Spell::new(SpellType::IceShard));
+            app.insert_resource(bag);
+            app.insert_resource(crate::powerup::components::ActivePowerups::default());
+            app.insert_resource(ScreenTintEffect::default());
+            app.insert_resource(WhisperState::default());
+            app.init_state::<GameState>();
+
+            app.add_systems(Update, (complete_pickup_when_close, apply_item_effects).chain());
+
+            // Create a player entity at origin
+            app.world_mut().spawn((
+                Player {
+                    speed: 200.0,
+                    regen_rate: 1.0,
+                    pickup_radius: 50.0,
+                    last_movement_direction: Vec3::ZERO,
+                },
+                Transform::from_translation(Vec3::ZERO),
+                Health::new(100.0),
+            ));
+
+            // Create an item in BeingAttracted state, very close to player
+            let item_entity = app.world_mut().spawn((
+                DroppedItem {
+                    pickup_state: PickupState::BeingAttracted,
+                    item_data: ItemData::Spell(SpellType::IceShard), // Same spell for bag level up
+                    velocity: Vec3::ZERO,
+                    rotation_speed: 0.0,
+                    rotation_direction: 1.0,
+                },
+                Transform::from_translation(Vec3::new(0.0, PLAYER_HEIGHT * 0.5, 0.0)),
+            )).id();
+
+            // Run the systems
+            app.update();
+
+            // Verify item is now in Consumed state
+            let item = app.world().get::<DroppedItem>(item_entity).unwrap();
+            assert_eq!(
+                item.pickup_state,
+                PickupState::Consumed,
+                "Item should be in Consumed state after bag spell level up, but was in {:?}",
+                item.pickup_state
+            );
         }
     }
 
