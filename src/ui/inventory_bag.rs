@@ -3,8 +3,10 @@ use bevy::prelude::*;
 use crate::inventory::{InventoryBag, SpellList};
 use crate::spell::Spell;
 use crate::states::GameState;
-use crate::ui::components::{apply_empty_slot_hover_style, apply_empty_slot_style, spawn_spell_icon_visual};
-use crate::ui::spell_slot::{spawn_spell_slot, SlotSource, SLOT_SIZE as SPELL_SLOT_SIZE};
+use crate::ui::components::{apply_empty_slot_hover_style, apply_empty_slot_style};
+use crate::ui::spell_slot::{
+    spawn_spell_icon_visual, spawn_spell_slot, SlotSource, SLOT_SIZE as SPELL_SLOT_SIZE,
+};
 
 const BAG_COLUMNS: usize = 6;
 const BAG_ROWS: usize = 5;

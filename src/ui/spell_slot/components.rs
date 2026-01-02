@@ -45,6 +45,11 @@ pub struct SpellIconImage {
     pub index: usize,
 }
 
+/// Marker component for standalone spell icon visuals.
+/// Used for drag visuals and other non-slot spell icons that don't need refresh system.
+#[derive(Component)]
+pub struct SpellIconVisual;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,5 +133,11 @@ mod tests {
     fn spell_icon_image_stores_index() {
         let icon = SpellIconImage { index: 1 };
         assert_eq!(icon.index, 1);
+    }
+
+    #[test]
+    fn spell_icon_visual_is_a_component() {
+        fn assert_component<T: Component>() {}
+        assert_component::<SpellIconVisual>();
     }
 }

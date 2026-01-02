@@ -1,96 +1,37 @@
-use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use bevy::prelude::*;
-
-use crate::spell::Spell;
 
 /// Standard size for spell icon slots (used in both HUD and inventory).
 pub const SPELL_SLOT_SIZE: f32 = 50.0;
 
-/// Marker component for spell icon visual content.
-/// Used to identify and update spell icon visuals when spells change.
-#[derive(Component)]
-pub struct SpellIconVisual;
+/// Empty slot styling constants - used consistently across active spell bar and inventory.
+/// These define the appearance of slots without spells.
+pub mod empty_slot {
+    use bevy::prelude::*;
 
-/// Spawns a spell icon visual that fills the given size.
-/// For spells with custom textures, the texture fills the entire area with no background.
-/// For spells without textures, uses element-colored background with spell abbreviation.
-///
-/// # Arguments
-/// * `parent` - The parent entity to spawn the icon under
-/// * `spell` - The spell to render (or None for empty slot)
-/// * `size` - The size of the icon in pixels
-/// * `asset_server` - Asset server for loading textures (optional)
-pub fn spawn_spell_icon_visual(
-    parent: &mut ChildSpawnerCommands,
-    spell: Option<&Spell>,
-    size: f32,
-    asset_server: Option<&AssetServer>,
-) {
-    match spell {
-        Some(spell) => {
-            // Check if spell has a custom icon texture
-            if let (Some(icon_path), Some(asset_server)) =
-                (spell.spell_type.icon_path(), asset_server)
-            {
-                // Use custom texture - no background, just the image
-                parent.spawn((
-                    Node {
-                        width: Val::Px(size),
-                        height: Val::Px(size),
-                        ..default()
-                    },
-                    ImageNode {
-                        image: asset_server.load(icon_path),
-                        ..default()
-                    },
-                    BorderRadius::all(Val::Px(4.0)),
-                    SpellIconVisual,
-                ));
-            } else {
-                // Element-colored square with spell abbreviation
-                parent
-                    .spawn((
-                        Node {
-                            width: Val::Px(size),
-                            height: Val::Px(size),
-                            justify_content: JustifyContent::Center,
-                            align_items: AlignItems::Center,
-                            border: UiRect::all(Val::Px(2.0)),
-                            ..default()
-                        },
-                        BackgroundColor(spell.element.color()),
-                        BorderColor::all(spell.element.color().lighter(0.3)),
-                        BorderRadius::all(Val::Px(4.0)),
-                        SpellIconVisual,
-                    ))
-                    .with_children(|icon| {
-                        // Spell type abbreviation
-                        icon.spawn((
-                            Text::new(spell.spell_type.abbreviation()),
-                            TextFont {
-                                font_size: size * 0.35,
-                                ..default()
-                            },
-                            TextColor(Color::WHITE),
-                            TextLayout::new_with_justify(bevy::text::Justify::Center),
-                        ));
-                    });
-            }
-        }
-        None => {
-            // Empty slot - visible gray placeholder
-            parent.spawn((
-                Node {
-                    width: Val::Px(size),
-                    height: Val::Px(size),
-                    ..default()
-                },
-                BackgroundColor(Color::srgba(0.3, 0.3, 0.3, 0.3)),
-                BorderRadius::all(Val::Px(4.0)),
-                SpellIconVisual,
-            ));
-        }
-    }
+    /// Background color for the slot container.
+    pub const SLOT_BACKGROUND: Color = Color::srgba(0.2, 0.2, 0.2, 0.8);
+
+    /// Border color for the slot container.
+    pub const SLOT_BORDER: Color = Color::srgba(0.4, 0.4, 0.4, 0.8);
+
+    /// Hover state background for empty slots.
+    pub const SLOT_BACKGROUND_HOVER: Color = Color::srgba(0.4, 0.4, 0.4, 0.8);
+
+    /// Hover state border for empty slots.
+    pub const SLOT_BORDER_HOVER: Color = Color::srgba(0.6, 0.6, 0.6, 0.8);
+}
+
+/// Apply empty slot styling to a slot's background and border.
+/// Use this to ensure consistent empty slot appearance across UI.
+pub fn apply_empty_slot_style(bg_color: &mut BackgroundColor, border_color: &mut BorderColor) {
+    *bg_color = BackgroundColor(empty_slot::SLOT_BACKGROUND);
+    *border_color = BorderColor::all(empty_slot::SLOT_BORDER);
+}
+
+/// Apply empty slot hover styling to a slot's background and border.
+pub fn apply_empty_slot_hover_style(bg_color: &mut BackgroundColor, border_color: &mut BorderColor) {
+    *bg_color = BackgroundColor(empty_slot::SLOT_BACKGROUND_HOVER);
+    *border_color = BorderColor::all(empty_slot::SLOT_BORDER_HOVER);
 }
 
 #[derive(Component)]
@@ -111,19 +52,6 @@ pub struct HealthBar;
 #[derive(Component)]
 pub struct ScreenTint;
 
-/// Marker component for a spell slot in the spell bar UI.
-#[derive(Component)]
-pub struct SpellSlot {
-    pub slot_index: usize,
-}
-
-/// Marker component for a spell icon in the spell bar.
-/// The slot_index links this to the corresponding spell in SpellList.
-#[derive(Component)]
-pub struct SpellIcon {
-    pub slot_index: usize,
-}
-
 /// Marker component for the cooldown timer overlay.
 #[derive(Component)]
 pub struct SpellCooldownTimer {
@@ -140,18 +68,6 @@ pub struct SpellCooldownTimerFill {
 /// Uses a custom UiMaterial shader for smooth radial sweep animation.
 #[derive(Component)]
 pub struct RadialCooldownOverlay {
-    pub slot_index: usize,
-}
-
-/// Marker component for spell level display text.
-#[derive(Component)]
-pub struct SpellLevelDisplay {
-    pub slot_index: usize,
-}
-
-/// Marker component for spell abbreviation text in the icon.
-#[derive(Component)]
-pub struct SpellIconAbbreviation {
     pub slot_index: usize,
 }
 
@@ -269,30 +185,6 @@ mod tests {
     }
 
     #[test]
-    fn spell_slot_is_a_component() {
-        fn assert_component<T: Component>() {}
-        assert_component::<SpellSlot>();
-    }
-
-    #[test]
-    fn spell_slot_stores_index() {
-        let slot = SpellSlot { slot_index: 2 };
-        assert_eq!(slot.slot_index, 2);
-    }
-
-    #[test]
-    fn spell_icon_is_a_component() {
-        fn assert_component<T: Component>() {}
-        assert_component::<SpellIcon>();
-    }
-
-    #[test]
-    fn spell_icon_stores_slot_index() {
-        let icon = SpellIcon { slot_index: 3 };
-        assert_eq!(icon.slot_index, 3);
-    }
-
-    #[test]
     fn spell_cooldown_timer_is_a_component() {
         fn assert_component<T: Component>() {}
         assert_component::<SpellCooldownTimer>();
@@ -314,12 +206,6 @@ mod tests {
     fn radial_cooldown_overlay_stores_slot_index() {
         let overlay = RadialCooldownOverlay { slot_index: 3 };
         assert_eq!(overlay.slot_index, 3);
-    }
-
-    #[test]
-    fn spell_level_display_is_a_component() {
-        fn assert_component<T: Component>() {}
-        assert_component::<SpellLevelDisplay>();
     }
 
     #[test]
@@ -408,9 +294,56 @@ mod tests {
         assert_eq!(SPELL_SLOT_SIZE, 50.0);
     }
 
-    #[test]
-    fn spell_icon_visual_is_a_component() {
-        fn assert_component<T: Component>() {}
-        assert_component::<SpellIconVisual>();
+    mod empty_slot_tests {
+        use super::*;
+
+        #[test]
+        fn slot_background_is_dark_gray() {
+            let color = empty_slot::SLOT_BACKGROUND;
+            if let Color::Srgba(srgba) = color {
+                assert!((srgba.red - 0.2).abs() < 0.01);
+                assert!((srgba.green - 0.2).abs() < 0.01);
+                assert!((srgba.blue - 0.2).abs() < 0.01);
+                assert!((srgba.alpha - 0.8).abs() < 0.01);
+            } else {
+                panic!("Expected Srgba color");
+            }
+        }
+
+        #[test]
+        fn slot_border_is_medium_gray() {
+            let color = empty_slot::SLOT_BORDER;
+            if let Color::Srgba(srgba) = color {
+                assert!((srgba.red - 0.4).abs() < 0.01);
+                assert!((srgba.green - 0.4).abs() < 0.01);
+                assert!((srgba.blue - 0.4).abs() < 0.01);
+                assert!((srgba.alpha - 0.8).abs() < 0.01);
+            } else {
+                panic!("Expected Srgba color");
+            }
+        }
+
+        #[test]
+        fn apply_empty_slot_style_sets_correct_colors() {
+            let mut bg_color = BackgroundColor(Color::WHITE);
+            let mut border_color = BorderColor::all(Color::WHITE);
+
+            apply_empty_slot_style(&mut bg_color, &mut border_color);
+
+            assert_eq!(bg_color.0, empty_slot::SLOT_BACKGROUND);
+            // BorderColor stores colors per side, check the overall color
+            assert_eq!(border_color.top, empty_slot::SLOT_BORDER);
+        }
+
+        #[test]
+        fn apply_empty_slot_hover_style_sets_correct_colors() {
+            let mut bg_color = BackgroundColor(Color::WHITE);
+            let mut border_color = BorderColor::all(Color::WHITE);
+
+            apply_empty_slot_hover_style(&mut bg_color, &mut border_color);
+
+            assert_eq!(bg_color.0, empty_slot::SLOT_BACKGROUND_HOVER);
+            assert_eq!(border_color.top, empty_slot::SLOT_BORDER_HOVER);
+        }
     }
 }

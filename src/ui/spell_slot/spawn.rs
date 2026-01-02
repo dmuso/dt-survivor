@@ -35,7 +35,8 @@ use bevy::prelude::*;
 
 use crate::spell::Spell;
 use crate::ui::spell_slot::components::{
-    SlotSource, SpellAbbreviation, SpellIconImage, SpellLevelIndicator, SpellSlotVisual,
+    SlotSource, SpellAbbreviation, SpellIconImage, SpellIconVisual, SpellLevelIndicator,
+    SpellSlotVisual,
 };
 
 /// Returns background and border colors for a spell slot.
@@ -196,6 +197,83 @@ pub fn spawn_level_indicator(parent: &mut ChildSpawnerCommands, index: usize) ->
             ));
         })
         .id()
+}
+
+/// Spawns a standalone spell icon visual that fills the given size.
+///
+/// Used for drag visuals and other cases where a spell icon is needed
+/// outside of the standard slot refresh system.
+///
+/// For spells with custom textures, the texture fills the entire area with no background.
+/// For spells without textures, uses element-colored background with spell abbreviation.
+///
+/// # Arguments
+/// * `parent` - The parent entity to spawn the icon under
+/// * `spell` - The spell to render (or None for empty slot)
+/// * `size` - The size of the icon in pixels
+/// * `asset_server` - Asset server for loading textures (optional)
+pub fn spawn_spell_icon_visual(
+    parent: &mut ChildSpawnerCommands,
+    spell: Option<&Spell>,
+    size: f32,
+    asset_server: Option<&AssetServer>,
+) {
+    match spell {
+        Some(spell) => {
+            // Check if spell has a custom icon texture
+            if let (Some(icon_path), Some(asset_server)) =
+                (spell.spell_type.icon_path(), asset_server)
+            {
+                // Use custom texture - no background, just the image
+                parent.spawn((
+                    Node {
+                        width: Val::Px(size),
+                        height: Val::Px(size),
+                        ..default()
+                    },
+                    ImageNode {
+                        image: asset_server.load(icon_path),
+                        ..default()
+                    },
+                    BorderRadius::all(Val::Px(4.0)),
+                    SpellIconVisual,
+                ));
+            } else {
+                // Element-colored square with spell abbreviation
+                parent
+                    .spawn((
+                        Node {
+                            width: Val::Px(size),
+                            height: Val::Px(size),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            border: UiRect::all(Val::Px(2.0)),
+                            ..default()
+                        },
+                        BackgroundColor(spell.element.color()),
+                        BorderColor::all(spell.element.color().lighter(0.3)),
+                        BorderRadius::all(Val::Px(4.0)),
+                        SpellIconVisual,
+                    ))
+                    .with_children(|icon| {
+                        // Spell type abbreviation
+                        icon.spawn((
+                            Text::new(spell.spell_type.abbreviation()),
+                            TextFont {
+                                font_size: size * 0.35,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            TextLayout::new_with_justify(bevy::text::Justify::Center),
+                        ));
+                    });
+            }
+        }
+        None => {
+            // Empty slot - don't spawn any icon visual
+            // The slot container handles its own empty appearance
+        }
+    }
 }
 
 #[cfg(test)]
