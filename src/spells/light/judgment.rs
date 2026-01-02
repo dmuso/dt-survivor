@@ -205,7 +205,9 @@ pub fn update_judgment_strikes(
                     Mesh3d(meshes.laser.clone()),
                     MeshMaterial3d(materials.radiant_beam.clone()),
                     Transform::from_translation(beam_pos)
-                        .with_scale(Vec3::new(JUDGMENT_BEAM_WIDTH, JUDGMENT_BEAM_HEIGHT, JUDGMENT_BEAM_WIDTH)),
+                        // Rotate laser mesh 90° around X axis so it points up (Y) instead of forward (Z)
+                        .with_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2))
+                        .with_scale(Vec3::new(JUDGMENT_BEAM_WIDTH, JUDGMENT_BEAM_WIDTH, JUDGMENT_BEAM_HEIGHT)),
                     beam,
                 ));
             } else {
@@ -256,10 +258,10 @@ pub fn update_judgment_beams(
     for (entity, mut beam, mut transform) in beam_query.iter_mut() {
         beam.lifetime.tick(time.delta());
 
-        // Fade out effect by scaling down width
+        // Fade out effect by scaling down width (X and Y since beam is rotated)
         let progress = beam.lifetime.elapsed_secs() / JUDGMENT_BEAM_LIFETIME;
         let width_scale = JUDGMENT_BEAM_WIDTH * (1.0 - progress * 0.7);
-        transform.scale = Vec3::new(width_scale, JUDGMENT_BEAM_HEIGHT, width_scale);
+        transform.scale = Vec3::new(width_scale, width_scale, JUDGMENT_BEAM_HEIGHT);
 
         if beam.is_expired() {
             commands.entity(entity).despawn();
@@ -628,6 +630,80 @@ mod tests {
             // No beam yet
             let mut query = app.world_mut().query::<&JudgmentBeam>();
             assert_eq!(query.iter(app.world()).count(), 0);
+        }
+
+        #[test]
+        fn test_beam_spawns_with_vertical_rotation_and_correct_scale() {
+            use bevy::asset::Assets;
+            use bevy::pbr::StandardMaterial;
+
+            let mut app = App::new();
+            app.add_plugins(bevy::asset::AssetPlugin::default());
+            app.init_asset::<Mesh>();
+            app.init_asset::<StandardMaterial>();
+            app.init_resource::<Time>();
+
+            // Setup game resources
+            let game_meshes = {
+                let mut meshes = app.world_mut().resource_mut::<Assets<Mesh>>();
+                crate::game::resources::GameMeshes::new(&mut meshes)
+            };
+            app.world_mut().insert_resource(game_meshes);
+
+            let game_materials = {
+                let mut materials = app.world_mut().resource_mut::<Assets<StandardMaterial>>();
+                crate::game::resources::GameMaterials::new(&mut materials)
+            };
+            app.world_mut().insert_resource(game_materials);
+
+            app.add_systems(Update, update_judgment_strikes);
+
+            // Create strike with very short delay
+            let strike = JudgmentStrike::new(Vec2::new(5.0, 10.0), 40.0, 0.01);
+            app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(5.0, 0.1, 10.0)),
+                strike,
+            ));
+
+            // Advance time past delay
+            {
+                let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+                time.advance_by(Duration::from_secs_f32(0.02));
+            }
+
+            app.update();
+
+            // Verify beam spawned with mesh and correct transform
+            let mut query = app.world_mut().query::<(&JudgmentBeam, &Transform, &Mesh3d)>();
+            let results: Vec<_> = query.iter(app.world()).collect();
+            assert_eq!(results.len(), 1);
+
+            let (_beam, transform, _mesh) = results[0];
+
+            // Verify scale matches (WIDTH, WIDTH, HEIGHT) for rotated beam
+            let expected_scale = Vec3::new(JUDGMENT_BEAM_WIDTH, JUDGMENT_BEAM_WIDTH, JUDGMENT_BEAM_HEIGHT);
+            assert!(
+                (transform.scale - expected_scale).length() < 0.001,
+                "Expected scale {:?}, got {:?}",
+                expected_scale, transform.scale
+            );
+
+            // Verify rotation is 90 degrees around X axis (to point beam upward)
+            let expected_rotation = Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
+            let angle_diff = transform.rotation.angle_between(expected_rotation);
+            assert!(
+                angle_diff < 0.001,
+                "Expected rotation {:?}, got {:?} (angle diff: {})",
+                expected_rotation, transform.rotation, angle_diff
+            );
+
+            // Verify Y position is at half beam height
+            let expected_y = JUDGMENT_BEAM_HEIGHT / 2.0;
+            assert!(
+                (transform.translation.y - expected_y).abs() < 0.001,
+                "Expected Y position {}, got {}",
+                expected_y, transform.translation.y
+            );
         }
     }
 
