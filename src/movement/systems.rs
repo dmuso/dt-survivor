@@ -131,6 +131,7 @@ pub fn player_movement(
 /// FrozenStatus which completely prevents movement, StunnedEnemy for synapse shock stuns,
 /// and ConfusedEnemy which uses different AI.
 /// When multiple slow effects are present, uses the stronger slow (lower multiplier).
+/// Also applies any Velocity component (e.g., from spell pull effects like Void Rift).
 #[allow(clippy::type_complexity)]
 pub fn enemy_movement_system(
     mut enemy_query: Query<(
@@ -141,13 +142,14 @@ pub fn enemy_movement_system(
         Option<&FrozenStatus>,
         Option<&ConfusedEnemy>,
         Option<&StunnedEnemy>,
+        Option<&Velocity>,
     )>,
     player_position: Res<PlayerPosition>,
     time: Res<Time>,
 ) {
     let player_pos = player_position.0; // Vec2 representing XZ coordinates
 
-    for (mut transform, enemy, slowed_debuff, in_hoarfrost, frozen_status, confused, stunned) in enemy_query.iter_mut()
+    for (mut transform, enemy, slowed_debuff, in_hoarfrost, frozen_status, confused, stunned, velocity) in enemy_query.iter_mut()
     {
         // Frozen enemies cannot move at all
         if frozen_status.is_some() {
@@ -182,6 +184,11 @@ pub fn enemy_movement_system(
         // Move enemy towards player on XZ plane
         let movement = direction * effective_speed * time.delta_secs();
         transform.translation += to_xz(movement);
+
+        // Apply velocity component if present (e.g., from pull effects like Void Rift)
+        if let Some(vel) = velocity {
+            transform.translation += to_xz(vel.value() * time.delta_secs());
+        }
     }
 }
 
@@ -1057,6 +1064,178 @@ mod tests {
         assert!(
             transform.translation.x.abs() < 0.01,
             "Stunned enemy should not move, got x={}",
+            transform.translation.x
+        );
+    }
+
+    #[test]
+    fn test_enemy_movement_applies_velocity_component() {
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin::default());
+        app.init_resource::<PlayerPosition>();
+
+        // Set player position at origin (so no normal movement towards player)
+        {
+            let mut player_pos = app.world_mut().get_resource_mut::<PlayerPosition>().unwrap();
+            player_pos.0 = Vec2::new(0.0, 0.0);
+        }
+
+        // Create enemy at origin with a Velocity component (simulating pull effect)
+        // The velocity should be applied in addition to normal movement
+        let entity = app
+            .world_mut()
+            .spawn((
+                Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+                Enemy {
+                    speed: 100.0,
+                    strength: 10.0,
+                },
+                Velocity::new(Vec2::new(50.0, 0.0)), // Pull velocity in +X direction
+            ))
+            .id();
+
+        // Advance time by 1 second
+        {
+            let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+            time.advance_by(Duration::from_secs(1));
+        }
+
+        let _ = app.world_mut().run_system_once(enemy_movement_system);
+
+        // Enemy should have moved by velocity (50 units in X direction)
+        // Note: Since enemy is at same position as player, no direction-based movement
+        let transform = app.world().get::<Transform>(entity).unwrap();
+        assert!(
+            (transform.translation.x - 50.0).abs() < 0.01,
+            "Enemy should move by velocity, expected x=50.0, got x={}",
+            transform.translation.x
+        );
+    }
+
+    #[test]
+    fn test_enemy_movement_combines_velocity_with_normal_movement() {
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin::default());
+        app.init_resource::<PlayerPosition>();
+
+        // Set player position in +X direction
+        {
+            let mut player_pos = app.world_mut().get_resource_mut::<PlayerPosition>().unwrap();
+            player_pos.0 = Vec2::new(100.0, 0.0);
+        }
+
+        // Create enemy with velocity pointing in -X direction (opposing movement)
+        let entity = app
+            .world_mut()
+            .spawn((
+                Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+                Enemy {
+                    speed: 100.0,
+                    strength: 10.0,
+                },
+                Velocity::new(Vec2::new(-50.0, 0.0)), // Pull velocity in -X direction
+            ))
+            .id();
+
+        // Advance time by 1 second
+        {
+            let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+            time.advance_by(Duration::from_secs(1));
+        }
+
+        let _ = app.world_mut().run_system_once(enemy_movement_system);
+
+        // Enemy should move +100 (towards player) -50 (velocity) = +50 net
+        let transform = app.world().get::<Transform>(entity).unwrap();
+        assert!(
+            (transform.translation.x - 50.0).abs() < 0.01,
+            "Enemy should combine velocity with normal movement, expected x=50.0, got x={}",
+            transform.translation.x
+        );
+    }
+
+    #[test]
+    fn test_frozen_enemy_ignores_velocity() {
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin::default());
+        app.init_resource::<PlayerPosition>();
+
+        // Set player position
+        {
+            let mut player_pos = app.world_mut().get_resource_mut::<PlayerPosition>().unwrap();
+            player_pos.0 = Vec2::new(100.0, 0.0);
+        }
+
+        // Create frozen enemy with velocity - should NOT move at all
+        let entity = app
+            .world_mut()
+            .spawn((
+                Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+                Enemy {
+                    speed: 100.0,
+                    strength: 10.0,
+                },
+                Velocity::new(Vec2::new(50.0, 0.0)),
+                FrozenStatus::default(),
+            ))
+            .id();
+
+        // Advance time
+        {
+            let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+            time.advance_by(Duration::from_secs(1));
+        }
+
+        let _ = app.world_mut().run_system_once(enemy_movement_system);
+
+        // Frozen enemy should not move even with velocity
+        let transform = app.world().get::<Transform>(entity).unwrap();
+        assert!(
+            transform.translation.x.abs() < 0.01,
+            "Frozen enemy should not move even with velocity, got x={}",
+            transform.translation.x
+        );
+    }
+
+    #[test]
+    fn test_stunned_enemy_ignores_velocity() {
+        let mut app = App::new();
+        app.add_plugins(bevy::time::TimePlugin::default());
+        app.init_resource::<PlayerPosition>();
+
+        // Set player position
+        {
+            let mut player_pos = app.world_mut().get_resource_mut::<PlayerPosition>().unwrap();
+            player_pos.0 = Vec2::new(100.0, 0.0);
+        }
+
+        // Create stunned enemy with velocity - should NOT move at all
+        let entity = app
+            .world_mut()
+            .spawn((
+                Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+                Enemy {
+                    speed: 100.0,
+                    strength: 10.0,
+                },
+                Velocity::new(Vec2::new(50.0, 0.0)),
+                StunnedEnemy::new(2.0, 100.0),
+            ))
+            .id();
+
+        // Advance time
+        {
+            let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+            time.advance_by(Duration::from_secs(1));
+        }
+
+        let _ = app.world_mut().run_system_once(enemy_movement_system);
+
+        // Stunned enemy should not move even with velocity
+        let transform = app.world().get::<Transform>(entity).unwrap();
+        assert!(
+            transform.translation.x.abs() < 0.01,
+            "Stunned enemy should not move even with velocity, got x={}",
             transform.translation.x
         );
     }
