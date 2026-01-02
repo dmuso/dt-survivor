@@ -58,7 +58,8 @@ mod tests {
     use donny_tango_survivor::inventory::resources::SpellList;
     use donny_tango_survivor::game::ScreenTintEffect;
     use donny_tango_survivor::enemies::components::Enemy;
-    use donny_tango_survivor::ui::components::{SpellSlot, SpellIcon, RadialCooldownOverlay};
+    use donny_tango_survivor::ui::components::RadialCooldownOverlay;
+    use donny_tango_survivor::ui::spell_slot::{SpellSlotVisual, SpellIconImage, SlotSource};
     use bevy::app::App;
     use bevy::ecs::system::RunSystemOnce;
 
@@ -443,14 +444,17 @@ mod tests {
         app.world_mut().get_resource_mut::<NextState<GameState>>().unwrap().set(GameState::InGame);
         app.update();
 
-        // Check that spell slots are created
+        // Check that spell slot visuals are created with Active source
         let world = app.world_mut();
-        let slot_count = world.query::<&SpellSlot>().iter(world).count();
-        assert_eq!(slot_count, 5, "Should have 5 spell slots");
+        let slot_visuals: Vec<_> = world.query::<&SpellSlotVisual>().iter(world).collect();
+        assert_eq!(slot_visuals.len(), 5, "Should have 5 spell slot visuals");
+        for visual in slot_visuals {
+            assert_eq!(visual.source, SlotSource::Active, "All slots should have Active source");
+        }
 
-        // Check that spell icons exist for all slots
-        let icon_count = world.query::<&SpellIcon>().iter(world).count();
-        assert_eq!(icon_count, 5, "Should have 5 spell icons for all slots");
+        // Check that spell icon images exist for all slots
+        let icon_count = world.query::<&SpellIconImage>().iter(world).count();
+        assert_eq!(icon_count, 5, "Should have 5 spell icon images for all slots");
 
         // Check that radial cooldown overlays exist for all slots
         let overlay_count = world.query::<&RadialCooldownOverlay>().iter(world).count();

@@ -7,6 +7,7 @@ use crate::enemies::components::Enemy;
 use crate::states::*;
 use crate::ui::components::*;
 use crate::ui::materials::RadialCooldownMaterial;
+use crate::ui::spell_slot::{spawn_spell_slot, SlotSource, SLOT_SIZE as SPELL_SLOT_MODULE_SIZE};
 use crate::player::components::*;
 use crate::inventory::SpellList;
 
@@ -417,8 +418,11 @@ pub fn setup_game_over_ui(
 }
 
 /// Set up the spell bar UI with 5 spell slots at the bottom of the screen.
+/// Uses the spell_slot module for slot spawning - visuals are managed by refresh_spell_slot_visuals.
 pub fn setup_spell_slots(
     mut commands: Commands,
+    spell_list: Res<SpellList>,
+    asset_server: Res<AssetServer>,
     mut cooldown_materials: ResMut<Assets<RadialCooldownMaterial>>,
 ) {
     // Create spell bar container at bottom center
@@ -440,90 +444,31 @@ pub fn setup_spell_slots(
             SpellBar,
         ))
         .with_children(|container| {
-            // Create 5 spell slots
+            // Create 5 spell slots using the spell_slot module
             for slot_index in 0..5 {
+                // Container for the slot and its cooldown overlay
                 container
-                    .spawn((
-                        Node {
-                            width: Val::Px(SPELL_SLOT_SIZE),
-                            height: Val::Px(SPELL_SLOT_SIZE),
-                            justify_content: JustifyContent::Center,
-                            align_items: AlignItems::Center,
-                            flex_direction: FlexDirection::Column,
-                            ..default()
-                        },
-                        BackgroundColor(Color::NONE),
-                        SpellSlot { slot_index },
-                    ))
-                    .with_children(|slot| {
-                        // Level box at top center (absolute positioned, on top)
-                        slot.spawn((
+                    .spawn(Node {
+                        width: Val::Px(SPELL_SLOT_MODULE_SIZE),
+                        height: Val::Px(SPELL_SLOT_MODULE_SIZE),
+                        ..default()
+                    })
+                    .with_children(|slot_container| {
+                        // Spawn the spell slot using the shared module
+                        spawn_spell_slot(
+                            slot_container,
+                            SlotSource::Active,
+                            slot_index,
+                            spell_list.get_spell(slot_index),
+                            &asset_server,
+                        );
+
+                        // Radial cooldown overlay using custom shader (separate concern)
+                        slot_container.spawn((
                             Node {
                                 position_type: PositionType::Absolute,
-                                top: Val::Px(-8.0),
-                                left: Val::Percent(50.0),
-                                margin: UiRect::left(Val::Px(-12.0)), // Center the level box
-                                padding: UiRect::axes(Val::Px(4.0), Val::Px(1.0)),
-                                justify_content: JustifyContent::Center,
-                                align_items: AlignItems::Center,
-                                border: UiRect::all(Val::Px(1.0)),
-                                ..default()
-                            },
-                            BackgroundColor(Color::srgb(0.0, 0.0, 0.0)),
-                            BorderColor::all(Color::srgb(1.0, 1.0, 1.0)),
-                            BorderRadius::all(Val::Px(2.0)),
-                            ZIndex(10),
-                        ))
-                        .with_children(|level_box| {
-                            level_box.spawn((
-                                Text::new(""),
-                                TextFont {
-                                    font_size: 10.0,
-                                    ..default()
-                                },
-                                TextColor(Color::srgb(1.0, 1.0, 1.0)),
-                                TextLayout::new_with_justify(bevy::text::Justify::Center),
-                                SpellLevelDisplay { slot_index },
-                            ));
-                        });
-
-                        // Spell icon (fills slot, uses texture when available)
-                        slot.spawn((
-                            Node {
-                                width: Val::Px(SPELL_SLOT_SIZE),
-                                height: Val::Px(SPELL_SLOT_SIZE),
-                                justify_content: JustifyContent::Center,
-                                align_items: AlignItems::Center,
-                                border: UiRect::all(Val::Px(2.0)),
-                                ..default()
-                            },
-                            ImageNode::default(),
-                            BackgroundColor(Color::srgba(0.3, 0.3, 0.3, 0.3)), // Empty slot gray
-                            BorderColor::all(Color::NONE),
-                            BorderRadius::all(Val::Px(4.0)),
-                            SpellIcon { slot_index },
-                        ))
-                        .with_children(|icon| {
-                            // Abbreviation text (hidden by default, shown for non-textured spells)
-                            icon.spawn((
-                                Text::new(""),
-                                TextFont {
-                                    font_size: SPELL_SLOT_SIZE * 0.35,
-                                    ..default()
-                                },
-                                TextColor(Color::WHITE),
-                                TextLayout::new_with_justify(bevy::text::Justify::Center),
-                                Visibility::Hidden, // Start hidden, update system shows when needed
-                                SpellIconAbbreviation { slot_index },
-                            ));
-                        });
-
-                        // Radial cooldown overlay using custom shader
-                        slot.spawn((
-                            Node {
-                                position_type: PositionType::Absolute,
-                                width: Val::Px(SPELL_SLOT_SIZE),
-                                height: Val::Px(SPELL_SLOT_SIZE),
+                                width: Val::Px(SPELL_SLOT_MODULE_SIZE),
+                                height: Val::Px(SPELL_SLOT_MODULE_SIZE),
                                 ..default()
                             },
                             MaterialNode(cooldown_materials.add(RadialCooldownMaterial::default())),
@@ -555,101 +500,6 @@ pub fn update_spell_cooldowns(
                 // No spell in slot - fully transparent (progress = 1.0)
                 material.set_progress(1.0);
             }
-        }
-    }
-}
-
-/// Update spell icon visuals based on SpellList.
-/// Uses custom texture if available, otherwise uses element color for equipped spells.
-/// Empty slots show transparent gray.
-pub fn update_spell_icons(
-    spell_list: Res<SpellList>,
-    asset_server: Res<AssetServer>,
-    mut icon_query: Query<(&mut BackgroundColor, &mut BorderColor, &mut ImageNode, &SpellIcon)>,
-) {
-    for (mut bg_color, mut border_color, mut image_node, icon) in icon_query.iter_mut() {
-        if let Some(spell) = spell_list.get_spell(icon.slot_index) {
-            // Check if spell has a custom icon texture
-            if let Some(icon_path) = spell.spell_type.icon_path() {
-                // Use custom texture - clear background and border
-                *bg_color = BackgroundColor(Color::NONE);
-                *border_color = BorderColor::all(Color::NONE);
-                image_node.image = asset_server.load(icon_path);
-            } else {
-                // No custom icon - use element color with lighter border
-                let element_color = spell.element.color();
-                *bg_color = BackgroundColor(element_color);
-                *border_color = BorderColor::all(element_color.lighter(0.3));
-                image_node.image = Handle::default();
-            }
-        } else {
-            // Empty slot - make it transparent gray, no border
-            *bg_color = BackgroundColor(Color::srgba(0.3, 0.3, 0.3, 0.3));
-            *border_color = BorderColor::all(Color::NONE);
-            image_node.image = Handle::default();
-        }
-    }
-}
-
-/// Update spell icon abbreviation text based on SpellList.
-/// Shows abbreviation for spells without custom icons, empty for others.
-pub fn update_spell_icon_abbreviations(
-    spell_list: Res<SpellList>,
-    mut abbrev_query: Query<(&mut Text, &mut Visibility, &SpellIconAbbreviation)>,
-) {
-    for (mut text, mut visibility, abbrev) in abbrev_query.iter_mut() {
-        if let Some(spell) = spell_list.get_spell(abbrev.slot_index) {
-            // Check if spell has a custom icon texture
-            if spell.spell_type.icon_path().is_some() {
-                // Has texture - hide abbreviation
-                *visibility = Visibility::Hidden;
-            } else {
-                // No texture - show abbreviation
-                *visibility = Visibility::Inherited;
-                text.0 = spell.spell_type.abbreviation().to_string();
-            }
-        } else {
-            // Empty slot - hide abbreviation
-            *visibility = Visibility::Hidden;
-        }
-    }
-}
-
-/// Update spell slot background colors based on element.
-/// Spells with custom textures get transparent background, others get element tint.
-pub fn update_spell_slot_backgrounds(
-    spell_list: Res<SpellList>,
-    mut slot_query: Query<(&mut BackgroundColor, &SpellSlot)>,
-) {
-    for (mut bg_color, slot) in slot_query.iter_mut() {
-        if let Some(spell) = spell_list.get_spell(slot.slot_index) {
-            // Check if spell has a custom texture
-            if spell.spell_type.icon_path().is_some() {
-                // Custom texture - transparent background so texture shows fully
-                *bg_color = BackgroundColor(Color::NONE);
-            } else {
-                // No custom texture - tint background with element color at low opacity
-                let element_color = spell.element.color();
-                *bg_color = BackgroundColor(element_color.with_alpha(0.3));
-            }
-        } else {
-            // Empty slot - no slot background, let icon background show through
-            // (matches inventory empty slot appearance)
-            *bg_color = BackgroundColor(Color::NONE);
-        }
-    }
-}
-
-/// Update spell level displays based on SpellList.
-pub fn update_spell_level_displays(
-    spell_list: Res<SpellList>,
-    mut text_query: Query<(&mut Text, &SpellLevelDisplay)>,
-) {
-    for (mut text, display) in text_query.iter_mut() {
-        if let Some(spell) = spell_list.get_spell(display.slot_index) {
-            **text = format!("{}", spell.level);
-        } else {
-            **text = "".to_string();
         }
     }
 }
@@ -1545,8 +1395,7 @@ mod tests {
 
     mod spell_bar_tests {
         use super::*;
-        use crate::spell::{Spell, SpellType};
-        use crate::element::Element;
+        use crate::ui::spell_slot::{SpellSlotVisual, SlotSource};
         use bevy::ecs::system::RunSystemOnce;
         use bevy::shader::Shader;
 
@@ -1565,47 +1414,38 @@ mod tests {
         }
 
         #[test]
-        fn setup_spell_slots_creates_5_slots() {
+        fn setup_spell_slots_creates_spell_slot_visuals_with_active_source() {
             let mut app = setup_test_app();
 
-            // Run the setup system
             let _ = app.world_mut().run_system_once(setup_spell_slots);
 
-            // Count SpellSlot components
-            let slot_count = app
+            // Verify 5 SpellSlotVisual components exist with Active source
+            let visuals: Vec<_> = app
                 .world_mut()
-                .query::<&SpellSlot>()
+                .query::<&SpellSlotVisual>()
                 .iter(app.world())
-                .count();
-            assert_eq!(slot_count, 5, "Should spawn exactly 5 spell slots");
+                .collect();
+
+            assert_eq!(visuals.len(), 5, "Should spawn 5 spell slot visuals");
+            for visual in visuals {
+                assert_eq!(visual.source, SlotSource::Active, "All slots should have Active source");
+            }
         }
 
         #[test]
-        fn setup_spell_slots_creates_5_icons() {
+        fn setup_spell_slots_spell_slot_visuals_have_sequential_indices() {
             let mut app = setup_test_app();
 
             let _ = app.world_mut().run_system_once(setup_spell_slots);
 
-            let icon_count = app
+            let mut indices: Vec<usize> = app
                 .world_mut()
-                .query::<&SpellIcon>()
+                .query::<&SpellSlotVisual>()
                 .iter(app.world())
-                .count();
-            assert_eq!(icon_count, 5, "Should spawn exactly 5 spell icons");
-        }
-
-        #[test]
-        fn setup_spell_slots_creates_5_level_displays() {
-            let mut app = setup_test_app();
-
-            let _ = app.world_mut().run_system_once(setup_spell_slots);
-
-            let display_count = app
-                .world_mut()
-                .query::<&SpellLevelDisplay>()
-                .iter(app.world())
-                .count();
-            assert_eq!(display_count, 5, "Should spawn exactly 5 spell level displays");
+                .map(|v| v.index)
+                .collect();
+            indices.sort();
+            assert_eq!(indices, vec![0, 1, 2, 3, 4], "Slot visuals should have indices 0-4");
         }
 
         #[test]
@@ -1634,226 +1474,6 @@ mod tests {
                 .iter(app.world())
                 .count();
             assert_eq!(bar_count, 1, "Should spawn exactly 1 spell bar container");
-        }
-
-        #[test]
-        fn spell_slots_have_sequential_indices() {
-            let mut app = setup_test_app();
-
-            let _ = app.world_mut().run_system_once(setup_spell_slots);
-
-            let mut indices: Vec<usize> = app
-                .world_mut()
-                .query::<&SpellSlot>()
-                .iter(app.world())
-                .map(|s| s.slot_index)
-                .collect();
-            indices.sort();
-            assert_eq!(indices, vec![0, 1, 2, 3, 4], "Slots should have indices 0-4");
-        }
-
-        #[test]
-        fn update_spell_icons_uses_texture_for_fireball() {
-            let mut app = setup_test_app();
-
-            // Equip a fireball spell
-            {
-                let mut spell_list = app.world_mut().resource_mut::<SpellList>();
-                spell_list.equip(Spell::new(SpellType::Fireball));
-            }
-
-            // Spawn a spell icon for slot 0 with all required components
-            app.world_mut().spawn((
-                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-                BorderColor::all(Color::NONE),
-                ImageNode::default(),
-                SpellIcon { slot_index: 0 },
-            ));
-
-            // Run the update system
-            let _ = app.world_mut().run_system_once(update_spell_icons);
-
-            // Check the background color is transparent (texture is used instead)
-            let (bg, _) = app
-                .world_mut()
-                .query::<(&BackgroundColor, &SpellIcon)>()
-                .iter(app.world())
-                .next()
-                .unwrap();
-
-            // Fireball has custom icon, so background should be transparent (alpha = 0)
-            assert_eq!(bg.0.alpha(), 0.0, "Fireball icon should have transparent background (texture used)");
-        }
-
-        #[test]
-        fn update_spell_icons_shows_element_color_for_spell_without_icon() {
-            let mut app = setup_test_app();
-
-            // Equip IceShard which has no custom icon
-            {
-                let mut spell_list = app.world_mut().resource_mut::<SpellList>();
-                spell_list.equip(Spell::new(SpellType::IceShard));
-            }
-
-            // Spawn a spell icon for slot 0 with all required components
-            app.world_mut().spawn((
-                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-                BorderColor::all(Color::NONE),
-                ImageNode::default(),
-                SpellIcon { slot_index: 0 },
-            ));
-
-            // Run the update system
-            let _ = app.world_mut().run_system_once(update_spell_icons);
-
-            // Check the background color matches frost element
-            let (bg, _) = app
-                .world_mut()
-                .query::<(&BackgroundColor, &SpellIcon)>()
-                .iter(app.world())
-                .next()
-                .unwrap();
-
-            let frost_color = Element::Frost.color();
-            assert_eq!(bg.0, frost_color, "Icon should use frost element color");
-        }
-
-        #[test]
-        fn update_spell_icons_shows_gray_for_empty_slot() {
-            let mut app = setup_test_app();
-
-            // SpellList is empty by default
-
-            // Spawn a spell icon for slot 0 with all required components
-            app.world_mut().spawn((
-                BackgroundColor(Color::srgb(1.0, 1.0, 1.0)),
-                BorderColor::all(Color::NONE),
-                ImageNode::default(),
-                SpellIcon { slot_index: 0 },
-            ));
-
-            let _ = app.world_mut().run_system_once(update_spell_icons);
-
-            let (bg, _) = app
-                .world_mut()
-                .query::<(&BackgroundColor, &SpellIcon)>()
-                .iter(app.world())
-                .next()
-                .unwrap();
-
-            // Empty slot should be transparent gray
-            assert_eq!(
-                bg.0,
-                Color::srgba(0.3, 0.3, 0.3, 0.3),
-                "Empty slot should be transparent gray"
-            );
-        }
-
-        #[test]
-        fn update_spell_level_displays_shows_level_for_equipped_spell() {
-            let mut app = setup_test_app();
-
-            // Equip a spell and level it up
-            {
-                let mut spell_list = app.world_mut().resource_mut::<SpellList>();
-                let mut spell = Spell::new(SpellType::FrostNova);
-                spell.level = 5;
-                spell_list.equip(spell);
-            }
-
-            // Spawn a level display for slot 0
-            app.world_mut().spawn((
-                Text::new(""),
-                SpellLevelDisplay { slot_index: 0 },
-            ));
-
-            let _ = app.world_mut().run_system_once(update_spell_level_displays);
-
-            let text = app
-                .world_mut()
-                .query::<&Text>()
-                .iter(app.world())
-                .next()
-                .unwrap();
-
-            assert_eq!(text.0, "5", "Should display spell level");
-        }
-
-        #[test]
-        fn update_spell_level_displays_shows_empty_for_no_spell() {
-            let mut app = setup_test_app();
-
-            // Spawn a level display for slot 0 (no spell equipped)
-            app.world_mut().spawn((
-                Text::new("X"),
-                SpellLevelDisplay { slot_index: 0 },
-            ));
-
-            let _ = app.world_mut().run_system_once(update_spell_level_displays);
-
-            let text = app
-                .world_mut()
-                .query::<&Text>()
-                .iter(app.world())
-                .next()
-                .unwrap();
-
-            assert_eq!(text.0, "", "Should be empty for no spell");
-        }
-
-        #[test]
-        fn update_spell_slot_backgrounds_shows_element_tint() {
-            let mut app = setup_test_app();
-
-            // Equip a lightning spell
-            {
-                let mut spell_list = app.world_mut().resource_mut::<SpellList>();
-                spell_list.equip(Spell::new(SpellType::ThunderStrike));
-            }
-
-            // Spawn a slot for index 0
-            app.world_mut().spawn((
-                BackgroundColor(Color::srgba(0.0, 0.0, 0.0, 0.0)),
-                SpellSlot { slot_index: 0 },
-            ));
-
-            let _ = app.world_mut().run_system_once(update_spell_slot_backgrounds);
-
-            let (bg, _) = app
-                .world_mut()
-                .query::<(&BackgroundColor, &SpellSlot)>()
-                .iter(app.world())
-                .next()
-                .unwrap();
-
-            let lightning_color = Element::Lightning.color().with_alpha(0.3);
-            assert_eq!(bg.0, lightning_color, "Slot should have lightning element tint");
-        }
-
-        #[test]
-        fn update_spell_slot_backgrounds_shows_gray_for_empty() {
-            let mut app = setup_test_app();
-
-            // Spawn a slot for index 0 (no spell equipped)
-            app.world_mut().spawn((
-                BackgroundColor(Color::srgb(1.0, 1.0, 1.0)),
-                SpellSlot { slot_index: 0 },
-            ));
-
-            let _ = app.world_mut().run_system_once(update_spell_slot_backgrounds);
-
-            let (bg, _) = app
-                .world_mut()
-                .query::<(&BackgroundColor, &SpellSlot)>()
-                .iter(app.world())
-                .next()
-                .unwrap();
-
-            assert_eq!(
-                bg.0,
-                Color::srgba(0.2, 0.2, 0.2, 0.8),
-                "Empty slot should have dark gray background"
-            );
         }
 
         #[test]
