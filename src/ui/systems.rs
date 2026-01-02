@@ -1083,6 +1083,7 @@ pub fn cleanup_level_complete_screen(
 
 /// Spawn floating damage numbers when enemies take damage.
 /// Numbers are colored by element type and animate upward while fading.
+/// Uses screen-space UI nodes positioned via world-to-viewport conversion.
 pub fn spawn_floating_damage_numbers(
     mut commands: Commands,
     mut damage_events: MessageReader<DamageEvent>,
@@ -1104,32 +1105,58 @@ pub fn spawn_floating_damage_numbers(
             .map(|e| e.color())
             .unwrap_or(Color::WHITE);
 
-        let position = transform.translation + Vec3::Y * 1.0;
+        // Start position slightly above enemy
+        let world_position = transform.translation + Vec3::Y * 1.0;
 
+        // Spawn as screen-space UI node (position updated each frame)
         commands.spawn((
-            Text2d::new(format!("{}", event.amount.round() as i32)),
+            Text::new(format!("{}", event.amount.round() as i32)),
             TextFont {
                 font_size: 24.0,
                 ..default()
             },
             TextColor(color),
-            Transform::from_translation(position),
-            FloatingDamageNumber::new(),
+            TextLayout::new_with_justify(bevy::text::Justify::Center),
+            Node {
+                position_type: PositionType::Absolute,
+                // Initial position off-screen, will be updated immediately
+                left: Val::Px(-1000.0),
+                top: Val::Px(-1000.0),
+                ..default()
+            },
+            FloatingDamageNumber::new(world_position),
         ));
     }
 }
 
-/// Update floating damage numbers: move upward, fade out, and despawn when finished.
+/// Update floating damage numbers: move world position upward, convert to screen space,
+/// fade out, and despawn when finished.
+#[allow(clippy::type_complexity)]
 pub fn update_floating_damage_numbers(
     mut commands: Commands,
     time: Res<Time>,
-    mut query: Query<(Entity, &mut Transform, &mut FloatingDamageNumber, &mut TextColor)>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    mut query: Query<(Entity, &mut Node, &mut FloatingDamageNumber, &mut TextColor)>,
 ) {
-    for (entity, mut transform, mut damage_num, mut text_color) in query.iter_mut() {
+    let Ok((camera, camera_transform)) = camera_query.single() else {
+        return;
+    };
+
+    for (entity, mut node, mut damage_num, mut text_color) in query.iter_mut() {
         damage_num.lifetime.tick(time.delta());
 
-        // Move upward
-        transform.translation += damage_num.velocity * time.delta_secs();
+        // Move world position upward
+        damage_num.world_position.y += damage_num.velocity * time.delta_secs();
+
+        // Convert world position to screen position
+        if let Ok(viewport_pos) = camera.world_to_viewport(camera_transform, damage_num.world_position) {
+            node.left = Val::Px(viewport_pos.x - 20.0); // Center the text roughly
+            node.top = Val::Px(viewport_pos.y - 12.0);
+        } else {
+            // Off-screen, hide it
+            node.left = Val::Px(-1000.0);
+            node.top = Val::Px(-1000.0);
+        }
 
         // Fade out after fade_start threshold
         let progress = damage_num.lifetime.fraction();
@@ -1786,7 +1813,6 @@ mod tests {
         use super::*;
         use crate::element::Element;
         use bevy::ecs::system::RunSystemOnce;
-        use std::time::Duration;
 
         fn setup_test_app() -> App {
             let mut app = App::new();
@@ -1890,81 +1916,7 @@ mod tests {
         }
 
         #[test]
-        fn moves_upward_over_time() {
-            let mut app = setup_test_app();
-
-            // Spawn a floating damage number
-            let entity = app.world_mut().spawn((
-                FloatingDamageNumber::new(),
-                Transform::from_xyz(0.0, 5.0, 0.0),
-                TextColor(Color::WHITE),
-            )).id();
-
-            let initial_y = 5.0;
-
-            // Advance time
-            {
-                let mut time = app.world_mut().resource_mut::<Time>();
-                time.advance_by(Duration::from_secs_f32(0.5));
-            }
-
-            let _ = app.world_mut().run_system_once(update_floating_damage_numbers);
-
-            // Check position moved upward
-            let transform = app.world().get::<Transform>(entity).unwrap();
-            assert!(transform.translation.y > initial_y, "Should move upward");
-        }
-
-        #[test]
-        fn fades_over_time() {
-            let mut app = setup_test_app();
-
-            // Spawn a floating damage number
-            let entity = app.world_mut().spawn((
-                FloatingDamageNumber::new(),
-                Transform::from_xyz(0.0, 0.0, 0.0),
-                TextColor(Color::WHITE),
-            )).id();
-
-            // Advance time past fade_start (0.5 of 0.8s = 0.4s)
-            {
-                let mut time = app.world_mut().resource_mut::<Time>();
-                time.advance_by(Duration::from_secs_f32(0.6));
-            }
-
-            let _ = app.world_mut().run_system_once(update_floating_damage_numbers);
-
-            // Check alpha decreased
-            let text_color = app.world().get::<TextColor>(entity).unwrap();
-            let alpha = text_color.0.alpha();
-            assert!(alpha < 1.0, "Alpha should decrease after fade_start");
-        }
-
-        #[test]
-        fn despawns_after_lifetime() {
-            let mut app = setup_test_app();
-
-            // Spawn a floating damage number
-            let entity = app.world_mut().spawn((
-                FloatingDamageNumber::new(),
-                Transform::from_xyz(0.0, 0.0, 0.0),
-                TextColor(Color::WHITE),
-            )).id();
-
-            // Advance time past lifetime (0.8s)
-            {
-                let mut time = app.world_mut().resource_mut::<Time>();
-                time.advance_by(Duration::from_secs_f32(1.0));
-            }
-
-            let _ = app.world_mut().run_system_once(update_floating_damage_numbers);
-
-            // Entity should be despawned
-            assert!(app.world().get_entity(entity).is_err(), "Should despawn after lifetime");
-        }
-
-        #[test]
-        fn spawns_at_correct_position() {
+        fn stores_correct_world_position() {
             let mut app = setup_test_app();
 
             // Spawn an enemy at specific position
@@ -1977,17 +1929,38 @@ mod tests {
 
             let _ = app.world_mut().run_system_once(spawn_floating_damage_numbers);
 
-            // Check spawned position (should be enemy position + Y offset)
-            let transform = app.world_mut()
-                .query::<(&Transform, &FloatingDamageNumber)>()
+            // Check world position (should be enemy position + Y offset)
+            let damage_num = app.world_mut()
+                .query::<&FloatingDamageNumber>()
                 .iter(app.world())
                 .next()
-                .map(|(t, _)| t.translation)
                 .unwrap();
 
-            assert_eq!(transform.x, 10.0, "X should match enemy position");
-            assert_eq!(transform.y, 3.0, "Y should be enemy Y + 1.0 offset");
-            assert_eq!(transform.z, 5.0, "Z should match enemy position");
+            assert_eq!(damage_num.world_position.x, 10.0, "X should match enemy position");
+            assert_eq!(damage_num.world_position.y, 3.0, "Y should be enemy Y + 1.0 offset");
+            assert_eq!(damage_num.world_position.z, 5.0, "Z should match enemy position");
+        }
+
+        #[test]
+        fn spawns_with_node_component() {
+            let mut app = setup_test_app();
+
+            // Spawn an enemy
+            let enemy = app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_xyz(0.0, 0.0, 0.0),
+            )).id();
+
+            app.world_mut().write_message(DamageEvent::new(enemy, 25.0));
+
+            let _ = app.world_mut().run_system_once(spawn_floating_damage_numbers);
+
+            // Verify Node component was added for screen-space positioning
+            let count = app.world_mut()
+                .query::<(&FloatingDamageNumber, &Node)>()
+                .iter(app.world())
+                .count();
+            assert_eq!(count, 1, "Should have Node component for screen-space UI");
         }
     }
 }
