@@ -16,8 +16,10 @@ pub fn plugin(app: &mut App) {
         // Setup systems (OnEnter)
         // Note: spawn_whisper_drop is called from game plugin to ensure resources are ready
         .add_systems(OnEnter(GameState::InGame), reset_whisper_state)
-        // Cleanup systems (OnExit)
-        .add_systems(OnExit(GameState::InGame), cleanup_whisper_animations)
+        // Note: WhisperAnimations resource is NOT cleaned up on exit - it holds lightweight asset
+        // handles that should persist through state transitions (InGame -> AttunementSelect -> InGame).
+        // The WhisperCompanion entity is spawned when Whisper is picked up, and the 3D model needs
+        // to be attached by spawn_whisper_model which requires WhisperAnimations.
         // Movement systems
         .add_systems(
             Update,
@@ -27,15 +29,27 @@ pub fn plugin(app: &mut App) {
                 .run_if(in_state(GameState::InGame)),
         )
         // Model and animation spawn systems
+        // spawn_dropped_whisper_model only runs in InGame (drops only exist there)
         .add_systems(
             Update,
-            (
-                spawn_whisper_model,
-                spawn_dropped_whisper_model,
-                setup_whisper_animation_player,
-            )
+            spawn_dropped_whisper_model
                 .run_if(resource_exists::<WhisperAnimations>)
                 .run_if(in_state(GameState::InGame)),
+        )
+        // spawn_whisper_model and animation setup need to run in multiple states
+        // because WhisperCompanion is created when picking up Whisper and we
+        // immediately transition to AttunementSelect before the model can be spawned
+        .add_systems(
+            Update,
+            (spawn_whisper_model, setup_whisper_animation_player)
+                .run_if(resource_exists::<WhisperAnimations>)
+                .run_if(
+                    in_state(GameState::InGame)
+                        .or(in_state(GameState::AttunementSelect))
+                        .or(in_state(GameState::InventoryOpen))
+                        .or(in_state(GameState::LevelComplete))
+                        .or(in_state(GameState::Paused)),
+                ),
         )
         // Effect systems (lightning bolts)
         .add_systems(
