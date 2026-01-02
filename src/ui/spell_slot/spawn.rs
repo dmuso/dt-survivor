@@ -1037,4 +1037,224 @@ mod tests {
             assert_eq!(node.height, Val::Px(SLOT_SIZE));
         }
     }
+
+    mod spawn_spell_icon_visual_tests {
+        use super::*;
+        use crate::spell::spell_type::SpellType;
+        use bevy::ecs::system::RunSystemOnce;
+
+        /// Test marker to find our spawned parent
+        #[derive(Component)]
+        struct TestParent;
+
+        fn setup_test_app() -> App {
+            let mut app = App::new();
+            app.add_plugins(bevy::prelude::TaskPoolPlugin::default());
+            app.add_plugins(bevy::asset::AssetPlugin::default());
+            app.add_plugins(bevy::prelude::ImagePlugin::default());
+            app
+        }
+
+        #[test]
+        fn spawns_nothing_for_none_spell() {
+            let mut app = setup_test_app();
+
+            let spawn_icon = |mut commands: Commands| {
+                commands.spawn((Node::default(), TestParent)).with_children(|parent| {
+                    spawn_spell_icon_visual(parent, None, 40.0, None);
+                });
+            };
+            let _ = app.world_mut().run_system_once(spawn_icon);
+
+            // Parent should have no children since None spell spawns nothing
+            let (parent_entity, _) = app
+                .world_mut()
+                .query::<(Entity, &TestParent)>()
+                .iter(app.world())
+                .next()
+                .expect("TestParent should exist");
+
+            let children = app.world().get::<Children>(parent_entity);
+            assert!(children.is_none(), "None spell should spawn no children");
+        }
+
+        #[test]
+        fn spell_with_texture_spawns_image_node() {
+            let mut app = setup_test_app();
+            let spell = Spell::new(SpellType::Fireball); // Has icon_path
+
+            let spawn_icon = move |mut commands: Commands, asset_server: Res<AssetServer>| {
+                commands.spawn((Node::default(), TestParent)).with_children(|parent| {
+                    spawn_spell_icon_visual(parent, Some(&spell), 40.0, Some(&asset_server));
+                });
+            };
+            let _ = app.world_mut().run_system_once(spawn_icon);
+
+            // Should have SpellIconVisual and ImageNode
+            let icon_visual = app
+                .world_mut()
+                .query::<(&SpellIconVisual, &ImageNode)>()
+                .iter(app.world())
+                .next();
+            assert!(icon_visual.is_some(), "Should spawn with SpellIconVisual and ImageNode");
+        }
+
+        #[test]
+        fn spell_with_texture_has_correct_size() {
+            let mut app = setup_test_app();
+            let spell = Spell::new(SpellType::Fireball);
+
+            let spawn_icon = move |mut commands: Commands, asset_server: Res<AssetServer>| {
+                commands.spawn((Node::default(), TestParent)).with_children(|parent| {
+                    spawn_spell_icon_visual(parent, Some(&spell), 60.0, Some(&asset_server));
+                });
+            };
+            let _ = app.world_mut().run_system_once(spawn_icon);
+
+            let (node, _) = app
+                .world_mut()
+                .query::<(&Node, &SpellIconVisual)>()
+                .iter(app.world())
+                .next()
+                .expect("Icon should exist");
+
+            assert_eq!(node.width, Val::Px(60.0));
+            assert_eq!(node.height, Val::Px(60.0));
+        }
+
+        #[test]
+        fn spell_with_texture_has_border_radius() {
+            let mut app = setup_test_app();
+            let spell = Spell::new(SpellType::Fireball);
+
+            let spawn_icon = move |mut commands: Commands, asset_server: Res<AssetServer>| {
+                commands.spawn((Node::default(), TestParent)).with_children(|parent| {
+                    spawn_spell_icon_visual(parent, Some(&spell), 40.0, Some(&asset_server));
+                });
+            };
+            let _ = app.world_mut().run_system_once(spawn_icon);
+
+            let (radius, _) = app
+                .world_mut()
+                .query::<(&BorderRadius, &SpellIconVisual)>()
+                .iter(app.world())
+                .next()
+                .expect("Icon should exist");
+
+            assert_eq!(radius.top_left, Val::Px(4.0));
+        }
+
+        #[test]
+        fn spell_without_texture_uses_element_background() {
+            let mut app = setup_test_app();
+            let spell = Spell::new(SpellType::IceShard); // No icon_path
+            let expected_bg = spell.element.color();
+
+            let spawn_icon = move |mut commands: Commands, asset_server: Res<AssetServer>| {
+                commands.spawn((Node::default(), TestParent)).with_children(|parent| {
+                    spawn_spell_icon_visual(parent, Some(&spell), 40.0, Some(&asset_server));
+                });
+            };
+            let _ = app.world_mut().run_system_once(spawn_icon);
+
+            let (bg, _) = app
+                .world_mut()
+                .query::<(&BackgroundColor, &SpellIconVisual)>()
+                .iter(app.world())
+                .next()
+                .expect("Icon should exist");
+
+            assert_eq!(bg.0, expected_bg);
+        }
+
+        #[test]
+        fn spell_without_texture_has_border() {
+            let mut app = setup_test_app();
+            let spell = Spell::new(SpellType::IceShard);
+
+            let spawn_icon = move |mut commands: Commands, asset_server: Res<AssetServer>| {
+                commands.spawn((Node::default(), TestParent)).with_children(|parent| {
+                    spawn_spell_icon_visual(parent, Some(&spell), 40.0, Some(&asset_server));
+                });
+            };
+            let _ = app.world_mut().run_system_once(spawn_icon);
+
+            let (node, _) = app
+                .world_mut()
+                .query::<(&Node, &SpellIconVisual)>()
+                .iter(app.world())
+                .next()
+                .expect("Icon should exist");
+
+            assert_eq!(node.border.left, Val::Px(2.0));
+        }
+
+        #[test]
+        fn spell_without_texture_has_abbreviation_child() {
+            let mut app = setup_test_app();
+            let spell = Spell::new(SpellType::IceShard);
+            let expected_abbrev = spell.spell_type.abbreviation();
+
+            let spawn_icon = move |mut commands: Commands, asset_server: Res<AssetServer>| {
+                commands.spawn((Node::default(), TestParent)).with_children(|parent| {
+                    spawn_spell_icon_visual(parent, Some(&spell), 40.0, Some(&asset_server));
+                });
+            };
+            let _ = app.world_mut().run_system_once(spawn_icon);
+
+            // Find the text child
+            let text = app
+                .world_mut()
+                .query::<&Text>()
+                .iter(app.world())
+                .next()
+                .expect("Text should exist");
+
+            assert_eq!(text.0, expected_abbrev);
+        }
+
+        #[test]
+        fn spell_without_texture_text_has_scaled_font_size() {
+            let mut app = setup_test_app();
+            let spell = Spell::new(SpellType::IceShard);
+            let size = 50.0;
+
+            let spawn_icon = move |mut commands: Commands, asset_server: Res<AssetServer>| {
+                commands.spawn((Node::default(), TestParent)).with_children(|parent| {
+                    spawn_spell_icon_visual(parent, Some(&spell), size, Some(&asset_server));
+                });
+            };
+            let _ = app.world_mut().run_system_once(spawn_icon);
+
+            let text_font = app
+                .world_mut()
+                .query::<&TextFont>()
+                .iter(app.world())
+                .next()
+                .expect("TextFont should exist");
+
+            assert_eq!(text_font.font_size, size * 0.35);
+        }
+
+        #[test]
+        fn spell_without_asset_server_uses_abbreviation() {
+            let mut app = setup_test_app();
+            let spell = Spell::new(SpellType::Fireball); // Has icon_path but no asset_server
+
+            let spawn_icon = move |mut commands: Commands| {
+                commands.spawn((Node::default(), TestParent)).with_children(|parent| {
+                    spawn_spell_icon_visual(parent, Some(&spell), 40.0, None);
+                });
+            };
+            let _ = app.world_mut().run_system_once(spawn_icon);
+
+            // Without asset server, should fall back to abbreviation even for spells with icon
+            let bg = app
+                .world_mut()
+                .query::<(&BackgroundColor, &SpellIconVisual)>()
+                .iter(app.world())
+                .next();
+            assert!(bg.is_some(), "Should spawn with element background when no asset_server");
+        }
+    }
 }

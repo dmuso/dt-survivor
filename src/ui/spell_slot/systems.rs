@@ -375,6 +375,59 @@ mod tests {
             // They should have different background colors (Fire vs Frost)
             assert_ne!(active_slot.0 .0, bag_slot.0 .0);
         }
+
+        #[test]
+        fn spell_swap_from_bag_to_active_updates_both_slots() {
+            let mut app = setup_test_app();
+
+            // Initially, spell is in bag, active slot is empty
+            let fireball = Spell::new(SpellType::Fireball);
+            let bag_spell_bg = fireball.element.color().with_alpha(BACKGROUND_ALPHA);
+            app.world_mut().resource_mut::<InventoryBag>().add(fireball);
+
+            // Spawn both slots (empty initially - refresh system will pick up the state)
+            let spawn_slots = |mut commands: Commands, asset_server: Res<AssetServer>| {
+                commands.spawn((Node::default(), TestParent)).with_children(|parent| {
+                    spawn_spell_slot(parent, SlotSource::Active, 0, None, &asset_server);
+                    spawn_spell_slot(parent, SlotSource::Bag, 0, None, &asset_server);
+                });
+            };
+            let _ = app.world_mut().run_system_once(spawn_slots);
+
+            // First refresh - active is empty, bag has spell
+            let _ = app.world_mut().run_system_once(refresh_spell_slot_visuals);
+
+            // Verify initial state
+            let slots: Vec<_> = app
+                .world_mut()
+                .query::<(&BackgroundColor, &SpellSlotVisual)>()
+                .iter(app.world())
+                .collect();
+            let active_slot = slots.iter().find(|(_, s)| s.source == SlotSource::Active).unwrap();
+            let bag_slot = slots.iter().find(|(_, s)| s.source == SlotSource::Bag).unwrap();
+
+            assert_eq!(active_slot.0 .0, empty_slot::SLOT_BACKGROUND, "Active slot should be empty initially");
+            assert_eq!(bag_slot.0 .0, bag_spell_bg, "Bag slot should have spell color");
+
+            // Simulate swap: move spell from bag to active
+            let spell = app.world_mut().resource_mut::<InventoryBag>().remove(0).unwrap();
+            app.world_mut().resource_mut::<SpellList>().equip(spell);
+
+            // Second refresh - active has spell, bag is empty
+            let _ = app.world_mut().run_system_once(refresh_spell_slot_visuals);
+
+            // Verify swapped state
+            let slots: Vec<_> = app
+                .world_mut()
+                .query::<(&BackgroundColor, &SpellSlotVisual)>()
+                .iter(app.world())
+                .collect();
+            let active_slot = slots.iter().find(|(_, s)| s.source == SlotSource::Active).unwrap();
+            let bag_slot = slots.iter().find(|(_, s)| s.source == SlotSource::Bag).unwrap();
+
+            assert_eq!(active_slot.0 .0, bag_spell_bg, "Active slot should have spell color after swap");
+            assert_eq!(bag_slot.0 .0, empty_slot::SLOT_BACKGROUND, "Bag slot should be empty after swap");
+        }
     }
 
     mod get_spell_for_slot_tests {
