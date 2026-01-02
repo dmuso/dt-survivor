@@ -3,7 +3,8 @@
 //! A Frost element spell (Blizzard SpellType) that creates a slow-moving orb
 //! which radiates freezing energy. Enemies within the damage radius take
 //! periodic damage as the orb passes through them. The orb pierces enemies
-//! rather than despawning on collision.
+//! rather than despawning on collision. Ice shard particles fall from the sky
+//! around the orb for visual effect.
 
 use std::collections::HashMap;
 use bevy::prelude::*;
@@ -21,6 +22,15 @@ pub const FROZEN_ORB_LIFETIME: f32 = 4.0;
 pub const FROZEN_ORB_TICK_INTERVAL: f32 = 0.25;
 pub const FROZEN_ORB_HIT_COOLDOWN: f32 = 0.5; // Per-enemy damage cooldown
 
+/// Ice shard particle configuration
+pub const ICE_SHARD_SPAWN_RATE: f32 = 0.08; // Seconds between ice shard spawns
+pub const ICE_SHARD_SPAWN_HEIGHT: f32 = 6.0; // Height above orb where shards spawn
+pub const ICE_SHARD_FALL_SPEED: f32 = 12.0; // Vertical fall speed
+pub const ICE_SHARD_HORIZONTAL_SPEED: f32 = 4.0; // Horizontal drift speed (creates angle)
+pub const ICE_SHARD_SPAWN_RADIUS: f32 = 3.0; // Radius around orb for spawn positions
+pub const ICE_SHARD_VISUAL_SCALE: f32 = 0.15; // Scale of ice shard mesh
+pub const ICE_SHARD_GROUND_LEVEL: f32 = 0.0; // Ground level for cleanup
+
 /// Get the frost element color for visual effects
 pub fn frozen_orb_color() -> Color {
     Element::Frost.color()
@@ -28,6 +38,7 @@ pub fn frozen_orb_color() -> Color {
 
 /// A slow-moving orb that damages enemies within its aura radius.
 /// Pierces through enemies and applies damage on a tick timer.
+/// Spawns falling ice shard particles for visual effect.
 #[derive(Component, Debug, Clone)]
 pub struct FrozenOrb {
     /// Direction of travel on XZ plane
@@ -44,6 +55,37 @@ pub struct FrozenOrb {
     pub tick_timer: Timer,
     /// Per-enemy cooldown tracking (prevents damage spam)
     pub hit_cooldowns: HashMap<Entity, Timer>,
+    /// Timer for spawning ice shard particles
+    pub shard_spawn_timer: Timer,
+}
+
+/// Individual falling ice shard particle (purely visual).
+/// Falls from above at an angle toward the ground.
+#[derive(Component, Debug, Clone)]
+pub struct FallingIceShard {
+    /// Horizontal drift direction (normalized XZ direction)
+    pub drift_direction: Vec2,
+    /// Horizontal speed in units per second
+    pub horizontal_speed: f32,
+    /// Vertical fall speed in units per second
+    pub fall_speed: f32,
+}
+
+impl FallingIceShard {
+    pub fn new(drift_direction: Vec2) -> Self {
+        Self {
+            drift_direction: drift_direction.normalize_or_zero(),
+            horizontal_speed: ICE_SHARD_HORIZONTAL_SPEED,
+            fall_speed: ICE_SHARD_FALL_SPEED,
+        }
+    }
+
+    /// Create with a random drift direction
+    pub fn random() -> Self {
+        let angle = rand::random::<f32>() * std::f32::consts::TAU;
+        let direction = Vec2::new(angle.cos(), angle.sin());
+        Self::new(direction)
+    }
 }
 
 impl FrozenOrb {
@@ -56,6 +98,7 @@ impl FrozenOrb {
             damage_per_tick: damage,
             tick_timer: Timer::from_seconds(FROZEN_ORB_TICK_INTERVAL, TimerMode::Repeating),
             hit_cooldowns: HashMap::new(),
+            shard_spawn_timer: Timer::from_seconds(ICE_SHARD_SPAWN_RATE, TimerMode::Repeating),
         }
     }
 
@@ -72,6 +115,7 @@ impl FrozenOrb {
     pub fn tick(&mut self, delta: std::time::Duration) {
         self.lifetime.tick(delta);
         self.tick_timer.tick(delta);
+        self.shard_spawn_timer.tick(delta);
 
         // Tick all per-enemy cooldowns
         for timer in self.hit_cooldowns.values_mut() {
@@ -80,6 +124,11 @@ impl FrozenOrb {
 
         // Remove expired cooldowns
         self.hit_cooldowns.retain(|_, timer| !timer.is_finished());
+    }
+
+    /// Check if ready to spawn an ice shard particle
+    pub fn should_spawn_shard(&self) -> bool {
+        self.shard_spawn_timer.just_finished()
     }
 
     /// Check if ready to apply damage (tick interval elapsed)
@@ -158,6 +207,76 @@ pub fn frozen_orb_cleanup_system(
 ) {
     for (entity, orb) in orb_query.iter() {
         if orb.is_expired() {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// System that spawns falling ice shard particles around frozen orbs (Blizzard spell).
+pub fn blizzard_shard_spawn_system(
+    mut commands: Commands,
+    orb_query: Query<(&Transform, &FrozenOrb)>,
+    game_meshes: Option<Res<GameMeshes>>,
+    game_materials: Option<Res<GameMaterials>>,
+) {
+    for (orb_transform, orb) in orb_query.iter() {
+        if !orb.should_spawn_shard() {
+            continue;
+        }
+
+        // Spawn ice shard at random position around the orb, above it
+        let angle = rand::random::<f32>() * std::f32::consts::TAU;
+        let distance = rand::random::<f32>().sqrt() * ICE_SHARD_SPAWN_RADIUS;
+        let offset_x = angle.cos() * distance;
+        let offset_z = angle.sin() * distance;
+
+        let shard_pos = Vec3::new(
+            orb_transform.translation.x + offset_x,
+            orb_transform.translation.y + ICE_SHARD_SPAWN_HEIGHT,
+            orb_transform.translation.z + offset_z,
+        );
+
+        let shard = FallingIceShard::random();
+
+        if let (Some(meshes), Some(materials)) = (game_meshes.as_deref(), game_materials.as_deref()) {
+            commands.spawn((
+                Mesh3d(meshes.bullet.clone()),
+                MeshMaterial3d(materials.ice_shard.clone()),
+                Transform::from_translation(shard_pos).with_scale(Vec3::splat(ICE_SHARD_VISUAL_SCALE)),
+                shard,
+            ));
+        } else {
+            commands.spawn((
+                Transform::from_translation(shard_pos),
+                shard,
+            ));
+        }
+    }
+}
+
+/// System that moves Blizzard ice shards downward at an angle.
+pub fn blizzard_shard_movement_system(
+    time: Res<Time>,
+    mut shard_query: Query<(&FallingIceShard, &mut Transform)>,
+) {
+    for (shard, mut transform) in shard_query.iter_mut() {
+        // Move downward
+        transform.translation.y -= shard.fall_speed * time.delta_secs();
+
+        // Apply horizontal drift for angled falling
+        let drift = shard.drift_direction * shard.horizontal_speed * time.delta_secs();
+        transform.translation.x += drift.x;
+        transform.translation.z += drift.y;
+    }
+}
+
+/// System that despawns Blizzard ice shards that reach ground level.
+pub fn blizzard_shard_cleanup_system(
+    mut commands: Commands,
+    shard_query: Query<(Entity, &Transform), With<FallingIceShard>>,
+) {
+    for (entity, transform) in shard_query.iter() {
+        if transform.translation.y <= ICE_SHARD_GROUND_LEVEL {
             commands.entity(entity).despawn();
         }
     }
@@ -865,6 +984,290 @@ mod tests {
             let mut query = app.world_mut().query::<(&FrozenOrb, &Transform)>();
             for (_, transform) in query.iter(app.world()) {
                 assert_eq!(transform.translation, spawn_pos);
+            }
+        }
+    }
+
+    mod falling_ice_shard_tests {
+        use super::*;
+
+        #[test]
+        fn test_falling_ice_shard_new() {
+            let direction = Vec2::new(1.0, 0.0);
+            let shard = FallingIceShard::new(direction);
+
+            assert_eq!(shard.drift_direction, direction.normalize());
+            assert_eq!(shard.horizontal_speed, ICE_SHARD_HORIZONTAL_SPEED);
+            assert_eq!(shard.fall_speed, ICE_SHARD_FALL_SPEED);
+        }
+
+        #[test]
+        fn test_falling_ice_shard_normalizes_direction() {
+            let direction = Vec2::new(3.0, 4.0); // Length 5
+            let shard = FallingIceShard::new(direction);
+
+            let expected = direction.normalize();
+            assert!((shard.drift_direction - expected).length() < 0.001);
+        }
+
+        #[test]
+        fn test_falling_ice_shard_handles_zero_direction() {
+            let shard = FallingIceShard::new(Vec2::ZERO);
+            assert_eq!(shard.drift_direction, Vec2::ZERO);
+        }
+
+        #[test]
+        fn test_falling_ice_shard_random_has_normalized_direction() {
+            let shard = FallingIceShard::random();
+            // Either zero or normalized (length ~1)
+            let len = shard.drift_direction.length();
+            assert!(len < 0.001 || (len - 1.0).abs() < 0.001);
+        }
+    }
+
+    mod blizzard_shard_movement_system_tests {
+        use super::*;
+        use bevy::app::App;
+
+        #[test]
+        fn test_blizzard_shard_moves_downward() {
+            let mut app = App::new();
+            app.add_plugins(bevy::time::TimePlugin::default());
+
+            let initial_y = ICE_SHARD_SPAWN_HEIGHT;
+            let entity = app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(0.0, initial_y, 0.0)),
+                FallingIceShard::new(Vec2::ZERO), // No horizontal drift
+            )).id();
+
+            // Advance time
+            let delta_time = 0.5;
+            {
+                let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+                time.advance_by(Duration::from_secs_f32(delta_time));
+            }
+
+            let _ = app.world_mut().run_system_once(blizzard_shard_movement_system);
+
+            let transform = app.world().get::<Transform>(entity).unwrap();
+            let expected_y = initial_y - ICE_SHARD_FALL_SPEED * delta_time;
+            assert!(
+                (transform.translation.y - expected_y).abs() < 0.1,
+                "Ice shard should move down. Expected y={}, got y={}",
+                expected_y,
+                transform.translation.y
+            );
+        }
+
+        #[test]
+        fn test_blizzard_shard_drifts_horizontally() {
+            let mut app = App::new();
+            app.add_plugins(bevy::time::TimePlugin::default());
+
+            let entity = app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(0.0, 5.0, 0.0)),
+                FallingIceShard::new(Vec2::new(1.0, 0.0)), // Drift in +X direction
+            )).id();
+
+            let delta_time = 0.5;
+            {
+                let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+                time.advance_by(Duration::from_secs_f32(delta_time));
+            }
+
+            let _ = app.world_mut().run_system_once(blizzard_shard_movement_system);
+
+            let transform = app.world().get::<Transform>(entity).unwrap();
+            let expected_x = ICE_SHARD_HORIZONTAL_SPEED * delta_time;
+            assert!(
+                (transform.translation.x - expected_x).abs() < 0.1,
+                "Ice shard should drift in X. Expected x={}, got x={}",
+                expected_x,
+                transform.translation.x
+            );
+        }
+
+        #[test]
+        fn test_blizzard_shard_moves_at_angle() {
+            let mut app = App::new();
+            app.add_plugins(bevy::time::TimePlugin::default());
+
+            let entity = app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(0.0, 5.0, 0.0)),
+                FallingIceShard::new(Vec2::new(1.0, 0.0)),
+            )).id();
+
+            let delta_time = 1.0;
+            {
+                let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+                time.advance_by(Duration::from_secs_f32(delta_time));
+            }
+
+            let _ = app.world_mut().run_system_once(blizzard_shard_movement_system);
+
+            let transform = app.world().get::<Transform>(entity).unwrap();
+            // Should have moved both down and to the right
+            assert!(transform.translation.y < 5.0, "Should have moved down");
+            assert!(transform.translation.x > 0.0, "Should have moved right");
+        }
+    }
+
+    mod blizzard_shard_cleanup_system_tests {
+        use super::*;
+        use bevy::app::App;
+
+        #[test]
+        fn test_blizzard_shard_despawns_at_ground() {
+            let mut app = App::new();
+
+            let entity = app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(0.0, ICE_SHARD_GROUND_LEVEL, 0.0)),
+                FallingIceShard::random(),
+            )).id();
+
+            let _ = app.world_mut().run_system_once(blizzard_shard_cleanup_system);
+
+            assert!(
+                app.world().get_entity(entity).is_err(),
+                "Ice shard should despawn at ground level"
+            );
+        }
+
+        #[test]
+        fn test_blizzard_shard_despawns_below_ground() {
+            let mut app = App::new();
+
+            let entity = app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(0.0, -1.0, 0.0)),
+                FallingIceShard::random(),
+            )).id();
+
+            let _ = app.world_mut().run_system_once(blizzard_shard_cleanup_system);
+
+            assert!(
+                app.world().get_entity(entity).is_err(),
+                "Ice shard should despawn below ground level"
+            );
+        }
+
+        #[test]
+        fn test_blizzard_shard_survives_above_ground() {
+            let mut app = App::new();
+
+            let entity = app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(0.0, 3.0, 0.0)),
+                FallingIceShard::random(),
+            )).id();
+
+            let _ = app.world_mut().run_system_once(blizzard_shard_cleanup_system);
+
+            assert!(
+                app.world().get_entity(entity).is_ok(),
+                "Ice shard should survive above ground level"
+            );
+        }
+    }
+
+    mod blizzard_shard_spawn_system_tests {
+        use super::*;
+        use bevy::app::App;
+
+        fn setup_spawn_test_app() -> App {
+            let mut app = App::new();
+            app.add_plugins(bevy::time::TimePlugin::default());
+            app
+        }
+
+        #[test]
+        fn test_orb_has_shard_spawn_timer() {
+            let orb = FrozenOrb::new(Vec2::X, 20.0);
+            assert!(!orb.should_spawn_shard(), "Should not spawn immediately");
+        }
+
+        #[test]
+        fn test_orb_should_spawn_shard_after_interval() {
+            let mut orb = FrozenOrb::new(Vec2::X, 20.0);
+            orb.tick(Duration::from_secs_f32(ICE_SHARD_SPAWN_RATE + 0.01));
+            assert!(orb.should_spawn_shard(), "Should spawn after interval");
+        }
+
+        #[test]
+        fn test_blizzard_shard_spawn_system_creates_shards() {
+            let mut app = setup_spawn_test_app();
+
+            // Create orb with pre-ticked spawn timer
+            let mut orb = FrozenOrb::new(Vec2::X, 20.0);
+            orb.shard_spawn_timer.tick(Duration::from_secs_f32(ICE_SHARD_SPAWN_RATE + 0.01));
+
+            app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
+                orb,
+            ));
+
+            let _ = app.world_mut().run_system_once(blizzard_shard_spawn_system);
+
+            let mut shard_query = app.world_mut().query::<&FallingIceShard>();
+            let count = shard_query.iter(app.world()).count();
+            assert!(count >= 1, "Should spawn at least one ice shard");
+        }
+
+        #[test]
+        fn test_blizzard_shard_spawns_above_orb() {
+            let mut app = setup_spawn_test_app();
+
+            let orb_y = 0.5;
+            let mut orb = FrozenOrb::new(Vec2::X, 20.0);
+            orb.shard_spawn_timer.tick(Duration::from_secs_f32(ICE_SHARD_SPAWN_RATE + 0.01));
+
+            app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(0.0, orb_y, 0.0)),
+                orb,
+            ));
+
+            let _ = app.world_mut().run_system_once(blizzard_shard_spawn_system);
+
+            let mut shard_query = app.world_mut().query::<(&FallingIceShard, &Transform)>();
+            for (_, transform) in shard_query.iter(app.world()) {
+                assert!(
+                    transform.translation.y > orb_y,
+                    "Ice shard should spawn above orb. Orb y={}, shard y={}",
+                    orb_y,
+                    transform.translation.y
+                );
+            }
+        }
+
+        #[test]
+        fn test_blizzard_shard_spawns_within_radius() {
+            let mut app = setup_spawn_test_app();
+
+            let orb_pos = Vec3::new(5.0, 0.5, 5.0);
+
+            // Spawn multiple shards to test radius
+            for _ in 0..10 {
+                let mut orb = FrozenOrb::new(Vec2::X, 20.0);
+                orb.shard_spawn_timer.tick(Duration::from_secs_f32(ICE_SHARD_SPAWN_RATE + 0.01));
+
+                app.world_mut().spawn((
+                    Transform::from_translation(orb_pos),
+                    orb,
+                ));
+
+                let _ = app.world_mut().run_system_once(blizzard_shard_spawn_system);
+            }
+
+            let mut shard_query = app.world_mut().query::<&Transform>();
+            for transform in shard_query.iter(app.world()) {
+                let dx = transform.translation.x - orb_pos.x;
+                let dz = transform.translation.z - orb_pos.z;
+                let distance = (dx * dx + dz * dz).sqrt();
+
+                assert!(
+                    distance <= ICE_SHARD_SPAWN_RADIUS,
+                    "Ice shard should spawn within radius. Distance={}, max={}",
+                    distance,
+                    ICE_SHARD_SPAWN_RADIUS
+                );
             }
         }
     }

@@ -20,8 +20,11 @@ pub const JUDGMENT_STRIKE_DELAY: f32 = 0.4;
 /// Visual beam lifetime after strike lands
 pub const JUDGMENT_BEAM_LIFETIME: f32 = 0.3;
 
-/// Beam visual width
-pub const JUDGMENT_BEAM_WIDTH: f32 = 0.5;
+/// Beam visual width (5x thicker for dramatic effect)
+pub const JUDGMENT_BEAM_WIDTH: f32 = 2.5;
+
+/// AoE radius when beam hits ground (3x beam width)
+pub const JUDGMENT_AOE_RADIUS: f32 = JUDGMENT_BEAM_WIDTH * 3.0;
 
 /// Beam visual height (how tall the beam appears)
 pub const JUDGMENT_BEAM_HEIGHT: f32 = 10.0;
@@ -125,6 +128,42 @@ impl JudgmentBeam {
     }
 }
 
+/// JudgmentAoE component - the ground effect that damages enemies in a radius.
+#[derive(Component, Debug, Clone)]
+pub struct JudgmentAoE {
+    /// Position on XZ plane (center of the AoE)
+    pub position: Vec2,
+    /// Radius of the AoE effect
+    pub radius: f32,
+    /// Damage dealt to enemies in the AoE
+    pub damage: f32,
+    /// Lifetime timer for visual effect
+    pub lifetime: Timer,
+    /// Whether damage has been applied
+    pub damage_applied: bool,
+}
+
+impl JudgmentAoE {
+    pub fn new(position: Vec2, damage: f32) -> Self {
+        Self {
+            position,
+            radius: JUDGMENT_AOE_RADIUS,
+            damage,
+            lifetime: Timer::from_seconds(JUDGMENT_BEAM_LIFETIME, TimerMode::Once),
+            damage_applied: false,
+        }
+    }
+
+    pub fn from_beam(beam: &JudgmentBeam) -> Self {
+        Self::new(beam.position, beam.damage)
+    }
+
+    /// Check if the visual effect has expired
+    pub fn is_expired(&self) -> bool {
+        self.lifetime.is_finished()
+    }
+}
+
 /// System that updates JudgmentCaster and selects targets for strikes.
 pub fn judgment_caster_system(
     mut commands: Commands,
@@ -198,22 +237,38 @@ pub fn update_judgment_strikes(
         if strike.is_ready() {
             // Spawn the beam at strike position
             let beam = JudgmentBeam::from_strike(&strike);
+            let aoe = JudgmentAoE::from_beam(&beam);
             let beam_pos = to_xz(strike.target_position) + Vec3::new(0.0, JUDGMENT_BEAM_HEIGHT / 2.0, 0.0);
+            let aoe_pos = to_xz(strike.target_position) + Vec3::new(0.0, 0.1, 0.0); // Slightly above ground
 
             if let (Some(ref meshes), Some(ref materials)) = (&game_meshes, &game_materials) {
+                // Spawn the beam with 40% transparent material
                 commands.spawn((
                     Mesh3d(meshes.laser.clone()),
-                    MeshMaterial3d(materials.radiant_beam.clone()),
+                    MeshMaterial3d(materials.judgment_beam.clone()),
                     Transform::from_translation(beam_pos)
                         // Rotate laser mesh 90° around X axis so it points up (Y) instead of forward (Z)
                         .with_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2))
                         .with_scale(Vec3::new(JUDGMENT_BEAM_WIDTH, JUDGMENT_BEAM_WIDTH, JUDGMENT_BEAM_HEIGHT)),
                     beam,
                 ));
+
+                // Spawn the AoE ground effect (flat cylinder/disk)
+                commands.spawn((
+                    Mesh3d(meshes.explosion.clone()), // Sphere mesh, scaled flat for disk effect
+                    MeshMaterial3d(materials.judgment_aoe.clone()),
+                    Transform::from_translation(aoe_pos)
+                        .with_scale(Vec3::new(JUDGMENT_AOE_RADIUS, 0.1, JUDGMENT_AOE_RADIUS)),
+                    aoe,
+                ));
             } else {
                 commands.spawn((
                     Transform::from_translation(beam_pos),
                     beam,
+                ));
+                commands.spawn((
+                    Transform::from_translation(aoe_pos),
+                    aoe,
                 ));
             }
 
@@ -264,6 +319,70 @@ pub fn update_judgment_beams(
         transform.scale = Vec3::new(width_scale, width_scale, JUDGMENT_BEAM_HEIGHT);
 
         if beam.is_expired() {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// System that applies damage when JudgmentAoE spawns.
+/// Damages all enemies within the AoE radius who weren't already hit by the beam.
+pub fn judgment_aoe_damage_system(
+    mut aoe_query: Query<&mut JudgmentAoE>,
+    beam_query: Query<&JudgmentBeam>,
+    enemy_query: Query<(Entity, &Transform), With<Enemy>>,
+    mut damage_events: MessageWriter<DamageEvent>,
+) {
+    // Collect enemies already hit by beams (within beam radius)
+    let mut enemies_hit_by_beam: Vec<Entity> = Vec::new();
+    for beam in beam_query.iter() {
+        for (enemy_entity, enemy_transform) in enemy_query.iter() {
+            let enemy_pos = from_xz(enemy_transform.translation);
+            let distance = beam.position.distance(enemy_pos);
+            if distance <= JUDGMENT_BEAM_WIDTH {
+                enemies_hit_by_beam.push(enemy_entity);
+            }
+        }
+    }
+
+    for mut aoe in aoe_query.iter_mut() {
+        if aoe.damage_applied {
+            continue;
+        }
+
+        // Apply damage to enemies in AoE radius who weren't hit by the beam
+        for (enemy_entity, enemy_transform) in enemy_query.iter() {
+            // Skip enemies already hit by the beam
+            if enemies_hit_by_beam.contains(&enemy_entity) {
+                continue;
+            }
+
+            let enemy_pos = from_xz(enemy_transform.translation);
+            let distance = aoe.position.distance(enemy_pos);
+
+            if distance <= aoe.radius {
+                damage_events.write(DamageEvent::new(enemy_entity, aoe.damage));
+            }
+        }
+
+        aoe.damage_applied = true;
+    }
+}
+
+/// System that updates JudgmentAoE lifetime and despawns expired effects.
+pub fn update_judgment_aoe(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut aoe_query: Query<(Entity, &mut JudgmentAoE, &mut Transform)>,
+) {
+    for (entity, mut aoe, mut transform) in aoe_query.iter_mut() {
+        aoe.lifetime.tick(time.delta());
+
+        // Fade out effect by scaling down
+        let progress = aoe.lifetime.elapsed_secs() / JUDGMENT_BEAM_LIFETIME;
+        let scale = JUDGMENT_AOE_RADIUS * (1.0 - progress * 0.5);
+        transform.scale = Vec3::new(scale, 0.1, scale);
+
+        if aoe.is_expired() {
             commands.entity(entity).despawn();
         }
     }
@@ -982,6 +1101,368 @@ mod tests {
             for caster in query.iter(app.world()) {
                 assert_eq!(caster.damage, explicit_damage);
             }
+        }
+    }
+
+    mod judgment_aoe_tests {
+        use super::*;
+
+        #[test]
+        fn test_aoe_radius_is_3x_beam_width() {
+            // AoE radius should be 3x the beam width
+            assert_eq!(JUDGMENT_AOE_RADIUS, JUDGMENT_BEAM_WIDTH * 3.0);
+            assert_eq!(JUDGMENT_AOE_RADIUS, 7.5); // 2.5 * 3 = 7.5
+        }
+
+        #[test]
+        fn test_beam_width_is_5x_thicker() {
+            // Beam width should be 2.5 (5x original 0.5)
+            assert_eq!(JUDGMENT_BEAM_WIDTH, 2.5);
+        }
+
+        #[test]
+        fn test_aoe_creation() {
+            let position = Vec2::new(10.0, 20.0);
+            let damage = 40.0;
+            let aoe = JudgmentAoE::new(position, damage);
+
+            assert_eq!(aoe.position, position);
+            assert_eq!(aoe.damage, damage);
+            assert_eq!(aoe.radius, JUDGMENT_AOE_RADIUS);
+            assert!(!aoe.damage_applied);
+            assert!(!aoe.is_expired());
+        }
+
+        #[test]
+        fn test_aoe_from_beam() {
+            let beam = JudgmentBeam::new(Vec2::new(5.0, 10.0), 50.0);
+            let aoe = JudgmentAoE::from_beam(&beam);
+
+            assert_eq!(aoe.position, beam.position);
+            assert_eq!(aoe.damage, beam.damage);
+            assert_eq!(aoe.radius, JUDGMENT_AOE_RADIUS);
+        }
+
+        #[test]
+        fn test_aoe_expires_after_lifetime() {
+            let mut aoe = JudgmentAoE::new(Vec2::ZERO, 40.0);
+
+            assert!(!aoe.is_expired());
+
+            aoe.lifetime.tick(Duration::from_secs_f32(JUDGMENT_BEAM_LIFETIME + 0.1));
+
+            assert!(aoe.is_expired());
+        }
+    }
+
+    mod judgment_aoe_damage_system_tests {
+        use super::*;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        #[test]
+        fn test_aoe_damages_enemy_in_radius() {
+            let mut app = App::new();
+
+            #[derive(Resource, Clone)]
+            struct DamageEventCounter(Arc<AtomicUsize>);
+
+            fn count_damage_events(
+                mut events: MessageReader<DamageEvent>,
+                counter: Res<DamageEventCounter>,
+            ) {
+                for _ in events.read() {
+                    counter.0.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+
+            let counter = DamageEventCounter(Arc::new(AtomicUsize::new(0)));
+            app.insert_resource(counter.clone());
+
+            app.add_message::<DamageEvent>();
+            app.add_systems(Update, (judgment_aoe_damage_system, count_damage_events).chain());
+
+            // Create AoE at position
+            app.world_mut().spawn(JudgmentAoE::new(Vec2::new(5.0, 10.0), 40.0));
+
+            // Create enemy within AoE radius (at distance 5.0, within 7.5 radius)
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(8.0, 0.375, 10.0)), // 3 units away on X
+            ));
+
+            app.update();
+
+            assert_eq!(counter.0.load(Ordering::SeqCst), 1);
+        }
+
+        #[test]
+        fn test_aoe_no_damage_to_distant_enemy() {
+            let mut app = App::new();
+
+            #[derive(Resource, Clone)]
+            struct DamageEventCounter(Arc<AtomicUsize>);
+
+            fn count_damage_events(
+                mut events: MessageReader<DamageEvent>,
+                counter: Res<DamageEventCounter>,
+            ) {
+                for _ in events.read() {
+                    counter.0.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+
+            let counter = DamageEventCounter(Arc::new(AtomicUsize::new(0)));
+            app.insert_resource(counter.clone());
+
+            app.add_message::<DamageEvent>();
+            app.add_systems(Update, (judgment_aoe_damage_system, count_damage_events).chain());
+
+            // Create AoE at position
+            app.world_mut().spawn(JudgmentAoE::new(Vec2::ZERO, 40.0));
+
+            // Create enemy far outside AoE radius (at distance 20, beyond 7.5 radius)
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(20.0, 0.375, 0.0)),
+            ));
+
+            app.update();
+
+            assert_eq!(counter.0.load(Ordering::SeqCst), 0);
+        }
+
+        #[test]
+        fn test_aoe_damage_applied_only_once() {
+            let mut app = App::new();
+
+            #[derive(Resource, Clone)]
+            struct DamageEventCounter(Arc<AtomicUsize>);
+
+            fn count_damage_events(
+                mut events: MessageReader<DamageEvent>,
+                counter: Res<DamageEventCounter>,
+            ) {
+                for _ in events.read() {
+                    counter.0.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+
+            let counter = DamageEventCounter(Arc::new(AtomicUsize::new(0)));
+            app.insert_resource(counter.clone());
+
+            app.add_message::<DamageEvent>();
+            app.add_systems(Update, (judgment_aoe_damage_system, count_damage_events).chain());
+
+            // Create AoE
+            app.world_mut().spawn(JudgmentAoE::new(Vec2::ZERO, 40.0));
+
+            // Create enemy at position (within AoE)
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(5.0, 0.375, 0.0)), // 5 units, within 7.5 radius
+            ));
+
+            // Multiple updates
+            app.update();
+            app.update();
+            app.update();
+
+            // Only damaged once
+            assert_eq!(counter.0.load(Ordering::SeqCst), 1);
+        }
+
+        #[test]
+        fn test_aoe_skips_enemies_hit_by_beam() {
+            let mut app = App::new();
+
+            #[derive(Resource, Clone)]
+            struct DamageEventCounter(Arc<AtomicUsize>);
+
+            fn count_damage_events(
+                mut events: MessageReader<DamageEvent>,
+                counter: Res<DamageEventCounter>,
+            ) {
+                for _ in events.read() {
+                    counter.0.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+
+            let counter = DamageEventCounter(Arc::new(AtomicUsize::new(0)));
+            app.insert_resource(counter.clone());
+
+            app.add_message::<DamageEvent>();
+            app.add_systems(Update, (judgment_aoe_damage_system, count_damage_events).chain());
+
+            // Create beam at position
+            app.world_mut().spawn(JudgmentBeam::new(Vec2::new(5.0, 0.0), 40.0));
+
+            // Create AoE at same position
+            app.world_mut().spawn(JudgmentAoE::new(Vec2::new(5.0, 0.0), 40.0));
+
+            // Create enemy within beam hit radius (within 2.5 of beam position)
+            // This enemy should be skipped by AoE since it's hit by beam
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(5.0, 0.375, 0.0)),
+            ));
+
+            app.update();
+
+            // Enemy was within beam radius, so AoE should not damage them
+            assert_eq!(counter.0.load(Ordering::SeqCst), 0);
+        }
+
+        #[test]
+        fn test_aoe_damages_enemies_outside_beam_but_inside_aoe() {
+            let mut app = App::new();
+
+            #[derive(Resource, Clone)]
+            struct DamageEventCounter(Arc<AtomicUsize>);
+
+            fn count_damage_events(
+                mut events: MessageReader<DamageEvent>,
+                counter: Res<DamageEventCounter>,
+            ) {
+                for _ in events.read() {
+                    counter.0.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+
+            let counter = DamageEventCounter(Arc::new(AtomicUsize::new(0)));
+            app.insert_resource(counter.clone());
+
+            app.add_message::<DamageEvent>();
+            app.add_systems(Update, (judgment_aoe_damage_system, count_damage_events).chain());
+
+            // Create beam at origin
+            app.world_mut().spawn(JudgmentBeam::new(Vec2::ZERO, 40.0));
+
+            // Create AoE at origin
+            app.world_mut().spawn(JudgmentAoE::new(Vec2::ZERO, 40.0));
+
+            // Create enemy outside beam radius (2.5) but inside AoE radius (7.5)
+            // At distance 5.0, outside beam but inside AoE
+            app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_translation(Vec3::new(5.0, 0.375, 0.0)),
+            ));
+
+            app.update();
+
+            // Enemy was outside beam radius but inside AoE, so AoE should damage them
+            assert_eq!(counter.0.load(Ordering::SeqCst), 1);
+        }
+    }
+
+    mod update_judgment_aoe_tests {
+        use super::*;
+
+        #[test]
+        fn test_aoe_despawns_after_lifetime() {
+            let mut app = App::new();
+            app.add_systems(Update, update_judgment_aoe);
+            app.init_resource::<Time>();
+
+            let aoe_entity = app.world_mut().spawn((
+                Transform::from_translation(Vec3::ZERO),
+                JudgmentAoE::new(Vec2::ZERO, 40.0),
+            )).id();
+
+            // Advance time past lifetime
+            {
+                let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+                time.advance_by(Duration::from_secs_f32(JUDGMENT_BEAM_LIFETIME + 0.1));
+            }
+
+            app.update();
+
+            assert!(app.world().get_entity(aoe_entity).is_err());
+        }
+
+        #[test]
+        fn test_aoe_survives_before_lifetime() {
+            let mut app = App::new();
+            app.add_systems(Update, update_judgment_aoe);
+            app.init_resource::<Time>();
+
+            let aoe_entity = app.world_mut().spawn((
+                Transform::from_translation(Vec3::ZERO),
+                JudgmentAoE::new(Vec2::ZERO, 40.0),
+            )).id();
+
+            // Advance time but not past lifetime
+            {
+                let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+                time.advance_by(Duration::from_secs_f32(JUDGMENT_BEAM_LIFETIME / 2.0));
+            }
+
+            app.update();
+
+            assert!(app.world().get_entity(aoe_entity).is_ok());
+        }
+    }
+
+    mod update_judgment_strikes_aoe_tests {
+        use super::*;
+
+        #[test]
+        fn test_strike_spawns_both_beam_and_aoe() {
+            let mut app = App::new();
+            app.add_systems(Update, update_judgment_strikes);
+            app.init_resource::<Time>();
+
+            // Create strike with short delay
+            let strike = JudgmentStrike::new(Vec2::new(10.0, 20.0), 40.0, 0.01);
+            app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(10.0, 0.1, 20.0)),
+                strike,
+            ));
+
+            // Advance time past delay
+            {
+                let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+                time.advance_by(Duration::from_secs_f32(0.02));
+            }
+
+            app.update();
+
+            // Should have both beam and AoE
+            let mut beam_query = app.world_mut().query::<&JudgmentBeam>();
+            let beam_count = beam_query.iter(app.world()).count();
+            assert_eq!(beam_count, 1);
+
+            let mut aoe_query = app.world_mut().query::<&JudgmentAoE>();
+            let aoe_count = aoe_query.iter(app.world()).count();
+            assert_eq!(aoe_count, 1);
+        }
+
+        #[test]
+        fn test_aoe_spawned_at_correct_position() {
+            let mut app = App::new();
+            app.add_systems(Update, update_judgment_strikes);
+            app.init_resource::<Time>();
+
+            let target_pos = Vec2::new(10.0, 20.0);
+            let strike = JudgmentStrike::new(target_pos, 40.0, 0.01);
+            app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(10.0, 0.1, 20.0)),
+                strike,
+            ));
+
+            // Advance time past delay
+            {
+                let mut time = app.world_mut().get_resource_mut::<Time>().unwrap();
+                time.advance_by(Duration::from_secs_f32(0.02));
+            }
+
+            app.update();
+
+            let mut aoe_query = app.world_mut().query::<&JudgmentAoE>();
+            let aoe: Vec<&JudgmentAoE> = aoe_query.iter(app.world()).collect();
+            assert_eq!(aoe.len(), 1);
+            assert_eq!(aoe[0].position, target_pos);
+            assert_eq!(aoe[0].radius, JUDGMENT_AOE_RADIUS);
         }
     }
 }

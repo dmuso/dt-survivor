@@ -44,6 +44,7 @@ use crate::spells::frost::glacial_pulse::{
     glacial_pulse_expansion_system, glacial_pulse_visual_system,
 };
 use crate::spells::frost::frozen_orb::{
+    blizzard_shard_cleanup_system, blizzard_shard_movement_system, blizzard_shard_spawn_system,
     frozen_orb_cleanup_system, frozen_orb_damage_system,
     frozen_orb_movement_system, frozen_orb_tick_system,
 };
@@ -99,6 +100,9 @@ use crate::spells::poison::virulence::{
 use crate::spells::fire::inferno_pulse::{
     animate_inferno_pulse_wave_system, cleanup_inferno_pulse_wave_system,
     inferno_pulse_wave_visual_system,
+};
+use crate::spells::fire::immolate::{
+    immolate_damage_system, immolate_visual_system, immolate_cleanup_system,
 };
 use crate::spells::lightning::ion_field::{
     ion_field_cleanup_markers_system, ion_field_damage_system,
@@ -200,6 +204,7 @@ use crate::spells::light::halo_shield::{
 use crate::spells::light::judgment::{
     judgment_caster_system, update_judgment_strikes,
     judgment_beam_damage_system, update_judgment_beams,
+    judgment_aoe_damage_system, update_judgment_aoe,
 };
 use crate::spells::light::beacon::{
     update_beacon_timers, attract_enemies_to_beacon,
@@ -456,6 +461,25 @@ pub fn plugin(app: &mut App) {
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )
+        // Blizzard ice shard particle systems (visual effect)
+        .add_systems(
+            Update,
+            blizzard_shard_spawn_system
+                .in_set(GameSet::Spawning)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            blizzard_shard_movement_system
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            blizzard_shard_cleanup_system
+                .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
         // Venom spray systems - hit detection in Combat, DOT damage in Effects, cleanup in Cleanup
         .add_systems(
             Update,
@@ -675,6 +699,25 @@ pub fn plugin(app: &mut App) {
         .add_systems(
             Update,
             cleanup_inferno_pulse_wave_system
+                .in_set(GameSet::Cleanup)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Immolate systems - damage DOT in Effects, visual flash in Effects, cleanup in Cleanup
+        .add_systems(
+            Update,
+            immolate_damage_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            immolate_visual_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            immolate_cleanup_system
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )
@@ -1281,7 +1324,7 @@ pub fn plugin(app: &mut App) {
                 .in_set(GameSet::Combat)
                 .run_if(in_state(GameState::InGame)),
         )
-        // Judgment (Light) systems - caster targeting in Combat, strike updates in Combat, beam damage in Combat, beam cleanup in Cleanup
+        // Judgment (Light) systems - caster targeting in Combat, strike updates in Combat, beam/AoE damage in Combat, cleanup in Cleanup
         .add_systems(
             Update,
             judgment_caster_system
@@ -1293,6 +1336,7 @@ pub fn plugin(app: &mut App) {
             (
                 update_judgment_strikes,
                 judgment_beam_damage_system,
+                judgment_aoe_damage_system,
             )
                 .chain()
                 .in_set(GameSet::Combat)
@@ -1300,7 +1344,10 @@ pub fn plugin(app: &mut App) {
         )
         .add_systems(
             Update,
-            update_judgment_beams
+            (
+                update_judgment_beams,
+                update_judgment_aoe,
+            )
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )

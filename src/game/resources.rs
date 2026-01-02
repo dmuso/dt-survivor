@@ -530,6 +530,14 @@ pub struct GameMaterials {
     pub chaos_bolt: Handle<StandardMaterial>,
     /// Hoarfrost aura material (ice blue with low opacity and additive blending)
     pub hoarfrost_aura: Handle<StandardMaterial>,
+    /// Psychic AOE material (magenta with 20% opacity and additive blending)
+    pub psychic_aoe: Handle<StandardMaterial>,
+    /// Chaos AOE material (chaos purple with 20% opacity and additive blending)
+    pub chaos_aoe: Handle<StandardMaterial>,
+    /// Judgment beam material (white/gold with 40% opacity for dramatic strike)
+    pub judgment_beam: Handle<StandardMaterial>,
+    /// Judgment AoE ground effect material (white/gold with 30% opacity)
+    pub judgment_aoe: Handle<StandardMaterial>,
 }
 
 impl GameMaterials {
@@ -707,6 +715,30 @@ impl GameMaterials {
             hoarfrost_aura: materials.add(StandardMaterial {
                 base_color: Color::srgba(0.53, 0.81, 0.92, 0.1), // Ice blue with 10% opacity
                 emissive: bevy::color::LinearRgba::rgb(0.3, 0.5, 0.6), // Subtle ice blue glow
+                alpha_mode: AlphaMode::Add,
+                ..default()
+            }),
+            psychic_aoe: materials.add(StandardMaterial {
+                base_color: Color::srgba(1.0, 0.0, 1.0, 0.1), // Magenta with 10% opacity
+                emissive: bevy::color::LinearRgba::rgb(1.5, 0.0, 1.5), // Magenta glow
+                alpha_mode: AlphaMode::Add,
+                ..default()
+            }),
+            chaos_aoe: materials.add(StandardMaterial {
+                base_color: Color::srgba(0.8, 0.3, 0.8, 0.2), // Chaos purple with 20% opacity
+                emissive: bevy::color::LinearRgba::rgb(1.2, 0.4, 1.2), // Chaotic glow
+                alpha_mode: AlphaMode::Add,
+                ..default()
+            }),
+            judgment_beam: materials.add(StandardMaterial {
+                base_color: Color::srgba(1.0, 1.0, 0.9, 0.4), // White/gold with 40% opacity
+                emissive: bevy::color::LinearRgba::rgb(3.0, 3.0, 2.5), // Bright white/gold glow
+                alpha_mode: AlphaMode::Add,
+                ..default()
+            }),
+            judgment_aoe: materials.add(StandardMaterial {
+                base_color: Color::srgba(1.0, 1.0, 0.9, 0.3), // White/gold with 30% opacity
+                emissive: bevy::color::LinearRgba::rgb(2.0, 2.0, 1.5), // Softer glow for ground effect
                 alpha_mode: AlphaMode::Add,
                 ..default()
             }),
@@ -1016,6 +1048,10 @@ mod tests {
             assert!(materials.get(&game_materials.orbital_particle).is_some());
             assert!(materials.get(&game_materials.fireball).is_some());
             assert!(materials.get(&game_materials.ice_shard).is_some());
+            assert!(materials.get(&game_materials.psychic_aoe).is_some());
+            assert!(materials.get(&game_materials.chaos_aoe).is_some());
+            assert!(materials.get(&game_materials.judgment_beam).is_some());
+            assert!(materials.get(&game_materials.judgment_aoe).is_some());
         }
 
         #[test]
@@ -1122,6 +1158,26 @@ mod tests {
             // Verify ice_shard is ice blue (Frost element color)
             let ice_shard_mat = materials.get(&game_materials.ice_shard).unwrap();
             assert_eq!(ice_shard_mat.base_color, Color::srgb(0.53, 0.81, 0.92));
+
+            // Verify psychic_aoe has 10% opacity magenta with additive blending
+            let psychic_aoe_mat = materials.get(&game_materials.psychic_aoe).unwrap();
+            assert_eq!(psychic_aoe_mat.base_color, Color::srgba(1.0, 0.0, 1.0, 0.1));
+            assert_eq!(psychic_aoe_mat.alpha_mode, AlphaMode::Add);
+
+            // Verify chaos_aoe has 20% opacity with additive blending
+            let chaos_aoe_mat = materials.get(&game_materials.chaos_aoe).unwrap();
+            assert_eq!(chaos_aoe_mat.base_color, Color::srgba(0.8, 0.3, 0.8, 0.2));
+            assert_eq!(chaos_aoe_mat.alpha_mode, AlphaMode::Add);
+
+            // Verify judgment_beam has 40% opacity with additive blending
+            let judgment_beam_mat = materials.get(&game_materials.judgment_beam).unwrap();
+            assert_eq!(judgment_beam_mat.base_color, Color::srgba(1.0, 1.0, 0.9, 0.4));
+            assert_eq!(judgment_beam_mat.alpha_mode, AlphaMode::Add);
+
+            // Verify judgment_aoe has 30% opacity with additive blending
+            let judgment_aoe_mat = materials.get(&game_materials.judgment_aoe).unwrap();
+            assert_eq!(judgment_aoe_mat.base_color, Color::srgba(1.0, 1.0, 0.9, 0.3));
+            assert_eq!(judgment_aoe_mat.alpha_mode, AlphaMode::Add);
         }
 
         #[test]

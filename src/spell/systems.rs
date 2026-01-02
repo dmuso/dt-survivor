@@ -2513,6 +2513,15 @@ pub fn spell_casting_system(
                     );
                 }
             }
+            SpellType::Immolate => {
+                crate::spells::fire::immolate::fire_immolate_with_damage(
+                    &mut commands,
+                    spell,
+                    final_damage,
+                    origin_pos,
+                    &enemy_query,
+                );
+            }
             SpellType::Electrocute => {
                 crate::spells::lightning::ion_field::fire_ion_field_with_damage(
                     &mut commands,
