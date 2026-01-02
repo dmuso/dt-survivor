@@ -33,7 +33,29 @@ pub const BORDER_RADIUS: f32 = 6.0;
 use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use bevy::prelude::*;
 
+use crate::spell::Spell;
 use crate::ui::spell_slot::components::SpellLevelIndicator;
+
+/// Returns background and border colors for a spell slot.
+///
+/// Single source of truth for spell slot color logic:
+/// - With spell: background = element color with alpha, border = element color
+/// - Without spell: uses empty slot constants
+pub fn spell_slot_colors(spell: Option<&Spell>) -> (BackgroundColor, BorderColor) {
+    match spell {
+        Some(spell) => {
+            let element_color = spell.element.color();
+            (
+                BackgroundColor(element_color.with_alpha(BACKGROUND_ALPHA)),
+                BorderColor::all(element_color),
+            )
+        }
+        None => (
+            BackgroundColor(empty_slot::SLOT_BACKGROUND),
+            BorderColor::all(empty_slot::SLOT_BORDER),
+        ),
+    }
+}
 
 /// Spawns a level indicator badge for a spell slot.
 ///
@@ -146,6 +168,61 @@ mod tests {
         #[test]
         fn empty_slot_hover_border_is_accessible() {
             let _color = empty_slot::SLOT_BORDER_HOVER;
+        }
+    }
+
+    mod spell_slot_colors_tests {
+        use super::*;
+        use crate::element::Element;
+        use crate::spell::Spell;
+        use crate::spell::spell_type::SpellType;
+
+        #[test]
+        fn returns_empty_slot_colors_when_no_spell() {
+            let (bg, border) = spell_slot_colors(None);
+            assert_eq!(bg.0, empty_slot::SLOT_BACKGROUND);
+            assert_eq!(border.top, empty_slot::SLOT_BORDER);
+        }
+
+        #[test]
+        fn returns_element_background_with_alpha_when_spell_present() {
+            let spell = Spell::new(SpellType::Fireball);
+            let (bg, _) = spell_slot_colors(Some(&spell));
+            let expected = spell.element.color().with_alpha(BACKGROUND_ALPHA);
+            assert_eq!(bg.0, expected);
+        }
+
+        #[test]
+        fn returns_element_border_when_spell_present() {
+            let spell = Spell::new(SpellType::Fireball);
+            let (_, border) = spell_slot_colors(Some(&spell));
+            let expected = spell.element.color();
+            assert_eq!(border.top, expected);
+        }
+
+        #[test]
+        fn works_with_different_elements() {
+            for element in Element::all() {
+                let spell_types = SpellType::by_element(*element);
+                if let Some(spell_type) = spell_types.first() {
+                    let spell = Spell::new(*spell_type);
+                    let (bg, border) = spell_slot_colors(Some(&spell));
+
+                    let expected_bg = element.color().with_alpha(BACKGROUND_ALPHA);
+                    let expected_border = element.color();
+
+                    assert_eq!(
+                        bg.0, expected_bg,
+                        "Background color should match element {:?}",
+                        element
+                    );
+                    assert_eq!(
+                        border.top, expected_border,
+                        "Border color should match element {:?}",
+                        element
+                    );
+                }
+            }
         }
     }
 
