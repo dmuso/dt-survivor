@@ -313,6 +313,16 @@ pub fn pause_input(
     }
 }
 
+/// Handles ESC key to pause the game from InGame state
+pub fn enter_pause_input(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    if keyboard_input.just_pressed(KeyCode::Escape) {
+        next_state.set(GameState::Paused);
+    }
+}
+
 /// Cleans up pause menu UI
 pub fn cleanup_pause_menu(mut commands: Commands, query: Query<Entity, With<PauseMenu>>) {
     for entity in query.iter() {

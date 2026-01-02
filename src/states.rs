@@ -9,6 +9,7 @@ pub enum GameState {
     InventoryOpen,
     LevelComplete,
     GameOver,
+    Paused,
 }
 
 #[cfg(test)]
@@ -57,6 +58,7 @@ mod tests {
             GameState::InventoryOpen,
             GameState::LevelComplete,
             GameState::GameOver,
+            GameState::Paused,
         ];
         // Check all pairs are distinct
         for (i, s1) in states.iter().enumerate() {
@@ -66,5 +68,12 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn game_state_has_paused() {
+        let state = GameState::Paused;
+        assert_ne!(state, GameState::InGame);
+        assert_ne!(state, GameState::Intro);
     }
 }

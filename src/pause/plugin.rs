@@ -6,6 +6,11 @@ use crate::states::GameState;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<WallLightsEnabled>()
+        // ESC key to enter pause from InGame
+        .add_systems(
+            Update,
+            enter_pause_input.run_if(in_state(GameState::InGame)),
+        )
         // Setup pause menu when entering Paused state
         .add_systems(OnEnter(GameState::Paused), setup_pause_menu)
         // Update systems while in Paused state
