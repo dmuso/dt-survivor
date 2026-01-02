@@ -321,7 +321,7 @@ pub fn fire_brainburn_with_damage(
     if let (Some(meshes), Some(materials)) = (game_meshes, game_materials) {
         commands.spawn((
             Mesh3d(meshes.explosion.clone()),
-            MeshMaterial3d(materials.powerup.clone()),
+            MeshMaterial3d(materials.psychic_aoe.clone()), // Transparent magenta AOE material
             Transform::from_translation(aura_pos).with_scale(Vec3::splat(aura.radius)),
             aura,
         ));

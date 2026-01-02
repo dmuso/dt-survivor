@@ -392,7 +392,7 @@ pub fn fire_echo_thought_with_echoes(
     if let (Some(meshes), Some(materials)) = (game_meshes, game_materials) {
         commands.spawn((
             Mesh3d(meshes.explosion.clone()),
-            MeshMaterial3d(materials.powerup.clone()),
+            MeshMaterial3d(materials.psychic_aoe.clone()), // Transparent magenta AOE material
             Transform::from_translation(spawn_position).with_scale(Vec3::splat(0.5)),
             caster,
         ));

@@ -633,8 +633,9 @@ pub fn update_spell_slot_backgrounds(
                 *bg_color = BackgroundColor(element_color.with_alpha(0.3));
             }
         } else {
-            // Empty slot - dark gray background
-            *bg_color = BackgroundColor(Color::srgba(0.2, 0.2, 0.2, 0.8));
+            // Empty slot - no slot background, let icon background show through
+            // (matches inventory empty slot appearance)
+            *bg_color = BackgroundColor(Color::NONE);
         }
     }
 }

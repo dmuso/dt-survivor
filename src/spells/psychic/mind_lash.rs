@@ -258,7 +258,7 @@ pub fn fire_mind_lash_with_damage(
     if let (Some(meshes), Some(materials)) = (game_meshes, game_materials) {
         commands.spawn((
             Mesh3d(meshes.laser.clone()),
-            MeshMaterial3d(materials.powerup.clone()),
+            MeshMaterial3d(materials.psychic_aoe.clone()), // Transparent magenta AOE material
             Transform::from_translation(spawn_position),
             lash,
         ));

@@ -134,10 +134,10 @@ pub fn spawn_pandemonium_burst(
     let burst_pos = Vec3::new(spawn_position.x, PANDEMONIUM_VISUAL_HEIGHT, spawn_position.z);
 
     if let (Some(meshes), Some(materials)) = (game_meshes, game_materials) {
-        // Use chaos bolt material for magenta/pink color
+        // Use chaos AOE material (transparent purple with additive blending)
         commands.spawn((
             Mesh3d(meshes.explosion.clone()),
-            MeshMaterial3d(materials.chaos_bolt.clone()),
+            MeshMaterial3d(materials.chaos_aoe.clone()),
             Transform::from_translation(burst_pos).with_scale(Vec3::splat(burst.radius)),
             burst,
         ));

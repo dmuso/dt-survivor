@@ -616,15 +616,6 @@ mod tests {
 
     mod poison_stack_damage_tests {
         use super::*;
-        use bevy::app::App;
-        use bevy::ecs::system::RunSystemOnce;
-
-        fn setup_test_app() -> App {
-            let mut app = App::new();
-            app.add_plugins(bevy::time::TimePlugin::default());
-            app.add_message::<DamageEvent>();
-            app
-        }
 
         #[test]
         fn test_poison_stack_should_damage_after_tick_interval() {

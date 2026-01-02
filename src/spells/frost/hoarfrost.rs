@@ -236,6 +236,7 @@ fn spawn_hoarfrost_visual(
 
 /// System that updates the Hoarfrost visual position to follow the player
 /// and updates scale based on the current aura radius.
+#[allow(clippy::type_complexity)]
 pub fn hoarfrost_visual_system(
     mut visual_query: Query<(&HoarfrostVisual, &mut Transform)>,
     player_query: Query<(&Transform, &HoarfrostAura), (With<Player>, Without<HoarfrostVisual>)>,

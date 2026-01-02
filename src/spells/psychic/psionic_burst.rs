@@ -177,7 +177,7 @@ pub fn fire_psionic_burst_with_damage(
     if let (Some(meshes), Some(materials)) = (game_meshes, game_materials) {
         commands.spawn((
             Mesh3d(meshes.explosion.clone()),
-            MeshMaterial3d(materials.powerup.clone()), // Magenta/pink material for psychic
+            MeshMaterial3d(materials.psychic_aoe.clone()), // Transparent magenta AOE material
             Transform::from_translation(burst_pos).with_scale(Vec3::splat(0.1)),
             burst,
         ));

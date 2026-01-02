@@ -280,7 +280,7 @@ pub fn fire_anomaly_with_damage(
     if let (Some(meshes), Some(materials)) = (game_meshes, game_materials) {
         commands.spawn((
             Mesh3d(meshes.explosion.clone()),
-            MeshMaterial3d(materials.chaos_bolt.clone()),
+            MeshMaterial3d(materials.chaos_aoe.clone()), // Transparent chaos AOE material
             Transform::from_translation(zone_pos).with_scale(Vec3::splat(0.1)),
             zone,
         ));

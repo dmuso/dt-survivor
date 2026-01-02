@@ -157,7 +157,7 @@ pub fn game_input(
 #[allow(clippy::type_complexity)]
 pub fn cleanup_game(
     mut commands: Commands,
-    query: Query<Entity, Or<(With<Player>, With<Rock>, With<Enemy>, With<crate::loot::components::DroppedItem>, With<crate::weapon::components::Weapon>, With<crate::spells::light::radiant_beam::RadiantBeam>, With<crate::experience::components::ExperienceOrb>, With<WhisperCompanion>, With<crate::player::components::PlayerModel>)>>,
+    query: Query<Entity, Or<(With<Player>, With<Rock>, With<Enemy>, With<crate::loot::components::DroppedItem>, With<crate::spells::light::radiant_beam::RadiantBeam>, With<crate::experience::components::ExperienceOrb>, With<WhisperCompanion>, With<crate::player::components::PlayerModel>)>>,
 ) {
     // Don't despawn the camera - let the UI system reuse it
     // Collect entities first to avoid iterator invalidation issues

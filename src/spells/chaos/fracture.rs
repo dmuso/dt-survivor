@@ -100,6 +100,7 @@ impl FractureDeathEvent {
 }
 
 /// System that listens for DeathEvents and spawns fragments for fractured enemies.
+#[allow(clippy::type_complexity)]
 pub fn fracture_on_death_system(
     mut death_events: MessageReader<DeathEvent>,
     fractured_query: Query<(&Enemy, &Health, &Level), (With<FractureEffect>, Without<Fragment>)>,
@@ -197,6 +198,7 @@ pub fn spawn_fragment_enemies_system(
 
 /// Apply fracture effect to enemies hit by fracture spell damage.
 /// This is typically called when the spell deals damage to mark enemies.
+#[allow(clippy::type_complexity)]
 pub fn apply_fracture_effect(
     mut commands: Commands,
     mut damage_events: MessageReader<DamageEvent>,

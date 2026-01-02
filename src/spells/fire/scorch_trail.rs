@@ -337,7 +337,6 @@ pub fn scorch_patch_cleanup_system(
 mod tests {
     use super::*;
     use std::time::Duration;
-    use bevy::ecs::system::RunSystemOnce;
     use crate::spell::SpellType;
 
     mod scorch_patch_component_tests {

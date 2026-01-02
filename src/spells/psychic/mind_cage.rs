@@ -111,6 +111,7 @@ pub fn mind_cage_duration_system(
 }
 
 /// System that marks enemies as caged when they enter a Mind Cage zone.
+#[allow(clippy::type_complexity)]
 pub fn mind_cage_capture_system(
     mut commands: Commands,
     cage_query: Query<(Entity, &MindCage)>,
@@ -232,7 +233,7 @@ pub fn fire_mind_cage_with_config(
     if let (Some(meshes), Some(materials)) = (game_meshes, game_materials) {
         commands.spawn((
             Mesh3d(meshes.explosion.clone()),
-            MeshMaterial3d(materials.powerup.clone()), // Magenta/pink material for psychic
+            MeshMaterial3d(materials.psychic_aoe.clone()), // Transparent magenta AOE material
             Transform::from_translation(cage_pos).with_scale(Vec3::splat(radius)),
             cage,
         ));
