@@ -9,6 +9,6 @@ pub mod systems;
 
 pub use components::*;
 pub use spawn::{
-    empty_slot, BACKGROUND_ALPHA, BORDER_RADIUS, LEVEL_FONT_SIZE, LEVEL_PADDING_X, LEVEL_PADDING_Y,
-    LEVEL_TOP_OFFSET, SLOT_SIZE,
+    empty_slot, spawn_level_indicator, BACKGROUND_ALPHA, BORDER_RADIUS, LEVEL_FONT_SIZE,
+    LEVEL_PADDING_X, LEVEL_PADDING_Y, LEVEL_TOP_OFFSET, SLOT_SIZE,
 };
