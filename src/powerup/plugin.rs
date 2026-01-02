@@ -6,6 +6,7 @@ use crate::powerup::components::ActivePowerups;
 pub fn plugin(app: &mut App) {
     app
         .init_resource::<ActivePowerups>()
+        .init_resource::<SpellFireRateMultiplier>()
         .add_systems(
             Update,
             (
@@ -13,7 +14,7 @@ pub fn plugin(app: &mut App) {
                 powerup_pulse_system,
                 // Powerup pickup is now handled by the loot system (DroppedItem)
                 apply_player_powerup_effects,
-                apply_weapon_powerup_effects,
+                apply_spell_powerup_effects,
                 update_powerup_timers,
                 update_powerup_ui,
             )

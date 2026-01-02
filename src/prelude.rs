@@ -21,9 +21,6 @@ pub use crate::combat::{
 // Re-export movement module types
 pub use crate::movement::{Knockback, Speed, Velocity};
 
-// Re-export weapon types (deprecated, use spell types instead)
-pub use crate::weapon::WeaponType;
-
 // Re-export spell types
 pub use crate::spell::{Spell, SpellType};
 
@@ -62,19 +59,6 @@ mod tests {
         // Speed component
         let speed = Speed(100.0);
         assert_eq!(speed.0, 100.0);
-    }
-
-    #[test]
-    fn test_prelude_exports_weapon_type() {
-        // WeaponType enum (deprecated)
-        let weapon = WeaponType::Laser;
-        assert_eq!(weapon.id(), "laser");
-
-        let pistol = WeaponType::Pistol {
-            bullet_count: 1,
-            spread_angle: 0.0,
-        };
-        assert_eq!(pistol.id(), "pistol");
     }
 
     #[test]

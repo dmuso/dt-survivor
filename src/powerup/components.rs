@@ -8,8 +8,8 @@ pub enum PowerupType {
     MaxHealth,
     /// Increases health regeneration rate permanently
     HealthRegen,
-    /// Doubles fire rate for all weapons temporarily
-    WeaponFireRate,
+    /// Doubles fire rate for all spells temporarily
+    SpellFireRate,
     /// Increases loot pickup radius permanently
     PickupRadius,
     /// Increases movement speed temporarily
@@ -22,7 +22,7 @@ impl PowerupType {
         match self {
             PowerupType::MaxHealth => "Max Health +",
             PowerupType::HealthRegen => "Health Regen +",
-            PowerupType::WeaponFireRate => "Weapon Speed",
+            PowerupType::SpellFireRate => "Spell Speed",
             PowerupType::PickupRadius => "Pickup Range +",
             PowerupType::MovementSpeed => "Movement Speed",
         }
@@ -33,7 +33,7 @@ impl PowerupType {
         match self {
             PowerupType::MaxHealth => Color::srgb(1.0, 0.0, 0.0), // Red
             PowerupType::HealthRegen => Color::srgb(0.0, 1.0, 0.0), // Green
-            PowerupType::WeaponFireRate => Color::srgb(1.0, 1.0, 0.0), // Yellow
+            PowerupType::SpellFireRate => Color::srgb(1.0, 1.0, 0.0), // Yellow
             PowerupType::PickupRadius => Color::srgb(0.0, 1.0, 1.0), // Cyan
             PowerupType::MovementSpeed => Color::srgb(1.0, 0.0, 1.0), // Magenta
         }
@@ -44,7 +44,7 @@ impl PowerupType {
         match self {
             PowerupType::MaxHealth => true,
             PowerupType::HealthRegen => true,
-            PowerupType::WeaponFireRate => false,
+            PowerupType::SpellFireRate => false,
             PowerupType::PickupRadius => true,
             PowerupType::MovementSpeed => false,
         }
@@ -53,7 +53,7 @@ impl PowerupType {
     /// Get the duration for temporary powerups (in seconds)
     pub fn duration(&self) -> f32 {
         match self {
-            PowerupType::WeaponFireRate => 20.0,
+            PowerupType::SpellFireRate => 20.0,
             PowerupType::MovementSpeed => 20.0,
             _ => 0.0, // Permanent powerups have no duration
         }

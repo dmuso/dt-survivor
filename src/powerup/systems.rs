@@ -3,7 +3,6 @@ use rand::Rng;
 use crate::combat::components::Health;
 use crate::powerup::components::*;
 use crate::player::components::*;
-use crate::weapon::components::*;
 use crate::game::events::EnemyDeathEvent;
 use crate::game::resources::{GameMeshes, GameMaterials};
 use crate::loot::components::{DroppedItem, ItemData, PickupState};
@@ -31,7 +30,7 @@ pub fn powerup_spawning_system(
             let powerup_types = [
                 PowerupType::MaxHealth,
                 PowerupType::HealthRegen,
-                PowerupType::WeaponFireRate,
+                PowerupType::SpellFireRate,
                 PowerupType::PickupRadius,
                 PowerupType::MovementSpeed,
             ];
@@ -110,32 +109,21 @@ pub fn apply_player_powerup_effects(
     }
 }
 
-/// System to apply powerup effects to weapons (fire rate)
-pub fn apply_weapon_powerup_effects(
+/// Resource to track spell fire rate multiplier from powerups
+#[derive(Resource, Default)]
+pub struct SpellFireRateMultiplier(pub f32);
+
+/// System to update spell fire rate multiplier based on powerups
+pub fn apply_spell_powerup_effects(
     active_powerups: Res<ActivePowerups>,
-    mut weapon_query: Query<&mut Weapon>,
+    mut multiplier: ResMut<SpellFireRateMultiplier>,
 ) {
-    let fire_rate_stacks = active_powerups.get_stack_count(&PowerupType::WeaponFireRate);
-    let fire_rate_multiplier = if fire_rate_stacks > 0 {
+    let fire_rate_stacks = active_powerups.get_stack_count(&PowerupType::SpellFireRate);
+    multiplier.0 = if fire_rate_stacks > 0 {
         2.0 // Double fire rate when active
     } else {
         1.0
     };
-
-    for mut weapon in weapon_query.iter_mut() {
-        // Store original fire rate if not already stored
-        // For simplicity, we'll assume weapons have their base fire rate
-        // In a real implementation, you'd want to store the original values
-        let base_fire_rate = match weapon.weapon_type {
-            WeaponType::Pistol { .. } => 2.0,
-            WeaponType::Laser => 3.0,
-            WeaponType::RocketLauncher => 5.0,
-            WeaponType::Bomb => 0.5,
-            WeaponType::BouncingLaser => 2.5,
-        };
-
-        weapon.fire_rate = base_fire_rate / fire_rate_multiplier;
-    }
 }
 
 /// System to update powerup timers

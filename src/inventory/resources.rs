@@ -1,43 +1,5 @@
 use bevy::prelude::*;
-use crate::weapon::components::*;
 use crate::spell::{Spell, SpellType};
-
-/// Player's weapon inventory. Starts empty until Whisper is collected.
-#[derive(Resource, Default)]
-pub struct Inventory {
-    pub weapons: std::collections::HashMap<String, Weapon>, // weapon_id -> Weapon
-}
-
-impl Inventory {
-    pub fn get_weapon(&self, weapon_type: &WeaponType) -> Option<&Weapon> {
-        self.weapons.get(weapon_type.id())
-    }
-
-    pub fn get_weapon_mut(&mut self, weapon_type: &WeaponType) -> Option<&mut Weapon> {
-        self.weapons.get_mut(weapon_type.id())
-    }
-
-    pub fn add_or_level_weapon(&mut self, mut weapon: Weapon) -> bool {
-        let id = weapon.weapon_type.id().to_string();
-        if let Some(existing_weapon) = self.weapons.get_mut(&id) {
-            if existing_weapon.can_level_up() {
-                existing_weapon.level_up();
-                true // Successfully leveled up
-            } else {
-                false // Already at max level
-            }
-        } else {
-            // New weapon, add at level 1
-            weapon.level = 1;
-            self.weapons.insert(id, weapon);
-            true
-        }
-    }
-
-    pub fn iter_weapons(&self) -> impl Iterator<Item = (&String, &Weapon)> {
-        self.weapons.iter()
-    }
-}
 
 /// Player's active spell slots. Contains up to 5 equipped spells for combat.
 #[derive(Resource, Default)]
@@ -101,6 +63,13 @@ impl SpellList {
             self.slots[slot].take()
         } else {
             None
+        }
+    }
+
+    /// Set spell at specific slot directly.
+    pub fn set_spell(&mut self, slot: usize, spell: Option<Spell>) {
+        if slot < 5 {
+            self.slots[slot] = spell;
         }
     }
 
@@ -390,6 +359,35 @@ mod tests {
             let mut spell_list = SpellList::default();
             let removed = spell_list.remove(5);
             assert!(removed.is_none());
+        }
+    }
+
+    mod spell_list_set_spell_tests {
+        use super::*;
+
+        #[test]
+        fn set_spell_can_place_spell_in_slot() {
+            let mut spell_list = SpellList::default();
+            let spell = create_fireball_spell();
+            spell_list.set_spell(2, Some(spell));
+            assert!(spell_list.get_spell(2).is_some());
+            assert_eq!(spell_list.get_spell(2).unwrap().spell_type, SpellType::Fireball);
+        }
+
+        #[test]
+        fn set_spell_can_clear_slot() {
+            let mut spell_list = SpellList::default();
+            spell_list.equip(create_fireball_spell());
+            spell_list.set_spell(0, None);
+            assert!(spell_list.get_spell(0).is_none());
+        }
+
+        #[test]
+        fn set_spell_ignores_out_of_bounds() {
+            let mut spell_list = SpellList::default();
+            let spell = create_fireball_spell();
+            spell_list.set_spell(10, Some(spell));
+            // Should not panic, just ignore
         }
     }
 }

@@ -5,7 +5,6 @@ mod tests {
     use crate::powerup::components::*;
     use crate::powerup::systems::*;
     use crate::player::components::*;
-    use crate::weapon::components::*;
     use rand::Rng;
 
     #[test]
@@ -15,11 +14,11 @@ mod tests {
         assert!(PowerupType::HealthRegen.is_permanent());
         assert!(PowerupType::PickupRadius.is_permanent());
 
-        assert!(!PowerupType::WeaponFireRate.is_permanent());
+        assert!(!PowerupType::SpellFireRate.is_permanent());
         assert!(!PowerupType::MovementSpeed.is_permanent());
 
         // Test durations
-        assert_eq!(PowerupType::WeaponFireRate.duration(), 20.0);
+        assert_eq!(PowerupType::SpellFireRate.duration(), 20.0);
         assert_eq!(PowerupType::MovementSpeed.duration(), 20.0);
         assert_eq!(PowerupType::MaxHealth.duration(), 0.0); // Permanent
     }
@@ -27,7 +26,7 @@ mod tests {
     #[test]
     fn test_powerup_type_display_names() {
         assert_eq!(PowerupType::MaxHealth.display_name(), "Max Health +");
-        assert_eq!(PowerupType::WeaponFireRate.display_name(), "Weapon Speed");
+        assert_eq!(PowerupType::SpellFireRate.display_name(), "Spell Speed");
         assert_eq!(PowerupType::MovementSpeed.display_name(), "Movement Speed");
     }
 
@@ -45,9 +44,9 @@ mod tests {
         assert!(active_powerups.get_active_powerups().contains(&&PowerupType::MaxHealth));
 
         // Test adding temporary powerup
-        active_powerups.add_powerup(PowerupType::WeaponFireRate);
-        assert_eq!(active_powerups.get_stack_count(&PowerupType::WeaponFireRate), 1);
-        assert_eq!(active_powerups.get_remaining_duration(&PowerupType::WeaponFireRate).unwrap(), 20.0);
+        active_powerups.add_powerup(PowerupType::SpellFireRate);
+        assert_eq!(active_powerups.get_stack_count(&PowerupType::SpellFireRate), 1);
+        assert_eq!(active_powerups.get_remaining_duration(&PowerupType::SpellFireRate).unwrap(), 20.0);
 
         // Test stacking
         active_powerups.add_powerup(PowerupType::MaxHealth);
@@ -55,12 +54,12 @@ mod tests {
 
         // Test timer update
         active_powerups.update_timers(5.0);
-        assert_eq!(active_powerups.get_remaining_duration(&PowerupType::WeaponFireRate).unwrap(), 15.0);
+        assert_eq!(active_powerups.get_remaining_duration(&PowerupType::SpellFireRate).unwrap(), 15.0);
 
         // Test timer expiration
         active_powerups.update_timers(16.0);
-        assert!(active_powerups.get_remaining_duration(&PowerupType::WeaponFireRate).is_none());
-        assert_eq!(active_powerups.get_stack_count(&PowerupType::WeaponFireRate), 0);
+        assert!(active_powerups.get_remaining_duration(&PowerupType::SpellFireRate).is_none());
+        assert_eq!(active_powerups.get_stack_count(&PowerupType::SpellFireRate), 0);
     }
 
     #[test]
@@ -150,41 +149,49 @@ mod tests {
     }
 
     #[test]
-    fn test_weapon_powerup_effects() {
+    fn test_spell_powerup_effects() {
         let mut app = App::new();
         app.add_plugins((
             bevy::state::app::StatesPlugin,
             bevy::time::TimePlugin::default(),
         ));
         app.init_resource::<ActivePowerups>();
-        app.add_systems(Update, apply_weapon_powerup_effects);
+        app.init_resource::<SpellFireRateMultiplier>();
+        app.add_systems(Update, apply_spell_powerup_effects);
 
-        // Create weapon
-        let weapon_entity = app.world_mut().spawn(
-            Weapon {
-                weapon_type: WeaponType::Pistol {
-                    bullet_count: 5,
-                    spread_angle: 15.0,
-                },
-                level: 1,
-                fire_rate: 2.0,
-                base_damage: 1.0,
-                last_fired: 0.0,
-            }
-        ).id();
-
-        // Add weapon fire rate powerup
+        // Add spell fire rate powerup
         {
             let mut active_powerups = app.world_mut().get_resource_mut::<ActivePowerups>().unwrap();
-            active_powerups.add_powerup(PowerupType::WeaponFireRate);
+            active_powerups.add_powerup(PowerupType::SpellFireRate);
         }
 
         // Run effects system
         app.update();
 
-        // Check weapon fire rate was doubled (halved since lower = faster)
-        let weapon = app.world().get::<Weapon>(weapon_entity).unwrap();
-        assert_eq!(weapon.fire_rate, 1.0, "Fire rate should be halved (doubled speed) from 2.0 to 1.0");
+        // Check spell fire rate multiplier was set
+        let multiplier = app.world().get_resource::<SpellFireRateMultiplier>().unwrap();
+        assert_eq!(multiplier.0, 2.0, "Spell fire rate multiplier should be 2.0 when powerup is active");
+    }
+
+    #[test]
+    fn test_spell_powerup_effects_no_powerup() {
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::state::app::StatesPlugin,
+            bevy::time::TimePlugin::default(),
+        ));
+        app.init_resource::<ActivePowerups>();
+        app.init_resource::<SpellFireRateMultiplier>();
+        app.add_systems(Update, apply_spell_powerup_effects);
+
+        // Don't add any powerups
+
+        // Run effects system
+        app.update();
+
+        // Check spell fire rate multiplier is default
+        let multiplier = app.world().get_resource::<SpellFireRateMultiplier>().unwrap();
+        assert_eq!(multiplier.0, 1.0, "Spell fire rate multiplier should be 1.0 when no powerup is active");
     }
 
     #[test]
@@ -230,23 +237,23 @@ mod tests {
         let mut active_powerups = ActivePowerups::default();
 
         // Add temporary powerup
-        active_powerups.add_powerup(PowerupType::WeaponFireRate);
+        active_powerups.add_powerup(PowerupType::SpellFireRate);
 
         // Check initial timer
-        assert_eq!(active_powerups.get_remaining_duration(&PowerupType::WeaponFireRate).unwrap(), 20.0);
+        assert_eq!(active_powerups.get_remaining_duration(&PowerupType::SpellFireRate).unwrap(), 20.0);
 
         // Update timers
         active_powerups.update_timers(10.0);
 
         // Check timer decreased
-        assert_eq!(active_powerups.get_remaining_duration(&PowerupType::WeaponFireRate).unwrap(), 10.0);
+        assert_eq!(active_powerups.get_remaining_duration(&PowerupType::SpellFireRate).unwrap(), 10.0);
 
         // Update past expiration
         active_powerups.update_timers(11.0);
 
         // Check powerup expired
-        assert!(active_powerups.get_remaining_duration(&PowerupType::WeaponFireRate).is_none());
-        assert_eq!(active_powerups.get_stack_count(&PowerupType::WeaponFireRate), 0);
+        assert!(active_powerups.get_remaining_duration(&PowerupType::SpellFireRate).is_none());
+        assert_eq!(active_powerups.get_stack_count(&PowerupType::SpellFireRate), 0);
     }
 
     #[test]
