@@ -441,88 +441,184 @@ impl SpellType {
         }
     }
 
+    /// Returns the optional icon texture path for this spell.
+    /// Spells without custom icons use element-colored backgrounds.
+    pub fn icon_path(&self) -> Option<&'static str> {
+        match self {
+            SpellType::Fireball => Some("textures/spell-fireball.png"),
+            _ => None,
+        }
+    }
+
+    /// Returns a short abbreviation for this spell (2-3 characters).
+    /// Used when no icon texture is available.
+    pub fn abbreviation(&self) -> &'static str {
+        match self {
+            // Fire
+            SpellType::Fireball => "FB",
+            SpellType::FlameLance => "FL",
+            SpellType::Ashfall => "AF",
+            SpellType::MeteorShower => "MS",
+            SpellType::PhoenixFlare => "PF",
+            SpellType::Combustion => "CB",
+            SpellType::Immolate => "IM",
+            SpellType::Hellfire => "HF",
+
+            // Frost
+            SpellType::IceShard => "IS",
+            SpellType::FrostNova => "FN",
+            SpellType::Blizzard => "BZ",
+            SpellType::FrozenRay => "FR",
+            SpellType::GlacialSpike => "GS",
+            SpellType::IceBarrier => "IB",
+            SpellType::Shatter => "SH",
+            SpellType::AbsoluteZero => "AZ",
+
+            // Poison
+            SpellType::VenomBolt => "VB",
+            SpellType::PlagueCloud => "PC",
+            SpellType::ToxicSpray => "TS",
+            SpellType::Miasma => "MI",
+            SpellType::CorrosivePool => "CP",
+            SpellType::Pandemic => "PD",
+            SpellType::Blight => "BL",
+            SpellType::Necrosis => "NC",
+
+            // Lightning
+            SpellType::Spark => "SP",
+            SpellType::ChainLightning => "CL",
+            SpellType::ThunderStrike => "TH",
+            SpellType::StaticField => "SF",
+            SpellType::Flashstep => "FS",
+            SpellType::Overcharge => "OC",
+            SpellType::Electrocute => "EL",
+            SpellType::StormCall => "SC",
+
+            // Light
+            SpellType::HolyBeam => "HB",
+            SpellType::RadiantBeam => "RB",
+            SpellType::Radiance => "RA",
+            SpellType::Smite => "SM",
+            SpellType::DivineLight => "DL",
+            SpellType::Consecration => "CS",
+            SpellType::Purify => "PU",
+            SpellType::Judgment => "JD",
+
+            // Dark
+            SpellType::ShadowBolt => "SB",
+            SpellType::VoidRift => "VR",
+            SpellType::DarkPulse => "DP",
+            SpellType::Corruption => "CR",
+            SpellType::SoulDrain => "SD",
+            SpellType::Nightmare => "NM",
+            SpellType::Eclipse => "EC",
+            SpellType::Oblivion => "OB",
+
+            // Chaos
+            SpellType::WildMagic => "WM",
+            SpellType::Entropy => "EN",
+            SpellType::ChaosBolt => "CH",
+            SpellType::Randomize => "RZ",
+            SpellType::Unstable => "UN",
+            SpellType::Paradox => "PX",
+            SpellType::Mayhem => "MY",
+            SpellType::Cataclysm => "CT",
+
+            // Psychic
+            SpellType::MindBlast => "MB",
+            SpellType::Telekinesis => "TK",
+            SpellType::PsychicWave => "PW",
+            SpellType::Confusion => "CF",
+            SpellType::MentalSpike => "MK",
+            SpellType::Hallucination => "HL",
+            SpellType::Dominate => "DM",
+            SpellType::PsychicShatter => "PS",
+        }
+    }
+
     /// Returns the fire rate in shots per second.
+    /// All fire rates reduced by 50% from original values.
     pub fn fire_rate(&self) -> f32 {
         match self {
-            // Fire - balanced fire rates
-            SpellType::Fireball => 2.0,
-            SpellType::FlameLance => 1.5,
-            SpellType::Ashfall => 0.25, // Long duration zone spell, slow cast rate
-            SpellType::MeteorShower => 0.3,
-            SpellType::PhoenixFlare => 1.0,
-            SpellType::Combustion => 1.2,
-            SpellType::Immolate => 2.5,
-            SpellType::Hellfire => 0.25,
+            // Fire - balanced fire rates (50% reduction)
+            SpellType::Fireball => 1.0,
+            SpellType::FlameLance => 0.75,
+            SpellType::Ashfall => 0.125, // Long duration zone spell, slow cast rate
+            SpellType::MeteorShower => 0.15,
+            SpellType::PhoenixFlare => 0.5,
+            SpellType::Combustion => 0.6,
+            SpellType::Immolate => 1.25,
+            SpellType::Hellfire => 0.125,
 
-            // Frost - slower but impactful
-            SpellType::IceShard => 3.0,
-            SpellType::FrostNova => 0.5,
-            SpellType::Blizzard => 0.4,
-            SpellType::FrozenRay => 4.0, // Continuous
-            SpellType::GlacialSpike => 0.8,
-            SpellType::IceBarrier => 0.2,
-            SpellType::Shatter => 0.6,
-            SpellType::AbsoluteZero => 0.15,
+            // Frost - slower but impactful (50% reduction)
+            SpellType::IceShard => 1.5,
+            SpellType::FrostNova => 0.25,
+            SpellType::Blizzard => 0.2,
+            SpellType::FrozenRay => 2.0, // Continuous
+            SpellType::GlacialSpike => 0.4,
+            SpellType::IceBarrier => 0.1,
+            SpellType::Shatter => 0.3,
+            SpellType::AbsoluteZero => 0.075,
 
-            // Poison - sustained damage
-            SpellType::VenomBolt => 2.5,
-            SpellType::PlagueCloud => 0.4,
-            SpellType::ToxicSpray => 1.5,
-            SpellType::Miasma => 0.3,
-            SpellType::CorrosivePool => 0.5,
-            SpellType::Pandemic => 0.6,
-            SpellType::Blight => 1.0,
-            SpellType::Necrosis => 0.5,
+            // Poison - sustained damage (50% reduction)
+            SpellType::VenomBolt => 1.25,
+            SpellType::PlagueCloud => 0.2,
+            SpellType::ToxicSpray => 0.75,
+            SpellType::Miasma => 0.15,
+            SpellType::CorrosivePool => 0.25,
+            SpellType::Pandemic => 0.3,
+            SpellType::Blight => 0.5,
+            SpellType::Necrosis => 0.25,
 
-            // Lightning - fast attacks
-            SpellType::Spark => 5.0,
-            SpellType::ChainLightning => 1.2,
-            SpellType::ThunderStrike => 0.4,
-            SpellType::StaticField => 0.5,
-            SpellType::Flashstep => 0.3, // Short cooldown mobility spell
-            SpellType::Overcharge => 0.2,
-            SpellType::Electrocute => 3.0,
-            SpellType::StormCall => 0.2,
+            // Lightning - fast attacks (50% reduction)
+            SpellType::Spark => 2.5,
+            SpellType::ChainLightning => 0.6,
+            SpellType::ThunderStrike => 0.2,
+            SpellType::StaticField => 0.25,
+            SpellType::Flashstep => 0.15, // Short cooldown mobility spell
+            SpellType::Overcharge => 0.1,
+            SpellType::Electrocute => 1.5,
+            SpellType::StormCall => 0.1,
 
-            // Light - moderate
-            SpellType::HolyBeam => 2.0,
-            SpellType::RadiantBeam => 4.0,
-            SpellType::Radiance => 0.8,
-            SpellType::Smite => 0.6,
-            SpellType::DivineLight => 0.5,
-            SpellType::Consecration => 0.3,
-            SpellType::Purify => 0.4,
-            SpellType::Judgment => 0.2,
+            // Light - moderate (50% reduction)
+            SpellType::HolyBeam => 1.0,
+            SpellType::RadiantBeam => 2.0,
+            SpellType::Radiance => 0.4,
+            SpellType::Smite => 0.3,
+            SpellType::DivineLight => 0.25,
+            SpellType::Consecration => 0.15,
+            SpellType::Purify => 0.2,
+            SpellType::Judgment => 0.1,
 
-            // Dark - medium speed
-            SpellType::ShadowBolt => 2.0,
-            SpellType::VoidRift => 0.4,
-            SpellType::DarkPulse => 0.8,
-            SpellType::Corruption => 1.5,
-            SpellType::SoulDrain => 2.0,
-            SpellType::Nightmare => 0.5,
-            SpellType::Eclipse => 0.2,
-            SpellType::Oblivion => 0.1,
+            // Dark - medium speed (50% reduction)
+            SpellType::ShadowBolt => 1.0,
+            SpellType::VoidRift => 0.2,
+            SpellType::DarkPulse => 0.4,
+            SpellType::Corruption => 0.75,
+            SpellType::SoulDrain => 1.0,
+            SpellType::Nightmare => 0.25,
+            SpellType::Eclipse => 0.1,
+            SpellType::Oblivion => 0.05,
 
-            // Chaos - varied
-            SpellType::WildMagic => 1.5,
-            SpellType::Entropy => 1.0,
-            SpellType::ChaosBolt => 1.8,
-            SpellType::Randomize => 0.6,
-            SpellType::Unstable => 0.8,
-            SpellType::Paradox => 0.4,
-            SpellType::Mayhem => 0.5,
-            SpellType::Cataclysm => 0.1,
+            // Chaos - varied (50% reduction)
+            SpellType::WildMagic => 0.75,
+            SpellType::Entropy => 0.5,
+            SpellType::ChaosBolt => 0.9,
+            SpellType::Randomize => 0.3,
+            SpellType::Unstable => 0.4,
+            SpellType::Paradox => 0.2,
+            SpellType::Mayhem => 0.25,
+            SpellType::Cataclysm => 0.05,
 
-            // Psychic - control focused
-            SpellType::MindBlast => 1.2,
-            SpellType::Telekinesis => 2.0,
-            SpellType::PsychicWave => 0.6,
-            SpellType::Confusion => 0.8,
-            SpellType::MentalSpike => 1.5,
-            SpellType::Hallucination => 0.4,
-            SpellType::Dominate => 0.2,
-            SpellType::PsychicShatter => 0.3,
+            // Psychic - control focused (50% reduction)
+            SpellType::MindBlast => 0.6,
+            SpellType::Telekinesis => 1.0,
+            SpellType::PsychicWave => 0.3,
+            SpellType::Confusion => 0.4,
+            SpellType::MentalSpike => 0.75,
+            SpellType::Hallucination => 0.2,
+            SpellType::Dominate => 0.1,
+            SpellType::PsychicShatter => 0.15,
         }
     }
 
@@ -962,9 +1058,9 @@ mod tests {
 
         #[test]
         fn spark_has_high_fire_rate() {
-            // Spark should be a fast, quick spell
+            // Spark should be a fast, quick spell (threshold halved with 50% fire rate reduction)
             assert!(
-                SpellType::Spark.fire_rate() >= 4.0,
+                SpellType::Spark.fire_rate() >= 2.0,
                 "Spark should have high fire rate"
             );
         }
@@ -976,6 +1072,29 @@ mod tests {
                 SpellType::Cataclysm.fire_rate() <= 0.2,
                 "Cataclysm should have low fire rate"
             );
+        }
+    }
+
+    mod icon_path_tests {
+        use super::*;
+
+        #[test]
+        fn fireball_has_custom_icon() {
+            let icon_path = SpellType::Fireball.icon_path();
+            assert!(icon_path.is_some(), "Fireball should have a custom icon");
+            assert_eq!(icon_path.unwrap(), "textures/spell-fireball.png");
+        }
+
+        #[test]
+        fn most_spells_have_no_custom_icon() {
+            // Verify that other spells don't have custom icons (yet)
+            assert!(SpellType::IceShard.icon_path().is_none());
+            assert!(SpellType::VenomBolt.icon_path().is_none());
+            assert!(SpellType::ChainLightning.icon_path().is_none());
+            assert!(SpellType::RadiantBeam.icon_path().is_none());
+            assert!(SpellType::ShadowBolt.icon_path().is_none());
+            assert!(SpellType::WildMagic.icon_path().is_none());
+            assert!(SpellType::MindBlast.icon_path().is_none());
         }
     }
 

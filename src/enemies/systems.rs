@@ -105,7 +105,7 @@ pub fn enemy_spawning_system(
                     speed: 2.0, // 3D world units/sec (+15% from 1.7)
                     strength: scaling.damage_for_level(enemy_level),
                 },
-                Health::new(scaling.health_for_level(enemy_level)),
+                Health::new(scaling.health_for_level(enemy_level, game_level.level)),
                 Level::new(enemy_level),
                 CheckDeath,
             ));
@@ -682,11 +682,12 @@ mod tests {
 
         let _ = app.world_mut().run_system_once(enemy_spawning_system);
 
-        // Verify enemy stats match their level
+        // Verify enemy stats match their level (game level is 25 for this test)
         let scaling = EnemyScaling::default();
+        let game_level = 25u32;
         let mut query = app.world_mut().query::<(&Enemy, &Health, &Level)>();
         for (enemy, health, level) in query.iter(app.world()) {
-            let expected_health = scaling.health_for_level(level.value());
+            let expected_health = scaling.health_for_level(level.value(), game_level);
             let expected_damage = scaling.damage_for_level(level.value());
 
             assert!(
