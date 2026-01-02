@@ -58,7 +58,7 @@ mod tests {
     use donny_tango_survivor::inventory::resources::SpellList;
     use donny_tango_survivor::game::ScreenTintEffect;
     use donny_tango_survivor::enemies::components::Enemy;
-    use donny_tango_survivor::ui::components::{SpellSlot, SpellIcon, SpellCooldownTimerFill};
+    use donny_tango_survivor::ui::components::{SpellSlot, SpellIcon, RadialCooldownOverlay};
     use bevy::app::App;
     use bevy::ecs::system::RunSystemOnce;
 
@@ -156,9 +156,10 @@ mod tests {
             bevy::gizmos::GizmoPlugin,
         ));
 
-        // Initialize asset types needed for 3D rendering
+        // Initialize asset types needed for 3D rendering and UI materials
         app.init_asset::<StandardMaterial>();
         app.init_asset::<Scene>();
+        app.init_asset::<bevy::shader::Shader>();
 
         // Initialize game state (starts in Intro by default)
         app.init_state::<GameState>();
@@ -245,9 +246,10 @@ mod tests {
             bevy::gizmos::GizmoPlugin,
         ));
 
-        // Initialize asset types needed for 3D rendering
+        // Initialize asset types needed for 3D rendering and UI materials
         app.init_asset::<StandardMaterial>();
         app.init_asset::<Scene>();
+        app.init_asset::<bevy::shader::Shader>();
 
         // Initialize game state
         app.init_state::<GameState>();
@@ -426,9 +428,10 @@ mod tests {
             bevy::gizmos::GizmoPlugin,
         ));
 
-        // Initialize asset types needed for 3D rendering
+        // Initialize asset types needed for 3D rendering and UI materials
         app.init_asset::<StandardMaterial>();
         app.init_asset::<Scene>();
+        app.init_asset::<bevy::shader::Shader>();
 
         // Initialize game state
         app.init_state::<GameState>();
@@ -449,9 +452,9 @@ mod tests {
         let icon_count = world.query::<&SpellIcon>().iter(world).count();
         assert_eq!(icon_count, 5, "Should have 5 spell icons for all slots");
 
-        // Check that spell cooldown timer fill exists for all slots
-        let timer_fill_count = world.query::<&SpellCooldownTimerFill>().iter(world).count();
-        assert_eq!(timer_fill_count, 5, "Should have 5 spell cooldown timer fill elements");
+        // Check that radial cooldown overlays exist for all slots
+        let overlay_count = world.query::<&RadialCooldownOverlay>().iter(world).count();
+        assert_eq!(overlay_count, 5, "Should have 5 radial cooldown overlay elements");
     }
 
     #[test]

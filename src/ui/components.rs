@@ -1,4 +1,97 @@
+use bevy::ecs::hierarchy::ChildSpawnerCommands;
 use bevy::prelude::*;
+
+use crate::spell::Spell;
+
+/// Standard size for spell icon slots (used in both HUD and inventory).
+pub const SPELL_SLOT_SIZE: f32 = 50.0;
+
+/// Marker component for spell icon visual content.
+/// Used to identify and update spell icon visuals when spells change.
+#[derive(Component)]
+pub struct SpellIconVisual;
+
+/// Spawns a spell icon visual that fills the given size.
+/// For spells with custom textures, the texture fills the entire area with no background.
+/// For spells without textures, uses element-colored background with spell abbreviation.
+///
+/// # Arguments
+/// * `parent` - The parent entity to spawn the icon under
+/// * `spell` - The spell to render (or None for empty slot)
+/// * `size` - The size of the icon in pixels
+/// * `asset_server` - Asset server for loading textures (optional)
+pub fn spawn_spell_icon_visual(
+    parent: &mut ChildSpawnerCommands,
+    spell: Option<&Spell>,
+    size: f32,
+    asset_server: Option<&AssetServer>,
+) {
+    match spell {
+        Some(spell) => {
+            // Check if spell has a custom icon texture
+            if let (Some(icon_path), Some(asset_server)) =
+                (spell.spell_type.icon_path(), asset_server)
+            {
+                // Use custom texture - no background, just the image
+                parent.spawn((
+                    Node {
+                        width: Val::Px(size),
+                        height: Val::Px(size),
+                        ..default()
+                    },
+                    ImageNode {
+                        image: asset_server.load(icon_path),
+                        ..default()
+                    },
+                    BorderRadius::all(Val::Px(4.0)),
+                    SpellIconVisual,
+                ));
+            } else {
+                // Element-colored square with spell abbreviation
+                parent
+                    .spawn((
+                        Node {
+                            width: Val::Px(size),
+                            height: Val::Px(size),
+                            justify_content: JustifyContent::Center,
+                            align_items: AlignItems::Center,
+                            border: UiRect::all(Val::Px(2.0)),
+                            ..default()
+                        },
+                        BackgroundColor(spell.element.color()),
+                        BorderColor::all(spell.element.color().lighter(0.3)),
+                        BorderRadius::all(Val::Px(4.0)),
+                        SpellIconVisual,
+                    ))
+                    .with_children(|icon| {
+                        // Spell type abbreviation
+                        icon.spawn((
+                            Text::new(spell.spell_type.abbreviation()),
+                            TextFont {
+                                font_size: size * 0.35,
+                                ..default()
+                            },
+                            TextColor(Color::WHITE),
+                            TextLayout::new_with_justify(bevy::text::Justify::Center),
+                        ));
+                    });
+            }
+        }
+        None => {
+            // Empty slot - visible gray placeholder
+            parent.spawn((
+                Node {
+                    width: Val::Px(size),
+                    height: Val::Px(size),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(0.3, 0.3, 0.3, 0.3)),
+                BorderRadius::all(Val::Px(4.0)),
+                SpellIconVisual,
+            ));
+        }
+    }
+}
 
 #[derive(Component)]
 pub struct MenuButton;
@@ -43,9 +136,22 @@ pub struct SpellCooldownTimerFill {
     pub slot_index: usize,
 }
 
+/// Marker component for the radial cooldown overlay on spell icons.
+/// Uses a custom UiMaterial shader for smooth radial sweep animation.
+#[derive(Component)]
+pub struct RadialCooldownOverlay {
+    pub slot_index: usize,
+}
+
 /// Marker component for spell level display text.
 #[derive(Component)]
 pub struct SpellLevelDisplay {
+    pub slot_index: usize,
+}
+
+/// Marker component for spell abbreviation text in the icon.
+#[derive(Component)]
+pub struct SpellIconAbbreviation {
     pub slot_index: usize,
 }
 
@@ -199,6 +305,18 @@ mod tests {
     }
 
     #[test]
+    fn radial_cooldown_overlay_is_a_component() {
+        fn assert_component<T: Component>() {}
+        assert_component::<RadialCooldownOverlay>();
+    }
+
+    #[test]
+    fn radial_cooldown_overlay_stores_slot_index() {
+        let overlay = RadialCooldownOverlay { slot_index: 3 };
+        assert_eq!(overlay.slot_index, 3);
+    }
+
+    #[test]
     fn spell_level_display_is_a_component() {
         fn assert_component<T: Component>() {}
         assert_component::<SpellLevelDisplay>();
@@ -283,5 +401,16 @@ mod tests {
         assert_eq!(damage_num.velocity, 2.0);
         assert_eq!(damage_num.fade_start, 0.5);
         assert!(!damage_num.lifetime.is_finished());
+    }
+
+    #[test]
+    fn spell_slot_size_is_50() {
+        assert_eq!(SPELL_SLOT_SIZE, 50.0);
+    }
+
+    #[test]
+    fn spell_icon_visual_is_a_component() {
+        fn assert_component<T: Component>() {}
+        assert_component::<SpellIconVisual>();
     }
 }

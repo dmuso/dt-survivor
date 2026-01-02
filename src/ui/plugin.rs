@@ -3,11 +3,13 @@ use crate::game::sets::GameSet;
 use crate::states::*;
 use crate::ui::attunement::*;
 use crate::ui::inventory_bag::*;
+use crate::ui::materials::RadialCooldownMaterial;
 use crate::ui::systems::*;
 use crate::score::*;
 
 pub fn plugin(app: &mut App) {
-    app.init_resource::<DebugHudVisible>()
+    app.add_plugins(UiMaterialPlugin::<RadialCooldownMaterial>::default())
+        .init_resource::<DebugHudVisible>()
         .init_resource::<SelectedBagSlot>()
         .init_resource::<DragState>()
         .add_systems(Startup, configure_gizmos)
@@ -24,6 +26,7 @@ pub fn plugin(app: &mut App) {
             update_health_display,
             update_screen_tint,
             update_spell_icons,
+            update_spell_icon_abbreviations,
             update_spell_slot_backgrounds,
             update_spell_level_displays,
             update_game_level_display,
