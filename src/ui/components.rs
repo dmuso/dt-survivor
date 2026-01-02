@@ -107,6 +107,35 @@ impl Default for LevelCompleteOverlay {
 #[derive(Component)]
 pub struct ContinueButton;
 
+/// Floating damage number that animates upward and fades out.
+/// Spawned when enemies take damage, colored by element type.
+#[derive(Component)]
+pub struct FloatingDamageNumber {
+    /// Upward movement velocity
+    pub velocity: Vec3,
+    /// Total animation duration
+    pub lifetime: Timer,
+    /// When to start fading (0.0-1.0 of lifetime progress)
+    pub fade_start: f32,
+}
+
+impl FloatingDamageNumber {
+    /// Creates a new floating damage number with default settings
+    pub fn new() -> Self {
+        Self {
+            velocity: Vec3::Y * 2.0,
+            lifetime: Timer::from_seconds(0.8, TimerMode::Once),
+            fade_start: 0.5,
+        }
+    }
+}
+
+impl Default for FloatingDamageNumber {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -240,5 +269,27 @@ mod tests {
         overlay.current_opacity = overlay.current_opacity.min(overlay.target_opacity);
 
         assert_eq!(overlay.current_opacity, overlay.target_opacity);
+    }
+
+    #[test]
+    fn floating_damage_number_is_a_component() {
+        fn assert_component<T: Component>() {}
+        assert_component::<FloatingDamageNumber>();
+    }
+
+    #[test]
+    fn floating_damage_number_default_values() {
+        let damage_num = FloatingDamageNumber::default();
+        assert_eq!(damage_num.velocity, Vec3::Y * 2.0);
+        assert_eq!(damage_num.fade_start, 0.5);
+        assert!(!damage_num.lifetime.is_finished());
+    }
+
+    #[test]
+    fn floating_damage_number_new_equals_default() {
+        let from_new = FloatingDamageNumber::new();
+        let from_default = FloatingDamageNumber::default();
+        assert_eq!(from_new.velocity, from_default.velocity);
+        assert_eq!(from_new.fade_start, from_default.fade_start);
     }
 }

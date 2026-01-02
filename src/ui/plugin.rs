@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use crate::game::sets::GameSet;
 use crate::states::*;
 use crate::ui::attunement::*;
 use crate::ui::inventory_bag::*;
@@ -8,6 +9,7 @@ use crate::score::*;
 pub fn plugin(app: &mut App) {
     app.init_resource::<DebugHudVisible>()
         .init_resource::<SelectedBagSlot>()
+        .init_resource::<DragState>()
         .add_systems(Startup, configure_gizmos)
         .add_systems(OnEnter(GameState::Intro), setup_intro)
         .add_systems(Update, button_interactions.run_if(in_state(GameState::Intro)))
@@ -38,6 +40,19 @@ pub fn plugin(app: &mut App) {
             handle_bag_slot_click,
             handle_active_slot_click,
             update_selected_slot_visual,
+            // Spell info panel systems
+            update_spell_info_on_hover,
+            rebuild_spell_info_content,
+            // Drag and drop systems
+            track_cursor_position,
+            start_drag,
+            check_drag_threshold,
+            update_drag_visual,
+            end_drag,
+            cancel_drag_on_escape,
+            // Slot visual refresh systems (update after swaps)
+            refresh_bag_slot_visuals,
+            refresh_active_slot_visuals,
         ).run_if(in_state(GameState::InventoryOpen)))
         .add_systems(OnExit(GameState::InventoryOpen), cleanup_inventory_ui)
         .add_systems(Update,
@@ -45,6 +60,13 @@ pub fn plugin(app: &mut App) {
                 .run_if(in_state(GameState::InGame))
                 .run_if(debug_hud_enabled)
         )
+        // Floating damage numbers
+        .add_systems(Update, (
+            spawn_floating_damage_numbers,
+            update_floating_damage_numbers,
+        )
+            .in_set(GameSet::Effects)
+            .run_if(in_state(GameState::InGame)))
         .add_systems(PostUpdate, update_spell_cooldowns.run_if(in_state(GameState::InGame)))
         // Level Complete state systems
         .add_systems(OnEnter(GameState::LevelComplete), (

@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use bevy::ecs::world::World;
 use bevy_kira_audio::AudioControl;
 use crate::combat::components::Health;
+use crate::combat::events::DamageEvent;
 use crate::enemies::components::Enemy;
 use crate::states::*;
 use crate::ui::components::*;
@@ -127,7 +128,7 @@ pub fn button_interactions(
         match *interaction {
             Interaction::Pressed => {
                 if start_button.is_some() {
-                    next_state.set(GameState::AttunementSelect);
+                    next_state.set(GameState::InGame);
                 } else if exit_button.is_some() {
                     app_exit.write(AppExit::Success);
                 }
@@ -1080,6 +1081,71 @@ pub fn cleanup_level_complete_screen(
     }
 }
 
+/// Spawn floating damage numbers when enemies take damage.
+/// Numbers are colored by element type and animate upward while fading.
+pub fn spawn_floating_damage_numbers(
+    mut commands: Commands,
+    mut damage_events: MessageReader<DamageEvent>,
+    transform_query: Query<&Transform>,
+    enemies: Query<(), With<Enemy>>,
+) {
+    for event in damage_events.read() {
+        // Only show for enemies
+        if enemies.get(event.target).is_err() {
+            continue;
+        }
+
+        let Ok(transform) = transform_query.get(event.target) else {
+            continue;
+        };
+
+        let color = event
+            .element
+            .map(|e| e.color())
+            .unwrap_or(Color::WHITE);
+
+        let position = transform.translation + Vec3::Y * 1.0;
+
+        commands.spawn((
+            Text2d::new(format!("{}", event.amount.round() as i32)),
+            TextFont {
+                font_size: 24.0,
+                ..default()
+            },
+            TextColor(color),
+            Transform::from_translation(position),
+            FloatingDamageNumber::new(),
+        ));
+    }
+}
+
+/// Update floating damage numbers: move upward, fade out, and despawn when finished.
+pub fn update_floating_damage_numbers(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut Transform, &mut FloatingDamageNumber, &mut TextColor)>,
+) {
+    for (entity, mut transform, mut damage_num, mut text_color) in query.iter_mut() {
+        damage_num.lifetime.tick(time.delta());
+
+        // Move upward
+        transform.translation += damage_num.velocity * time.delta_secs();
+
+        // Fade out after fade_start threshold
+        let progress = damage_num.lifetime.fraction();
+        if progress > damage_num.fade_start {
+            let fade_progress = (progress - damage_num.fade_start) / (1.0 - damage_num.fade_start);
+            let alpha = 1.0 - fade_progress;
+            text_color.0 = text_color.0.with_alpha(alpha);
+        }
+
+        // Despawn when complete
+        if damage_num.lifetime.is_finished() {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1178,7 +1244,7 @@ mod tests {
 
             // Spawn a player with experience at 50% progress
             let mut exp = PlayerExperience::new();
-            exp.current = 50; // 50 out of 100 for level 1
+            exp.current = 250; // 250 out of 500 for level 1
             app.world_mut().spawn((
                 Player {
                     speed: 200.0,
@@ -1713,6 +1779,215 @@ mod tests {
 
             assert_eq!(node.width, Val::Px(0.0), "Timer should be hidden for empty slot");
             assert_eq!(node.height, Val::Px(0.0), "Timer should be hidden for empty slot");
+        }
+    }
+
+    mod floating_damage_number_tests {
+        use super::*;
+        use crate::element::Element;
+        use bevy::ecs::system::RunSystemOnce;
+        use std::time::Duration;
+
+        fn setup_test_app() -> App {
+            let mut app = App::new();
+            app.add_message::<DamageEvent>();
+            app.init_resource::<Time>();
+            app
+        }
+
+        #[test]
+        fn spawns_on_enemy_damage() {
+            let mut app = setup_test_app();
+
+            // Spawn an enemy with transform
+            let enemy = app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_xyz(10.0, 0.0, 5.0),
+            )).id();
+
+            // Send damage event
+            app.world_mut().write_message(DamageEvent::new(enemy, 25.0));
+
+            // Run the spawn system
+            let _ = app.world_mut().run_system_once(spawn_floating_damage_numbers);
+
+            // Verify floating damage number was spawned
+            let count = app.world_mut()
+                .query::<&FloatingDamageNumber>()
+                .iter(app.world())
+                .count();
+            assert_eq!(count, 1, "Should spawn one floating damage number");
+        }
+
+        #[test]
+        fn uses_element_color() {
+            let mut app = setup_test_app();
+
+            // Spawn an enemy
+            let enemy = app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_xyz(0.0, 0.0, 0.0),
+            )).id();
+
+            // Send damage with fire element
+            app.world_mut().write_message(DamageEvent::with_element(enemy, 30.0, Element::Fire));
+
+            let _ = app.world_mut().run_system_once(spawn_floating_damage_numbers);
+
+            // Verify color matches fire element
+            let text_color = app.world_mut()
+                .query::<&TextColor>()
+                .iter(app.world())
+                .next()
+                .unwrap();
+            assert_eq!(text_color.0, Element::Fire.color(), "Should use fire element color");
+        }
+
+        #[test]
+        fn uses_white_when_no_element() {
+            let mut app = setup_test_app();
+
+            // Spawn an enemy
+            let enemy = app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_xyz(0.0, 0.0, 0.0),
+            )).id();
+
+            // Send damage without element
+            app.world_mut().write_message(DamageEvent::new(enemy, 20.0));
+
+            let _ = app.world_mut().run_system_once(spawn_floating_damage_numbers);
+
+            // Verify color is white
+            let text_color = app.world_mut()
+                .query::<&TextColor>()
+                .iter(app.world())
+                .next()
+                .unwrap();
+            assert_eq!(text_color.0, Color::WHITE, "Should use white for non-elemental damage");
+        }
+
+        #[test]
+        fn ignores_non_enemy_damage() {
+            let mut app = setup_test_app();
+
+            // Spawn a non-enemy entity with transform
+            let entity = app.world_mut().spawn(
+                Transform::from_xyz(0.0, 0.0, 0.0),
+            ).id();
+
+            // Send damage event to non-enemy
+            app.world_mut().write_message(DamageEvent::new(entity, 15.0));
+
+            let _ = app.world_mut().run_system_once(spawn_floating_damage_numbers);
+
+            // Verify no floating damage number was spawned
+            let count = app.world_mut()
+                .query::<&FloatingDamageNumber>()
+                .iter(app.world())
+                .count();
+            assert_eq!(count, 0, "Should not spawn for non-enemy entities");
+        }
+
+        #[test]
+        fn moves_upward_over_time() {
+            let mut app = setup_test_app();
+
+            // Spawn a floating damage number
+            let entity = app.world_mut().spawn((
+                FloatingDamageNumber::new(),
+                Transform::from_xyz(0.0, 5.0, 0.0),
+                TextColor(Color::WHITE),
+            )).id();
+
+            let initial_y = 5.0;
+
+            // Advance time
+            {
+                let mut time = app.world_mut().resource_mut::<Time>();
+                time.advance_by(Duration::from_secs_f32(0.5));
+            }
+
+            let _ = app.world_mut().run_system_once(update_floating_damage_numbers);
+
+            // Check position moved upward
+            let transform = app.world().get::<Transform>(entity).unwrap();
+            assert!(transform.translation.y > initial_y, "Should move upward");
+        }
+
+        #[test]
+        fn fades_over_time() {
+            let mut app = setup_test_app();
+
+            // Spawn a floating damage number
+            let entity = app.world_mut().spawn((
+                FloatingDamageNumber::new(),
+                Transform::from_xyz(0.0, 0.0, 0.0),
+                TextColor(Color::WHITE),
+            )).id();
+
+            // Advance time past fade_start (0.5 of 0.8s = 0.4s)
+            {
+                let mut time = app.world_mut().resource_mut::<Time>();
+                time.advance_by(Duration::from_secs_f32(0.6));
+            }
+
+            let _ = app.world_mut().run_system_once(update_floating_damage_numbers);
+
+            // Check alpha decreased
+            let text_color = app.world().get::<TextColor>(entity).unwrap();
+            let alpha = text_color.0.alpha();
+            assert!(alpha < 1.0, "Alpha should decrease after fade_start");
+        }
+
+        #[test]
+        fn despawns_after_lifetime() {
+            let mut app = setup_test_app();
+
+            // Spawn a floating damage number
+            let entity = app.world_mut().spawn((
+                FloatingDamageNumber::new(),
+                Transform::from_xyz(0.0, 0.0, 0.0),
+                TextColor(Color::WHITE),
+            )).id();
+
+            // Advance time past lifetime (0.8s)
+            {
+                let mut time = app.world_mut().resource_mut::<Time>();
+                time.advance_by(Duration::from_secs_f32(1.0));
+            }
+
+            let _ = app.world_mut().run_system_once(update_floating_damage_numbers);
+
+            // Entity should be despawned
+            assert!(app.world().get_entity(entity).is_err(), "Should despawn after lifetime");
+        }
+
+        #[test]
+        fn spawns_at_correct_position() {
+            let mut app = setup_test_app();
+
+            // Spawn an enemy at specific position
+            let enemy = app.world_mut().spawn((
+                Enemy { speed: 50.0, strength: 10.0 },
+                Transform::from_xyz(10.0, 2.0, 5.0),
+            )).id();
+
+            app.world_mut().write_message(DamageEvent::new(enemy, 25.0));
+
+            let _ = app.world_mut().run_system_once(spawn_floating_damage_numbers);
+
+            // Check spawned position (should be enemy position + Y offset)
+            let transform = app.world_mut()
+                .query::<(&Transform, &FloatingDamageNumber)>()
+                .iter(app.world())
+                .next()
+                .map(|(t, _)| t.translation)
+                .unwrap();
+
+            assert_eq!(transform.x, 10.0, "X should match enemy position");
+            assert_eq!(transform.y, 3.0, "Y should be enemy Y + 1.0 offset");
+            assert_eq!(transform.z, 5.0, "Z should match enemy position");
         }
     }
 }
