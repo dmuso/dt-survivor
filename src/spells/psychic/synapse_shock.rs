@@ -125,6 +125,24 @@ impl StunnedEnemy {
     }
 }
 
+/// Height above enemy where stun indicator is positioned
+pub const STUN_INDICATOR_HEIGHT: f32 = 2.5;
+
+/// Component for the visual stun indicator above stunned enemies.
+/// Tracks which enemy this indicator belongs to.
+#[derive(Component, Debug, Clone)]
+pub struct StunIndicator {
+    /// The entity ID of the stunned enemy this indicator is attached to
+    pub enemy_entity: Entity,
+}
+
+impl StunIndicator {
+    /// Create a new StunIndicator for the given enemy entity.
+    pub fn new(enemy_entity: Entity) -> Self {
+        Self { enemy_entity }
+    }
+}
+
 /// System that expands synapse shock bursts over time.
 pub fn synapse_shock_expansion_system(
     mut burst_query: Query<&mut SynapseShockBurst>,
@@ -201,6 +219,84 @@ pub fn synapse_shock_visual_system(
     }
 }
 
+/// System that spawns stun indicators above newly stunned enemies.
+/// Creates a yellow visual marker above each stunned enemy that doesn't already have one.
+pub fn spawn_stun_indicator_system(
+    mut commands: Commands,
+    stunned_query: Query<(Entity, &Transform), With<StunnedEnemy>>,
+    indicator_query: Query<&StunIndicator>,
+    game_meshes: Option<Res<GameMeshes>>,
+    game_materials: Option<Res<GameMaterials>>,
+) {
+    // Build a set of enemies that already have indicators
+    let existing_indicators: std::collections::HashSet<Entity> = indicator_query
+        .iter()
+        .map(|indicator| indicator.enemy_entity)
+        .collect();
+
+    for (enemy_entity, enemy_transform) in stunned_query.iter() {
+        // Skip if this enemy already has an indicator
+        if existing_indicators.contains(&enemy_entity) {
+            continue;
+        }
+
+        // Position the indicator above the enemy
+        let indicator_pos = Vec3::new(
+            enemy_transform.translation.x,
+            enemy_transform.translation.y + STUN_INDICATOR_HEIGHT,
+            enemy_transform.translation.z,
+        );
+
+        if let (Some(meshes), Some(materials)) = (game_meshes.as_ref(), game_materials.as_ref()) {
+            // Spawn a visible yellow sphere indicator
+            commands.spawn((
+                Mesh3d(meshes.whisper_core.clone()), // Small sphere
+                MeshMaterial3d(materials.thunder_strike.clone()), // Bright yellow with emissive
+                Transform::from_translation(indicator_pos).with_scale(Vec3::splat(2.0)),
+                StunIndicator::new(enemy_entity),
+            ));
+        } else {
+            // Fallback for tests without mesh resources
+            commands.spawn((
+                Transform::from_translation(indicator_pos),
+                StunIndicator::new(enemy_entity),
+            ));
+        }
+    }
+}
+
+/// System that updates stun indicator positions to follow their associated enemies.
+pub fn update_stun_indicator_position_system(
+    mut indicator_query: Query<(&StunIndicator, &mut Transform)>,
+    enemy_query: Query<&Transform, (With<StunnedEnemy>, Without<StunIndicator>)>,
+) {
+    for (indicator, mut indicator_transform) in indicator_query.iter_mut() {
+        if let Ok(enemy_transform) = enemy_query.get(indicator.enemy_entity) {
+            // Update indicator position to stay above enemy
+            indicator_transform.translation.x = enemy_transform.translation.x;
+            indicator_transform.translation.y = enemy_transform.translation.y + STUN_INDICATOR_HEIGHT;
+            indicator_transform.translation.z = enemy_transform.translation.z;
+        }
+    }
+}
+
+/// System that removes stun indicators when their associated enemies are no longer stunned.
+pub fn cleanup_stun_indicator_system(
+    mut commands: Commands,
+    indicator_query: Query<(Entity, &StunIndicator)>,
+    stunned_query: Query<Entity, With<StunnedEnemy>>,
+) {
+    // Build a set of currently stunned enemies
+    let stunned_enemies: std::collections::HashSet<Entity> = stunned_query.iter().collect();
+
+    for (indicator_entity, indicator) in indicator_query.iter() {
+        // Remove indicator if its enemy is no longer stunned
+        if !stunned_enemies.contains(&indicator.enemy_entity) {
+            commands.entity(indicator_entity).despawn();
+        }
+    }
+}
+
 /// Cast synapse shock spell - spawns an expanding stun wave.
 /// `spawn_position` is Whisper's full 3D position.
 #[allow(clippy::too_many_arguments)]
@@ -237,7 +333,7 @@ pub fn fire_synapse_shock_with_stun_duration(
     if let (Some(meshes), Some(materials)) = (game_meshes, game_materials) {
         commands.spawn((
             Mesh3d(meshes.explosion.clone()),
-            MeshMaterial3d(materials.powerup.clone()), // Magenta/pink material for psychic
+            MeshMaterial3d(materials.psychic_aoe.clone()), // Transparent magenta AOE material
             Transform::from_translation(burst_pos).with_scale(Vec3::splat(0.1)),
             burst,
         ));
@@ -920,6 +1016,260 @@ mod tests {
 
             let transform = app.world().get::<Transform>(entity).unwrap();
             assert_eq!(transform.scale, Vec3::splat(0.1), "Should have minimum scale of 0.1");
+        }
+    }
+
+    mod stun_indicator_tests {
+        use super::*;
+
+        #[test]
+        fn test_stun_indicator_new() {
+            let enemy_entity = Entity::from_bits(42);
+            let indicator = StunIndicator::new(enemy_entity);
+            assert_eq!(indicator.enemy_entity, enemy_entity);
+        }
+
+        #[test]
+        fn test_stun_indicator_height_constant() {
+            assert!(STUN_INDICATOR_HEIGHT > 0.0, "Height should be positive");
+            assert_eq!(STUN_INDICATOR_HEIGHT, 2.5);
+        }
+    }
+
+    mod spawn_stun_indicator_system_tests {
+        use super::*;
+        use bevy::app::App;
+        use bevy::ecs::system::RunSystemOnce;
+
+        #[test]
+        fn test_spawn_indicator_for_stunned_enemy() {
+            let mut app = App::new();
+
+            // Create a stunned enemy
+            let enemy_entity = app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(5.0, 0.375, 10.0)),
+                StunnedEnemy::new(2.0, 50.0),
+            )).id();
+
+            let _ = app.world_mut().run_system_once(spawn_stun_indicator_system);
+
+            // Verify an indicator was spawned
+            let mut indicator_query = app.world_mut().query::<&StunIndicator>();
+            let indicators: Vec<_> = indicator_query.iter(app.world()).collect();
+            assert_eq!(indicators.len(), 1, "Should spawn one indicator");
+            assert_eq!(indicators[0].enemy_entity, enemy_entity);
+        }
+
+        #[test]
+        fn test_spawn_indicator_position_above_enemy() {
+            let mut app = App::new();
+
+            // Create a stunned enemy at a specific position
+            app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(10.0, 0.375, 20.0)),
+                StunnedEnemy::new(2.0, 50.0),
+            ));
+
+            let _ = app.world_mut().run_system_once(spawn_stun_indicator_system);
+
+            // Verify indicator is positioned above enemy
+            let mut query = app.world_mut().query::<(&StunIndicator, &Transform)>();
+            for (_, transform) in query.iter(app.world()) {
+                assert_eq!(transform.translation.x, 10.0);
+                assert_eq!(transform.translation.y, 0.375 + STUN_INDICATOR_HEIGHT);
+                assert_eq!(transform.translation.z, 20.0);
+            }
+        }
+
+        #[test]
+        fn test_no_duplicate_indicators() {
+            let mut app = App::new();
+
+            // Create a stunned enemy
+            let enemy_entity = app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(5.0, 0.375, 10.0)),
+                StunnedEnemy::new(2.0, 50.0),
+            )).id();
+
+            // Run the system twice
+            let _ = app.world_mut().run_system_once(spawn_stun_indicator_system);
+            let _ = app.world_mut().run_system_once(spawn_stun_indicator_system);
+
+            // Should still only have one indicator
+            let mut indicator_query = app.world_mut().query::<&StunIndicator>();
+            let indicators: Vec<_> = indicator_query.iter(app.world()).collect();
+            assert_eq!(indicators.len(), 1, "Should not create duplicate indicators");
+            assert_eq!(indicators[0].enemy_entity, enemy_entity);
+        }
+
+        #[test]
+        fn test_spawn_multiple_indicators_for_multiple_enemies() {
+            let mut app = App::new();
+
+            // Create multiple stunned enemies
+            for i in 0..3 {
+                app.world_mut().spawn((
+                    Transform::from_translation(Vec3::new(i as f32 * 5.0, 0.375, 0.0)),
+                    StunnedEnemy::new(2.0, 50.0),
+                ));
+            }
+
+            let _ = app.world_mut().run_system_once(spawn_stun_indicator_system);
+
+            // Should have 3 indicators
+            let mut indicator_query = app.world_mut().query::<&StunIndicator>();
+            let count = indicator_query.iter(app.world()).count();
+            assert_eq!(count, 3, "Should spawn indicator for each stunned enemy");
+        }
+    }
+
+    mod update_stun_indicator_position_system_tests {
+        use super::*;
+        use bevy::app::App;
+        use bevy::ecs::system::RunSystemOnce;
+
+        #[test]
+        fn test_indicator_follows_enemy_movement() {
+            let mut app = App::new();
+
+            // Create stunned enemy at initial position
+            let enemy_entity = app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(0.0, 0.375, 0.0)),
+                StunnedEnemy::new(2.0, 50.0),
+            )).id();
+
+            // Create indicator for that enemy
+            app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(0.0, 0.375 + STUN_INDICATOR_HEIGHT, 0.0)),
+                StunIndicator::new(enemy_entity),
+            ));
+
+            // Move the enemy
+            app.world_mut().entity_mut(enemy_entity)
+                .get_mut::<Transform>()
+                .unwrap()
+                .translation = Vec3::new(10.0, 0.375, 20.0);
+
+            let _ = app.world_mut().run_system_once(update_stun_indicator_position_system);
+
+            // Verify indicator moved with enemy
+            let mut query = app.world_mut().query::<(&StunIndicator, &Transform)>();
+            for (_, transform) in query.iter(app.world()) {
+                assert_eq!(transform.translation.x, 10.0);
+                assert_eq!(transform.translation.y, 0.375 + STUN_INDICATOR_HEIGHT);
+                assert_eq!(transform.translation.z, 20.0);
+            }
+        }
+
+        #[test]
+        fn test_indicator_with_missing_enemy_unchanged() {
+            let mut app = App::new();
+
+            // Create indicator for non-existent enemy
+            let fake_enemy = Entity::from_bits(9999);
+            let indicator_entity = app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(5.0, 5.0, 5.0)),
+                StunIndicator::new(fake_enemy),
+            )).id();
+
+            let _ = app.world_mut().run_system_once(update_stun_indicator_position_system);
+
+            // Indicator position should be unchanged
+            let transform = app.world().get::<Transform>(indicator_entity).unwrap();
+            assert_eq!(transform.translation, Vec3::new(5.0, 5.0, 5.0));
+        }
+    }
+
+    mod cleanup_stun_indicator_system_tests {
+        use super::*;
+        use bevy::app::App;
+        use bevy::ecs::system::RunSystemOnce;
+
+        #[test]
+        fn test_indicator_removed_when_stun_ends() {
+            let mut app = App::new();
+
+            // Create an entity that WAS stunned (no longer has StunnedEnemy component)
+            let former_enemy = app.world_mut().spawn(
+                Transform::from_translation(Vec3::new(5.0, 0.375, 10.0)),
+            ).id();
+
+            // Create indicator that still references this enemy
+            let indicator_entity = app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(5.0, 0.375 + STUN_INDICATOR_HEIGHT, 10.0)),
+                StunIndicator::new(former_enemy),
+            )).id();
+
+            let _ = app.world_mut().run_system_once(cleanup_stun_indicator_system);
+
+            // Indicator should be despawned
+            assert!(
+                app.world().get_entity(indicator_entity).is_err(),
+                "Indicator should be removed when enemy is no longer stunned"
+            );
+        }
+
+        #[test]
+        fn test_indicator_remains_while_stunned() {
+            let mut app = App::new();
+
+            // Create a stunned enemy
+            let enemy_entity = app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(5.0, 0.375, 10.0)),
+                StunnedEnemy::new(10.0, 50.0), // Long stun
+            )).id();
+
+            // Create indicator for that enemy
+            let indicator_entity = app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(5.0, 0.375 + STUN_INDICATOR_HEIGHT, 10.0)),
+                StunIndicator::new(enemy_entity),
+            )).id();
+
+            let _ = app.world_mut().run_system_once(cleanup_stun_indicator_system);
+
+            // Indicator should still exist
+            assert!(
+                app.world().get_entity(indicator_entity).is_ok(),
+                "Indicator should remain while enemy is still stunned"
+            );
+        }
+
+        #[test]
+        fn test_cleanup_multiple_indicators() {
+            let mut app = App::new();
+
+            // Create mix of stunned and non-stunned enemies
+            let stunned_enemy = app.world_mut().spawn((
+                Transform::from_translation(Vec3::ZERO),
+                StunnedEnemy::new(10.0, 50.0),
+            )).id();
+
+            let unstunned_enemy = app.world_mut().spawn(
+                Transform::from_translation(Vec3::new(10.0, 0.0, 0.0)),
+            ).id();
+
+            // Create indicators for both
+            let indicator1 = app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(0.0, STUN_INDICATOR_HEIGHT, 0.0)),
+                StunIndicator::new(stunned_enemy),
+            )).id();
+
+            let indicator2 = app.world_mut().spawn((
+                Transform::from_translation(Vec3::new(10.0, STUN_INDICATOR_HEIGHT, 0.0)),
+                StunIndicator::new(unstunned_enemy),
+            )).id();
+
+            let _ = app.world_mut().run_system_once(cleanup_stun_indicator_system);
+
+            // Only the indicator for the stunned enemy should remain
+            assert!(
+                app.world().get_entity(indicator1).is_ok(),
+                "Indicator for stunned enemy should remain"
+            );
+            assert!(
+                app.world().get_entity(indicator2).is_err(),
+                "Indicator for non-stunned enemy should be removed"
+            );
         }
     }
 }

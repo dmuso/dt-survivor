@@ -154,9 +154,11 @@ use crate::spells::psychic::echo_thought::{
     update_echo_timers_system, update_echo_visual_system, LastSpellCast,
 };
 use crate::spells::psychic::synapse_shock::{
+    cleanup_stun_indicator_system, spawn_stun_indicator_system,
     synapse_shock_cleanup_burst_system, synapse_shock_cleanup_stun_system,
     synapse_shock_expansion_system, synapse_shock_stun_application_system,
     synapse_shock_stun_tick_system, synapse_shock_visual_system,
+    update_stun_indicator_position_system,
 };
 use crate::spells::psychic::mind_cage::{
     mind_cage_capture_system, mind_cage_cleanup_markers_system,
@@ -986,6 +988,8 @@ pub fn plugin(app: &mut App) {
             (
                 synapse_shock_stun_tick_system,
                 synapse_shock_visual_system,
+                spawn_stun_indicator_system,
+                update_stun_indicator_position_system,
             )
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
@@ -995,6 +999,7 @@ pub fn plugin(app: &mut App) {
             (
                 synapse_shock_cleanup_stun_system,
                 synapse_shock_cleanup_burst_system,
+                cleanup_stun_indicator_system,
             )
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
