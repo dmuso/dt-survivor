@@ -7,6 +7,7 @@ use donny_tango_survivor::{
     experience_plugin,
     game_plugin,
     inventory_plugin,
+    pause_plugin,
     ui_plugin,
     states::GameState
 };
@@ -33,7 +34,7 @@ fn main() {
         .add_plugins(AudioPlugin)
         .add_plugins(HanabiPlugin)
         .init_state::<GameState>()
-        .add_plugins((audio_plugin, combat_plugin, experience_plugin, game_plugin, inventory_plugin, ui_plugin));
+        .add_plugins((audio_plugin, combat_plugin, experience_plugin, game_plugin, inventory_plugin, pause_plugin, ui_plugin));
 
     // If auto-start flag is set, add a system to skip to InGame state
     if auto_start {
@@ -54,10 +55,8 @@ mod tests {
     };
     use donny_tango_survivor::score::Score;
     use donny_tango_survivor::spell::systems::spell_casting_system;
-    use donny_tango_survivor::inventory::Inventory;
+    use donny_tango_survivor::inventory::resources::SpellList;
     use donny_tango_survivor::game::ScreenTintEffect;
-    use donny_tango_survivor::weapon::components::{Weapon, WeaponType};
-    use donny_tango_survivor::inventory::components::EquippedWeapon;
     use donny_tango_survivor::enemies::components::Enemy;
     use donny_tango_survivor::ui::components::{SpellSlot, SpellIcon, SpellCooldownTimerFill};
     use bevy::app::App;
@@ -159,12 +158,13 @@ mod tests {
 
         // Initialize asset types needed for 3D rendering
         app.init_asset::<StandardMaterial>();
+        app.init_asset::<Scene>();
 
         // Initialize game state (starts in Intro by default)
         app.init_state::<GameState>();
 
         // Initialize required resources
-        app.init_resource::<Inventory>();
+        app.init_resource::<SpellList>();
         app.init_resource::<ScreenTintEffect>();
 
         // Add our plugins (combat_plugin required for damage system, inventory_plugin for SpellList)
@@ -247,12 +247,13 @@ mod tests {
 
         // Initialize asset types needed for 3D rendering
         app.init_asset::<StandardMaterial>();
+        app.init_asset::<Scene>();
 
         // Initialize game state
         app.init_state::<GameState>();
 
         // Initialize required resources
-        app.init_resource::<Inventory>();
+        app.init_resource::<SpellList>();
         app.init_resource::<ScreenTintEffect>();
 
         // Add our plugins (combat_plugin required for damage system, inventory_plugin for SpellList)
@@ -294,22 +295,19 @@ mod tests {
     }
 
     #[test]
-    fn test_inventory_initialization() {
-        use donny_tango_survivor::inventory::resources::Inventory;
+    fn test_spell_list_initialization() {
+        // SpellList starts empty - spells are added when Whisper is collected
+        let spell_list = SpellList::default();
 
-        // Inventory starts empty - pistol is added when Whisper is collected
-        let inventory = Inventory::default();
-        let pistol_type = WeaponType::Pistol { bullet_count: 5, spread_angle: 15.0 };
-
-        // Check that inventory is empty by default
-        assert!(inventory.get_weapon(&pistol_type).is_none(), "Inventory should be empty by default");
-        assert_eq!(inventory.weapons.len(), 0, "Inventory should have no weapons initially");
+        // Check that spell list is empty by default
+        assert!(spell_list.find_empty_slot().is_some(), "SpellList should have empty slots by default");
+        assert_eq!(spell_list.iter_spells().count(), 0, "SpellList should have no spells initially");
     }
 
     #[test]
-    fn test_weapon_equipped_to_player() {
-        // Since weapons are only equipped after Whisper is collected,
-        // this test verifies that player starts WITHOUT weapons
+    fn test_player_starts_without_spells() {
+        // Since spells are only equipped after Whisper is collected,
+        // this test verifies that player starts WITHOUT spells
         let mut app = App::new();
 
         // Add minimal plugins
@@ -325,6 +323,7 @@ mod tests {
 
         // Initialize asset types needed for 3D rendering
         app.init_asset::<StandardMaterial>();
+        app.init_asset::<Scene>();
 
         // Initialize game state
         app.init_state::<GameState>();
@@ -341,12 +340,9 @@ mod tests {
         let player_count = world.query::<&Player>().iter(world).count();
         assert_eq!(player_count, 1, "Should have exactly one player");
 
-        // Player starts with no weapons - weapons are added when Whisper is collected
-        let weapon_count = world.query::<&Weapon>().iter(world).count();
-        assert_eq!(weapon_count, 0, "Should have no weapon entities until Whisper is collected");
-
-        let equipped_count = world.query::<&EquippedWeapon>().iter(world).count();
-        assert_eq!(equipped_count, 0, "Should have no equipped weapons until Whisper is collected");
+        // Player starts with no spells - spells are added when Whisper is collected
+        let spell_list = world.get_resource::<SpellList>().unwrap();
+        assert_eq!(spell_list.iter_spells().count(), 0, "Should have no spells until Whisper is collected");
     }
 
     #[test]
@@ -370,6 +366,7 @@ mod tests {
 
         // Initialize asset types needed for 3D rendering
         app.init_asset::<StandardMaterial>();
+        app.init_asset::<Scene>();
 
         // Initialize game state
         app.init_state::<GameState>();
@@ -431,6 +428,7 @@ mod tests {
 
         // Initialize asset types needed for 3D rendering
         app.init_asset::<StandardMaterial>();
+        app.init_asset::<Scene>();
 
         // Initialize game state
         app.init_state::<GameState>();
@@ -475,12 +473,13 @@ mod tests {
 
         // Initialize asset types needed for 3D rendering
         app.init_asset::<StandardMaterial>();
+        app.init_asset::<Scene>();
 
         // Initialize game state
         app.init_state::<GameState>();
 
         // Initialize required resources
-        app.init_resource::<Inventory>();
+        app.init_resource::<SpellList>();
         app.init_resource::<ScreenTintEffect>();
 
         // Add our plugins (combat_plugin required for damage system)
@@ -556,12 +555,13 @@ mod tests {
 
         // Initialize asset types needed for 3D rendering
         app.init_asset::<StandardMaterial>();
+        app.init_asset::<Scene>();
 
         // Initialize game state
         app.init_state::<GameState>();
 
         // Initialize required resources
-        app.init_resource::<Inventory>();
+        app.init_resource::<SpellList>();
         app.init_resource::<ScreenTintEffect>();
 
         // Add our plugins (combat_plugin required for damage system)
@@ -642,12 +642,13 @@ mod tests {
 
         // Initialize asset types needed for 3D rendering
         app.init_asset::<StandardMaterial>();
+        app.init_asset::<Scene>();
 
         // Initialize game state
         app.init_state::<GameState>();
 
         // Initialize required resources
-        app.init_resource::<Inventory>();
+        app.init_resource::<SpellList>();
         app.init_resource::<ScreenTintEffect>();
 
         // Add our plugins (combat_plugin required for damage system)
@@ -693,6 +694,7 @@ mod tests {
 
         // Initialize asset types needed for 3D rendering
         app.init_asset::<StandardMaterial>();
+        app.init_asset::<Scene>();
 
         // Initialize game state
         app.init_state::<GameState>();

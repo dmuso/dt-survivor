@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use crate::states::*;
+use crate::arena::plugin as arena_plugin;
 use crate::camera::plugin as camera_plugin;
 use crate::enemies::systems::*;
 use crate::game::systems::{
@@ -17,7 +18,6 @@ use crate::movement::plugin as movement_plugin;
 use crate::player::plugin as player_plugin;
 use crate::powerup::plugin as powerup_plugin;
 use crate::spell::plugin as spell_plugin;
-use crate::weapon::plugin as weapon_plugin;
 use crate::whisper::plugin as whisper_plugin;
 use crate::player::systems::{camera_follow_player, update_slow_modifiers, player_health_regeneration_system};
 use crate::whisper::systems::spawn_whisper_drop;
@@ -38,7 +38,7 @@ pub fn plugin(app: &mut App) {
         .add_message::<PlayerEnemyCollisionEvent>()
         .add_message::<GameOverEvent>()
         .add_message::<GameLevelUpEvent>()
-        .add_plugins((camera_plugin, enemy_death_plugin, loot_plugin, movement_plugin, player_plugin, powerup_plugin, spell_plugin, weapon_plugin, whisper_plugin))
+        .add_plugins((arena_plugin, camera_plugin, enemy_death_plugin, loot_plugin, movement_plugin, player_plugin, powerup_plugin, spell_plugin, whisper_plugin))
         // Configure GameSet ordering: Input -> Movement -> Combat -> Spawning -> Effects -> Cleanup
         .configure_sets(
             Update,
@@ -121,6 +121,21 @@ pub fn plugin(app: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::arena::resources::ArenaBounds;
+
+    #[test]
+    fn test_arena_plugin_is_included() {
+        // Verify that arena_plugin is registered and provides ArenaBounds resource
+        let mut app = App::new();
+        app.add_plugins(bevy::state::app::StatesPlugin);
+        app.init_state::<GameState>();
+        app.add_plugins(arena_plugin);
+
+        assert!(
+            app.world().get_resource::<ArenaBounds>().is_some(),
+            "ArenaBounds resource should be registered by arena_plugin"
+        );
+    }
 
     #[test]
     fn test_game_set_ordering_can_be_configured() {
