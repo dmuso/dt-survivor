@@ -244,6 +244,9 @@ fn try_find_next_target(
     }
 }
 
+/// Arc thickness (thin lightning bolt visual)
+pub const CHAIN_LIGHTNING_ARC_THICKNESS: f32 = 0.25;
+
 /// Spawn a visual lightning arc between two positions
 fn spawn_lightning_arc(
     commands: &mut Commands,
@@ -256,16 +259,29 @@ fn spawn_lightning_arc(
     let mid_point = (start + end) / 2.0;
     let arc_pos = to_xz(mid_point) + Vec3::new(0.0, 0.5, 0.0);
 
+    // Calculate arc length for scaling
+    let arc_length = start.distance(end);
+    let arc_scale = Vec3::new(arc_length, CHAIN_LIGHTNING_ARC_THICKNESS, CHAIN_LIGHTNING_ARC_THICKNESS);
+
+    // Calculate rotation to orient the arc from start to end
+    let direction = end - start;
+    let angle = direction.y.atan2(direction.x);
+    let rotation = Quat::from_rotation_y(-angle);
+
     if let (Some(meshes), Some(materials)) = (game_meshes, game_materials) {
         commands.spawn((
             Mesh3d(meshes.bullet.clone()),
             MeshMaterial3d(materials.thunder_strike.clone()),
-            Transform::from_translation(arc_pos).with_scale(Vec3::splat(0.3)),
+            Transform::from_translation(arc_pos)
+                .with_rotation(rotation)
+                .with_scale(arc_scale),
             arc,
         ));
     } else {
         commands.spawn((
-            Transform::from_translation(arc_pos),
+            Transform::from_translation(arc_pos)
+                .with_rotation(rotation)
+                .with_scale(arc_scale),
             arc,
         ));
     }
@@ -308,6 +324,9 @@ pub fn fire_chain_lightning(
     );
 }
 
+/// Elongated scale for chain lightning bolt (visible rectangle: long X, thin Y/Z)
+pub const CHAIN_LIGHTNING_BOLT_SCALE: Vec3 = Vec3::new(2.5, 0.3, 0.3);
+
 /// Cast chain lightning spell with explicit damage.
 /// `spawn_position` is Whisper's full 3D position.
 /// `damage` is the pre-calculated final damage (including attunement multiplier)
@@ -332,12 +351,12 @@ pub fn fire_chain_lightning_with_damage(
         commands.spawn((
             Mesh3d(meshes.bullet.clone()),
             MeshMaterial3d(materials.thunder_strike.clone()),
-            Transform::from_translation(bolt_pos).with_scale(Vec3::splat(0.5)),
+            Transform::from_translation(bolt_pos).with_scale(CHAIN_LIGHTNING_BOLT_SCALE),
             bolt,
         ));
     } else {
         commands.spawn((
-            Transform::from_translation(bolt_pos),
+            Transform::from_translation(bolt_pos).with_scale(CHAIN_LIGHTNING_BOLT_SCALE),
             bolt,
         ));
     }
@@ -794,6 +813,75 @@ mod tests {
             app.update();
 
             assert!(app.world().get_entity(arc_entity).is_ok());
+        }
+    }
+
+    mod chain_lightning_visual_tests {
+        use super::*;
+        use crate::spell::SpellType;
+
+        #[test]
+        fn test_bolt_spawns_with_elongated_scale_without_assets() {
+            // Test that without game assets, bolt still spawns with Transform
+            let mut app = App::new();
+            app.add_plugins(bevy::time::TimePlugin::default());
+
+            let spell = Spell::new(SpellType::ChainLightning);
+            let spawn_pos = Vec3::new(0.0, 0.5, 0.0);
+            let target_entity = Entity::from_bits(1);
+
+            {
+                let mut commands = app.world_mut().commands();
+                fire_chain_lightning(
+                    &mut commands,
+                    &spell,
+                    spawn_pos,
+                    target_entity,
+                    None,
+                    None,
+                );
+            }
+            app.update();
+
+            let mut query = app.world_mut().query::<(&ChainLightningBolt, &Transform)>();
+            let (_, transform) = query.iter(app.world()).next().expect("Bolt should exist");
+
+            // Bolt should have elongated scale (longer than it is wide/tall)
+            // The bolt's X axis should be at least 2.0 for visibility
+            assert!(transform.scale.x > transform.scale.y,
+                "Bolt should be elongated along X axis: x={}, y={}",
+                transform.scale.x, transform.scale.y);
+            assert!(transform.scale.x >= 2.0,
+                "Bolt length should be at least 2.0, got {}",
+                transform.scale.x);
+        }
+
+        #[test]
+        fn test_arc_spawns_with_length_based_scale_without_assets() {
+            // Test that arc spawns with proper length-based scale
+            let mut app = App::new();
+            app.add_plugins(bevy::time::TimePlugin::default());
+
+            let start = Vec2::new(0.0, 0.0);
+            let end = Vec2::new(10.0, 0.0);
+            let arc_length = start.distance(end);
+
+            {
+                let mut commands = app.world_mut().commands();
+                spawn_lightning_arc(&mut commands, start, end, None, None);
+            }
+            app.update();
+
+            let mut query = app.world_mut().query::<(&ChainLightningArc, &Transform)>();
+            let (_, transform) = query.iter(app.world()).next().expect("Arc should exist");
+
+            // Arc should be scaled to match the distance between start and end
+            assert!((transform.scale.x - arc_length).abs() < 0.1,
+                "Arc length should match distance: expected {}, got {}",
+                arc_length, transform.scale.x);
+            assert!(transform.scale.y < 1.0,
+                "Arc should be thin, got y scale {}",
+                transform.scale.y);
         }
     }
 
