@@ -4,11 +4,15 @@ use crate::states::*;
 use crate::ui::attunement::*;
 use crate::ui::inventory_bag::*;
 use crate::ui::materials::RadialCooldownMaterial;
+use crate::ui::spell_slot::SpellSlotPlugin;
 use crate::ui::systems::*;
 use crate::score::*;
 
 pub fn plugin(app: &mut App) {
-    app.add_plugins(UiMaterialPlugin::<RadialCooldownMaterial>::default())
+    app.add_plugins((
+        UiMaterialPlugin::<RadialCooldownMaterial>::default(),
+        SpellSlotPlugin,
+    ))
         .init_resource::<DebugHudVisible>()
         .init_resource::<SelectedBagSlot>()
         .init_resource::<DragState>()
@@ -53,9 +57,6 @@ pub fn plugin(app: &mut App) {
             update_drag_visual,
             end_drag,
             cancel_drag_on_escape,
-            // Slot visual refresh systems (update after swaps)
-            refresh_bag_slot_visuals,
-            refresh_active_slot_visuals,
         ).run_if(in_state(GameState::InventoryOpen)))
         .add_systems(OnExit(GameState::InventoryOpen), cleanup_inventory_ui)
         .add_systems(Update,

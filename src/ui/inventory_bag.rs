@@ -3,7 +3,8 @@ use bevy::prelude::*;
 use crate::inventory::{InventoryBag, SpellList};
 use crate::spell::Spell;
 use crate::states::GameState;
-use crate::ui::components::{spawn_spell_icon_visual, SPELL_SLOT_SIZE};
+use crate::ui::components::{apply_empty_slot_hover_style, apply_empty_slot_style, spawn_spell_icon_visual};
+use crate::ui::spell_slot::{spawn_spell_slot, SlotSource, SLOT_SIZE as SPELL_SLOT_SIZE};
 
 const BAG_COLUMNS: usize = 6;
 const BAG_ROWS: usize = 5;
@@ -89,12 +90,9 @@ pub struct InventoryContentContainer;
 #[derive(Component)]
 pub struct RightSideContent;
 
-/// Marker component for spell level display in inventory.
-#[derive(Component)]
-pub struct InventorySpellLevel;
-
-/// Helper to spawn the spell bar style level indicator (black box with white border).
-fn spawn_level_indicator(parent: &mut ChildSpawnerCommands, level: u32) {
+/// Spawns a level indicator with the level text pre-populated.
+/// Used for drag visuals which are not part of the refresh system.
+fn spawn_drag_level_indicator(parent: &mut ChildSpawnerCommands, level: u32) {
     parent
         .spawn((
             Node {
@@ -112,7 +110,6 @@ fn spawn_level_indicator(parent: &mut ChildSpawnerCommands, level: u32) {
             BorderColor::all(Color::srgb(1.0, 1.0, 1.0)),
             BorderRadius::all(Val::Px(2.0)),
             ZIndex(10),
-            InventorySpellLevel,
         ))
         .with_children(|level_box| {
             level_box.spawn((
@@ -236,9 +233,17 @@ pub fn setup_inventory_ui(
                                     },
                                 ))
                                 .with_children(|grid| {
-                                    // Spawn 30 bag slots
+                                    // Spawn 30 bag slots using the shared spell_slot module
                                     for slot_index in 0..(BAG_ROWS * BAG_COLUMNS) {
-                                        spawn_bag_slot(grid, slot_index, inventory_bag.get_spell(slot_index), Some(&asset_server));
+                                        let slot_entity = spawn_spell_slot(
+                                            grid,
+                                            SlotSource::Bag,
+                                            slot_index,
+                                            inventory_bag.get_spell(slot_index),
+                                            &asset_server,
+                                        );
+                                        // Add interaction marker for inventory bag systems
+                                        grid.commands().entity(slot_entity).insert(InventorySlot { index: slot_index });
                                     }
                                 });
 
@@ -270,9 +275,40 @@ pub fn setup_inventory_ui(
                                     },
                                 ))
                                 .with_children(|active_bar| {
-                                    // Spawn 5 active slots
+                                    // Spawn 5 active slots using the shared spell_slot module
                                     for slot_index in 0..ACTIVE_SLOTS {
-                                        spawn_active_slot(active_bar, slot_index, spell_list.get_spell(slot_index), Some(&asset_server));
+                                        // Container for slot + number below
+                                        active_bar
+                                            .spawn(Node {
+                                                flex_direction: FlexDirection::Column,
+                                                align_items: AlignItems::Center,
+                                                ..default()
+                                            })
+                                            .with_children(|container| {
+                                                let slot_entity = spawn_spell_slot(
+                                                    container,
+                                                    SlotSource::Active,
+                                                    slot_index,
+                                                    spell_list.get_spell(slot_index),
+                                                    &asset_server,
+                                                );
+                                                // Add interaction marker for inventory bag systems
+                                                container.commands().entity(slot_entity).insert(ActiveSlotDisplay { index: slot_index });
+
+                                                // Slot number displayed below the slot
+                                                container.spawn((
+                                                    Text::new(format!("{}", slot_index + 1)),
+                                                    TextFont {
+                                                        font_size: 11.0,
+                                                        ..default()
+                                                    },
+                                                    TextColor(Color::srgba(1.0, 1.0, 1.0, 0.7)),
+                                                    Node {
+                                                        margin: UiRect::top(Val::Px(2.0)),
+                                                        ..default()
+                                                    },
+                                                ));
+                                            });
                                     }
                                 });
                         });
@@ -291,101 +327,6 @@ pub fn setup_inventory_ui(
                     ..default()
                 },
                 ZIndex(1),
-            ));
-        });
-}
-
-/// Spawn a bag slot with optional spell content.
-fn spawn_bag_slot(
-    parent: &mut ChildSpawnerCommands,
-    index: usize,
-    spell: Option<&Spell>,
-    asset_server: Option<&AssetServer>,
-) {
-    parent
-        .spawn((
-            Button,
-            Node {
-                width: Val::Px(SLOT_SIZE),
-                height: Val::Px(SLOT_SIZE),
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                justify_content: JustifyContent::Center,
-                ..default()
-            },
-            BackgroundColor(Color::NONE),
-            BorderRadius::all(Val::Px(6.0)),
-            InventorySlot { index },
-        ))
-        .with_children(|slot| {
-            // Spell icon fills the slot - uses shared helper which handles
-            // textured, non-textured, and empty slot rendering
-            spawn_spell_icon_visual(slot, spell, SLOT_SIZE, asset_server);
-
-            // Level indicator (spell bar style) - only if spell exists
-            if let Some(spell) = spell {
-                spawn_level_indicator(slot, spell.level);
-            }
-        });
-}
-
-/// Spawn an active spell slot with optional spell content.
-/// Slot number is displayed below the slot, icon fills the entire slot.
-fn spawn_active_slot(
-    parent: &mut ChildSpawnerCommands,
-    index: usize,
-    spell: Option<&Spell>,
-    asset_server: Option<&AssetServer>,
-) {
-    // Container for slot + number below
-    parent
-        .spawn((
-            Node {
-                flex_direction: FlexDirection::Column,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-        ))
-        .with_children(|container| {
-            // The actual slot button
-            container
-                .spawn((
-                    Button,
-                    Node {
-                        width: Val::Px(SLOT_SIZE),
-                        height: Val::Px(SLOT_SIZE),
-                        flex_direction: FlexDirection::Column,
-                        align_items: AlignItems::Center,
-                        justify_content: JustifyContent::Center,
-                        ..default()
-                    },
-                    BackgroundColor(Color::NONE),
-                    BorderRadius::all(Val::Px(6.0)),
-                    ActiveSlotDisplay { index },
-                ))
-                .with_children(|slot| {
-                    // Spell icon fills the slot - uses shared helper which handles
-                    // textured, non-textured, and empty slot rendering
-                    spawn_spell_icon_visual(slot, spell, SLOT_SIZE, asset_server);
-
-                    // Level indicator (spell bar style) - only if spell exists
-                    if let Some(spell) = spell {
-                        spawn_level_indicator(slot, spell.level);
-                    }
-                });
-
-            // Slot number displayed below the slot
-            container.spawn((
-                Text::new(format!("{}", index + 1)),
-                TextFont {
-                    font_size: 11.0,
-                    ..default()
-                },
-                TextColor(Color::srgba(1.0, 1.0, 1.0, 0.7)),
-                Node {
-                    margin: UiRect::top(Val::Px(2.0)),
-                    ..default()
-                },
             ));
         });
 }
@@ -475,8 +416,7 @@ pub fn handle_bag_slot_click(
                     *bg_color = BackgroundColor(color.with_alpha(0.7));
                     *border_color = BorderColor::all(Color::WHITE);
                 } else {
-                    *bg_color = BackgroundColor(Color::srgba(0.4, 0.4, 0.4, 0.8));
-                    *border_color = BorderColor::all(Color::srgba(0.6, 0.6, 0.6, 0.8));
+                    apply_empty_slot_hover_style(&mut bg_color, &mut border_color);
                 }
             }
             Interaction::None => {
@@ -484,8 +424,7 @@ pub fn handle_bag_slot_click(
                     *bg_color = BackgroundColor(color.with_alpha(0.4));
                     *border_color = BorderColor::all(color);
                 } else {
-                    *bg_color = BackgroundColor(Color::srgba(0.2, 0.2, 0.2, 0.8));
-                    *border_color = BorderColor::all(Color::srgba(0.4, 0.4, 0.4, 0.8));
+                    apply_empty_slot_style(&mut bg_color, &mut border_color);
                 }
             }
         }
@@ -536,8 +475,7 @@ pub fn handle_active_slot_click(
                     *bg_color = BackgroundColor(color.with_alpha(0.9));
                     *border_color = BorderColor::all(Color::WHITE);
                 } else {
-                    *bg_color = BackgroundColor(Color::srgba(0.5, 0.5, 0.5, 0.8));
-                    *border_color = BorderColor::all(Color::srgba(0.7, 0.7, 0.7, 0.8));
+                    apply_empty_slot_hover_style(&mut bg_color, &mut border_color);
                 }
             }
             Interaction::None => {
@@ -545,8 +483,7 @@ pub fn handle_active_slot_click(
                     *bg_color = BackgroundColor(color.with_alpha(0.6));
                     *border_color = BorderColor::all(color);
                 } else {
-                    *bg_color = BackgroundColor(Color::srgba(0.3, 0.3, 0.3, 0.8));
-                    *border_color = BorderColor::all(Color::srgba(0.5, 0.5, 0.5, 0.8));
+                    apply_empty_slot_style(&mut bg_color, &mut border_color);
                 }
             }
         }
@@ -836,8 +773,8 @@ fn spawn_drag_visual(commands: &mut Commands, spell: &Spell, cursor_pos: Vec2, a
         // Spell icon fills the slot - uses shared helper
         spawn_spell_icon_visual(visual, Some(spell), SLOT_SIZE, Some(asset_server));
 
-        // Level indicator (spell bar style)
-        spawn_level_indicator(visual, spell.level);
+        // Level indicator (spell bar style) - uses pre-populated text for drag visual
+        spawn_drag_level_indicator(visual, spell.level);
     });
 }
 
@@ -973,89 +910,6 @@ pub fn cancel_drag_on_escape(
         for entity in drag_visual_query.iter() {
             commands.entity(entity).despawn();
         }
-    }
-}
-
-/// Refresh bag slot visuals to match current inventory state.
-/// This should run after swaps to update children and parent background.
-pub fn refresh_bag_slot_visuals(
-    mut commands: Commands,
-    mut slot_query: Query<(Entity, &InventorySlot, &mut BackgroundColor, &mut BorderColor, Option<&Children>)>,
-    inventory_bag: Res<InventoryBag>,
-    asset_server: Res<AssetServer>,
-) {
-    for (entity, slot, mut bg_color, mut border_color, children) in &mut slot_query {
-        let spell = inventory_bag.get_spell(slot.index);
-
-        // Update parent slot background and border based on spell presence
-        if let Some(spell) = spell {
-            let element_color = spell.element.color();
-            *bg_color = BackgroundColor(element_color.with_alpha(0.4));
-            *border_color = BorderColor::all(element_color);
-        } else {
-            // Empty slot - match the default empty appearance
-            *bg_color = BackgroundColor(Color::srgba(0.2, 0.2, 0.2, 0.8));
-            *border_color = BorderColor::all(Color::srgba(0.4, 0.4, 0.4, 0.8));
-        }
-
-        // Despawn existing children if any
-        if let Some(children) = children {
-            for child in children.iter() {
-                commands.entity(child).despawn();
-            }
-        }
-
-        // Rebuild children with shared helper (handles all spell states including empty)
-        commands.entity(entity).with_children(|slot_parent| {
-            spawn_spell_icon_visual(slot_parent, spell, SLOT_SIZE, Some(&asset_server));
-
-            // Level indicator (spell bar style) - only if spell exists
-            if let Some(spell) = spell {
-                spawn_level_indicator(slot_parent, spell.level);
-            }
-        });
-    }
-}
-
-/// Refresh active slot visuals to match current spell list state.
-/// This should run after swaps to update children and parent background.
-/// Note: Slot number is in parent container and doesn't need to change.
-pub fn refresh_active_slot_visuals(
-    mut commands: Commands,
-    mut slot_query: Query<(Entity, &ActiveSlotDisplay, &mut BackgroundColor, &mut BorderColor, Option<&Children>)>,
-    spell_list: Res<SpellList>,
-    asset_server: Res<AssetServer>,
-) {
-    for (entity, slot, mut bg_color, mut border_color, children) in &mut slot_query {
-        let spell = spell_list.get_spell(slot.index);
-
-        // Update parent slot background and border based on spell presence
-        if let Some(spell) = spell {
-            let element_color = spell.element.color();
-            *bg_color = BackgroundColor(element_color.with_alpha(0.6));
-            *border_color = BorderColor::all(element_color);
-        } else {
-            // Empty slot - match the default empty appearance
-            *bg_color = BackgroundColor(Color::srgba(0.3, 0.3, 0.3, 0.8));
-            *border_color = BorderColor::all(Color::srgba(0.5, 0.5, 0.5, 0.8));
-        }
-
-        // Despawn existing children if any
-        if let Some(children) = children {
-            for child in children.iter() {
-                commands.entity(child).despawn();
-            }
-        }
-
-        // Rebuild children with shared helper (handles all spell states including empty)
-        commands.entity(entity).with_children(|slot_parent| {
-            spawn_spell_icon_visual(slot_parent, spell, SLOT_SIZE, Some(&asset_server));
-
-            // Level indicator (spell bar style) - only if spell exists
-            if let Some(spell) = spell {
-                spawn_level_indicator(slot_parent, spell.level);
-            }
-        });
     }
 }
 
@@ -1701,50 +1555,39 @@ mod tests {
     mod visual_refresh_tests {
         use super::*;
         use crate::spell::Spell;
-        use crate::ui::components::SpellIconVisual;
+        use crate::ui::components::empty_slot;
+        use crate::ui::spell_slot::{refresh_spell_slot_visuals, SpellSlotVisual};
 
         #[test]
-        fn refresh_bag_slot_visuals_is_system() {
+        fn refresh_spell_slot_visuals_is_system() {
             fn assert_system<T: bevy::ecs::system::IntoSystem<(), (), M>, M>(_: T) {}
-            assert_system(refresh_bag_slot_visuals);
-        }
-
-        #[test]
-        fn refresh_active_slot_visuals_is_system() {
-            fn assert_system<T: bevy::ecs::system::IntoSystem<(), (), M>, M>(_: T) {}
-            assert_system(refresh_active_slot_visuals);
+            assert_system(refresh_spell_slot_visuals);
         }
 
         #[test]
         fn bag_slot_visual_updates_when_spell_added() {
             let mut app = setup_test_app();
 
-            // Setup inventory UI first
+            // Setup inventory UI first (all slots empty)
             let _ = app.world_mut().run_system_once(setup_inventory_ui);
-
-            // Count SpellIconVisual entities before adding spell
-            let initial_count = app
-                .world_mut()
-                .query::<&SpellIconVisual>()
-                .iter(app.world())
-                .count();
 
             // Add a spell to bag slot 0
             let fireball = Spell::new(SpellType::Fireball);
             app.world_mut().resource_mut::<InventoryBag>().add(fireball);
 
-            // Run refresh system
-            let _ = app.world_mut().run_system_once(refresh_bag_slot_visuals);
+            // Run unified refresh system
+            let _ = app.world_mut().run_system_once(refresh_spell_slot_visuals);
 
-            // Verify SpellIconVisual still exists (should replace empty with spell icon)
-            let final_count = app
+            // Verify slot 0 has updated background color (not the empty slot gray)
+            let (bg_color, _slot) = app
                 .world_mut()
-                .query::<&SpellIconVisual>()
+                .query::<(&BackgroundColor, &InventorySlot)>()
                 .iter(app.world())
-                .count();
+                .find(|(_, slot)| slot.index == 0)
+                .expect("Bag slot 0 should exist");
 
-            // Count should be the same - we replace icons, not add new ones
-            assert_eq!(initial_count, final_count, "SpellIconVisual count should remain the same after spell added");
+            // The background should not be the empty slot color
+            assert_ne!(bg_color.0, empty_slot::SLOT_BACKGROUND, "Bag slot 0 should have spell color, not empty color");
         }
 
         #[test]
@@ -1758,40 +1601,35 @@ mod tests {
             // Setup inventory UI
             let _ = app.world_mut().run_system_once(setup_inventory_ui);
 
-            // Count SpellIconVisual entities before removal
-            let initial_count = app
+            // Verify initial spell color
+            let initial_bg = app
                 .world_mut()
-                .query::<&SpellIconVisual>()
+                .query::<(&BackgroundColor, &InventorySlot)>()
                 .iter(app.world())
-                .count();
+                .find(|(_, slot)| slot.index == 0)
+                .map(|(bg, _)| bg.0);
+            assert!(initial_bg.is_some(), "Bag slot 0 should exist");
+            assert_ne!(initial_bg, Some(empty_slot::SLOT_BACKGROUND), "Slot should have spell color initially");
 
             // Remove the spell
             app.world_mut().resource_mut::<InventoryBag>().remove(0);
 
-            // Run refresh system
-            let _ = app.world_mut().run_system_once(refresh_bag_slot_visuals);
+            // Run unified refresh system
+            let _ = app.world_mut().run_system_once(refresh_spell_slot_visuals);
 
-            // Verify SpellIconVisual still exists (empty slots also have icon visuals)
-            let final_count = app
+            // Check that the slot now has the empty slot background
+            let slot_bg = app
                 .world_mut()
-                .query::<&SpellIconVisual>()
+                .query::<(&BackgroundColor, &InventorySlot)>()
                 .iter(app.world())
-                .count();
-
-            // Both counts should be the same - we replace icons, not remove them
-            assert_eq!(initial_count, final_count, "SpellIconVisual count should remain the same after spell removal");
-
-            // Check that the icon visual for empty slot has gray background
-            // Query for SpellIconVisual with BackgroundColor
-            let bg_color = app
-                .world_mut()
-                .query::<(&BackgroundColor, &SpellIconVisual)>()
-                .iter(app.world())
-                .next()
+                .find(|(_, slot)| slot.index == 0)
                 .map(|(bg, _)| bg.0);
 
-            // Should have some background (gray for empty slots)
-            assert!(bg_color.is_some(), "SpellIconVisual should have a BackgroundColor");
+            assert_eq!(
+                slot_bg,
+                Some(empty_slot::SLOT_BACKGROUND),
+                "Empty slot should have shared empty slot background"
+            );
         }
 
         #[test]
@@ -1805,8 +1643,8 @@ mod tests {
             let fireball = Spell::new(SpellType::Fireball);
             app.world_mut().resource_mut::<SpellList>().equip(fireball);
 
-            // Run refresh system
-            let _ = app.world_mut().run_system_once(refresh_active_slot_visuals);
+            // Run unified refresh system
+            let _ = app.world_mut().run_system_once(refresh_spell_slot_visuals);
 
             // Verify slot 0 has updated background color (not the empty slot gray)
             let (bg_color, _slot) = app
@@ -1817,8 +1655,41 @@ mod tests {
                 .expect("Active slot 0 should exist");
 
             // The background should not be the empty slot color
-            let empty_color = Color::srgba(0.3, 0.3, 0.3, 0.8);
-            assert_ne!(bg_color.0, empty_color, "Active slot 0 should have spell color, not empty color");
+            assert_ne!(bg_color.0, empty_slot::SLOT_BACKGROUND, "Active slot 0 should have spell color, not empty color");
+        }
+
+        #[test]
+        fn bag_slots_have_spell_slot_visual_component() {
+            let mut app = setup_test_app();
+
+            // Setup inventory UI
+            let _ = app.world_mut().run_system_once(setup_inventory_ui);
+
+            // Verify bag slots have SpellSlotVisual component
+            let slot_count = app
+                .world_mut()
+                .query::<(&InventorySlot, &SpellSlotVisual)>()
+                .iter(app.world())
+                .count();
+
+            assert_eq!(slot_count, 30, "All 30 bag slots should have SpellSlotVisual component");
+        }
+
+        #[test]
+        fn active_slots_have_spell_slot_visual_component() {
+            let mut app = setup_test_app();
+
+            // Setup inventory UI
+            let _ = app.world_mut().run_system_once(setup_inventory_ui);
+
+            // Verify active slots have SpellSlotVisual component
+            let slot_count = app
+                .world_mut()
+                .query::<(&ActiveSlotDisplay, &SpellSlotVisual)>()
+                .iter(app.world())
+                .count();
+
+            assert_eq!(slot_count, 5, "All 5 active slots should have SpellSlotVisual component");
         }
     }
 
