@@ -28,10 +28,9 @@ impl Plugin for SpellSlotPlugin {
                     (in_state(GameState::InGame).or(in_state(GameState::InventoryOpen)))
                         .and(resource_changed::<SpellList>.or(resource_changed::<InventoryBag>)),
                 ),
-            )
-            // Force refresh on state transitions to fix initialization timing issues
-            .add_systems(OnEnter(GameState::InGame), refresh_spell_slot_visuals)
-            .add_systems(OnEnter(GameState::InventoryOpen), refresh_spell_slot_visuals);
+            );
+            // Note: OnEnter refresh systems are added by ui::plugin with proper ordering
+            // to ensure they run AFTER the UI setup systems spawn the slots
     }
 }
 
@@ -182,7 +181,7 @@ mod tests {
             app.update();
 
             // Spawn a slot
-            let spawn_slot = |mut commands: Commands, asset_server: Res<AssetServer>| {
+            let spawn_slot = |mut commands: Commands, _asset_server: Res<AssetServer>| {
                 commands
                     .spawn((Node::default(), TestParent))
                     .with_children(|parent| {
@@ -277,19 +276,17 @@ mod tests {
         }
 
         #[test]
-        fn refresh_runs_on_entering_ingame_state() {
+        fn update_system_refreshes_when_spell_added_in_ingame_state() {
             let mut app = setup_test_app();
             app.add_plugins(SpellSlotPlugin);
 
-            // Pre-add a spell before transitioning
-            let fireball = Spell::new(SpellType::Fireball);
-            app.world_mut().resource_mut::<SpellList>().equip(fireball);
-
-            // Clear change detection so only state transition triggers refresh
-            app.update();
+            // Transition to InGame state first
+            app.world_mut()
+                .resource_mut::<NextState<GameState>>()
+                .set(GameState::InGame);
             app.update();
 
-            // Spawn a slot (in Intro state - system won't run yet)
+            // Spawn a slot (now in InGame state)
             let spawn_slot = |mut commands: Commands| {
                 commands
                     .spawn((Node::default(), TestParent))
@@ -309,13 +306,12 @@ mod tests {
                 .expect("Icon should exist");
             assert_eq!(initial_visibility, Visibility::Hidden, "Icon should start hidden");
 
-            // Transition to InGame - OnEnter system should refresh slots
-            app.world_mut()
-                .resource_mut::<NextState<GameState>>()
-                .set(GameState::InGame);
+            // Add a spell - this triggers resource change detection
+            let fireball = Spell::new(SpellType::Fireball);
+            app.world_mut().resource_mut::<SpellList>().equip(fireball);
             app.update();
 
-            // Verify icon is now visible (from OnEnter refresh)
+            // Verify icon is now visible (from Update system with resource change)
             let final_visibility = app
                 .world_mut()
                 .query::<(&Visibility, &SpellIconImage)>()
@@ -323,23 +319,21 @@ mod tests {
                 .next()
                 .map(|(v, _)| *v)
                 .expect("Icon should exist");
-            assert_eq!(final_visibility, Visibility::Visible, "Icon should be visible after state transition");
+            assert_eq!(final_visibility, Visibility::Visible, "Icon should be visible after spell added");
         }
 
         #[test]
-        fn refresh_runs_on_entering_inventory_open_state() {
+        fn update_system_refreshes_when_spell_added_in_inventory_open_state() {
             let mut app = setup_test_app();
             app.add_plugins(SpellSlotPlugin);
 
-            // Pre-add a spell to inventory bag before transitioning
-            let ice_shard = Spell::new(SpellType::IceShard);
-            app.world_mut().resource_mut::<InventoryBag>().add(ice_shard);
-
-            // Clear change detection
-            app.update();
+            // Transition to InventoryOpen state first
+            app.world_mut()
+                .resource_mut::<NextState<GameState>>()
+                .set(GameState::InventoryOpen);
             app.update();
 
-            // Spawn a bag slot (in Intro state - system won't run yet)
+            // Spawn a bag slot (now in InventoryOpen state)
             let spawn_slot = |mut commands: Commands| {
                 commands
                     .spawn((Node::default(), TestParent))
@@ -359,13 +353,12 @@ mod tests {
                 .expect("Icon should exist");
             assert_eq!(initial_visibility, Visibility::Hidden, "Icon should start hidden");
 
-            // Transition to InventoryOpen - OnEnter system should refresh slots
-            app.world_mut()
-                .resource_mut::<NextState<GameState>>()
-                .set(GameState::InventoryOpen);
+            // Add a spell to inventory bag - this triggers resource change detection
+            let ice_shard = Spell::new(SpellType::IceShard);
+            app.world_mut().resource_mut::<InventoryBag>().add(ice_shard);
             app.update();
 
-            // Verify icon is now visible (from OnEnter refresh)
+            // Verify icon is now visible (from Update system with resource change)
             let final_visibility = app
                 .world_mut()
                 .query::<(&Visibility, &SpellIconImage)>()
@@ -373,7 +366,11 @@ mod tests {
                 .next()
                 .map(|(v, _)| *v)
                 .expect("Icon should exist");
-            assert_eq!(final_visibility, Visibility::Visible, "Icon should be visible after state transition");
+            assert_eq!(final_visibility, Visibility::Visible, "Icon should be visible after spell added");
         }
+
+        // Note: OnEnter refresh systems are now added by ui::plugin with proper ordering
+        // to ensure they run AFTER UI setup systems spawn slots. The SpellSlotPlugin
+        // provides only the Update-schedule refresh system with resource change detection.
     }
 }

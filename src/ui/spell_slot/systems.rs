@@ -19,6 +19,7 @@ use crate::ui::spell_slot::spawn::spell_slot_background;
 /// - Empty slot: hide image, hide level indicator, empty slot background
 ///
 /// The system queries slots by their SlotSource to determine which resource to read from.
+#[allow(clippy::type_complexity)]
 pub fn refresh_spell_slot_visuals(
     spell_list: Res<SpellList>,
     inventory_bag: Res<InventoryBag>,
@@ -146,7 +147,7 @@ mod tests {
             let mut app = setup_test_app();
 
             // Spawn an empty slot
-            let spawn_slot = |mut commands: Commands, asset_server: Res<AssetServer>| {
+            let spawn_slot = |mut commands: Commands, _asset_server: Res<AssetServer>| {
                 commands.spawn((Node::default(), TestParent)).with_children(|parent| {
                     spawn_spell_slot(parent, SlotSource::Active, 0);
                 });
@@ -303,7 +304,7 @@ mod tests {
             let mut app = setup_test_app();
 
             // Spawn an empty slot
-            let spawn_slot = |mut commands: Commands, asset_server: Res<AssetServer>| {
+            let spawn_slot = |mut commands: Commands, _asset_server: Res<AssetServer>| {
                 commands.spawn((Node::default(), TestParent)).with_children(|parent| {
                     spawn_spell_slot(parent, SlotSource::Active, 0);
                 });
@@ -333,7 +334,7 @@ mod tests {
             app.world_mut().resource_mut::<SpellList>().equip(fireball);
 
             // Spawn a slot
-            let spawn_slot = |mut commands: Commands, asset_server: Res<AssetServer>| {
+            let spawn_slot = |mut commands: Commands, _asset_server: Res<AssetServer>| {
                 commands.spawn((Node::default(), TestParent)).with_children(|parent| {
                     spawn_spell_slot(parent, SlotSource::Active, 0);
                 });

@@ -5,7 +5,7 @@ use crate::states::*;
 use crate::ui::attunement::*;
 use crate::ui::inventory_bag::*;
 use crate::ui::materials::RadialCooldownMaterial;
-use crate::ui::spell_slot::SpellSlotPlugin;
+use crate::ui::spell_slot::{refresh_spell_slot_visuals, SpellSlotPlugin};
 use crate::ui::systems::*;
 use crate::score::*;
 
@@ -30,7 +30,10 @@ pub fn plugin(app: &mut App) {
         .add_systems(OnEnter(GameState::AttunementSelect), setup_attunement_screen)
         .add_systems(Update, handle_attunement_selection.run_if(in_state(GameState::AttunementSelect)))
         .add_systems(OnExit(GameState::AttunementSelect), cleanup_attunement_screen)
-        .add_systems(OnEnter(GameState::InGame), (setup_score_display, setup_game_ui, setup_spell_slots, setup_debug_hud))
+        .add_systems(OnEnter(GameState::InGame), (
+            (setup_score_display, setup_game_ui, setup_spell_slots, setup_debug_hud),
+            refresh_spell_slot_visuals,
+        ).chain())
         .add_systems(Update, (
             update_score_display,
             update_health_display,
@@ -43,7 +46,10 @@ pub fn plugin(app: &mut App) {
             handle_inventory_toggle,
         ).run_if(in_state(GameState::InGame)))
         // Inventory state systems
-        .add_systems(OnEnter(GameState::InventoryOpen), setup_inventory_ui)
+        .add_systems(OnEnter(GameState::InventoryOpen), (
+            setup_inventory_ui,
+            refresh_spell_slot_visuals,
+        ).chain())
         .add_systems(Update, (
             handle_inventory_input,
             handle_bag_slot_click,

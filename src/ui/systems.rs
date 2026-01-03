@@ -422,9 +422,9 @@ pub fn setup_game_over_ui(
 /// Uses the spell_slot module for slot spawning - visuals are managed by refresh_spell_slot_visuals.
 pub fn setup_spell_slots(
     mut commands: Commands,
-    spell_list: Res<SpellList>,
+    _spell_list: Res<SpellList>,
     spell_cooldowns_visible: Res<SpellCooldownsVisible>,
-    asset_server: Res<AssetServer>,
+    _asset_server: Res<AssetServer>,
     mut cooldown_materials: ResMut<Assets<RadialCooldownMaterial>>,
 ) {
     // Create spell bar container at bottom center

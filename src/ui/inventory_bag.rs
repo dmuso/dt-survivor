@@ -129,9 +129,9 @@ fn spawn_drag_level_indicator(parent: &mut ChildSpawnerCommands, level: u32) {
 /// Setup the inventory screen when entering InventoryOpen state.
 pub fn setup_inventory_ui(
     mut commands: Commands,
-    inventory_bag: Res<InventoryBag>,
-    spell_list: Res<SpellList>,
-    asset_server: Res<AssetServer>,
+    _inventory_bag: Res<InventoryBag>,
+    _spell_list: Res<SpellList>,
+    _asset_server: Res<AssetServer>,
 ) {
     // Root container
     commands
@@ -385,13 +385,10 @@ pub fn handle_bag_slot_click(
     selected_query: Query<Entity, With<SelectedSpell>>,
 ) {
     for (entity, interaction, mut bg_color, slot) in &mut interaction_query {
-        let spell = inventory_bag.get_spell(slot.index);
-        let element_color = spell.map(|s| s.element.color());
-
         match *interaction {
             Interaction::Pressed => {
                 // Only allow selecting slots that have spells
-                if spell.is_some() {
+                if inventory_bag.get_spell(slot.index).is_some() {
                     // Remove SelectedSpell from previously selected entity
                     for selected_entity in selected_query.iter() {
                         commands.entity(selected_entity).remove::<SelectedSpell>();
@@ -402,18 +399,10 @@ pub fn handle_bag_slot_click(
                 }
             }
             Interaction::Hovered => {
-                if let Some(color) = element_color {
-                    *bg_color = BackgroundColor(color.with_alpha(0.7));
-                } else {
-                    *bg_color = BackgroundColor(empty_slot::SLOT_BACKGROUND_HOVER);
-                }
+                *bg_color = BackgroundColor(empty_slot::SLOT_BACKGROUND_HOVER);
             }
             Interaction::None => {
-                if let Some(color) = element_color {
-                    *bg_color = BackgroundColor(color.with_alpha(0.4));
-                } else {
-                    *bg_color = BackgroundColor(empty_slot::SLOT_BACKGROUND);
-                }
+                *bg_color = BackgroundColor(empty_slot::SLOT_BACKGROUND);
             }
         }
     }
@@ -432,9 +421,6 @@ pub fn handle_active_slot_click(
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     for (interaction, mut bg_color, active_slot) in &mut interaction_query {
-        let spell = spell_list.get_spell(active_slot.index);
-        let element_color = spell.map(|s| s.element.color());
-
         match *interaction {
             Interaction::Pressed => {
                 // Perform swap if we have a selected bag slot
@@ -459,18 +445,10 @@ pub fn handle_active_slot_click(
                 }
             }
             Interaction::Hovered => {
-                if let Some(color) = element_color {
-                    *bg_color = BackgroundColor(color.with_alpha(0.9));
-                } else {
-                    *bg_color = BackgroundColor(empty_slot::SLOT_BACKGROUND_HOVER);
-                }
+                *bg_color = BackgroundColor(empty_slot::SLOT_BACKGROUND_HOVER);
             }
             Interaction::None => {
-                if let Some(color) = element_color {
-                    *bg_color = BackgroundColor(color.with_alpha(0.6));
-                } else {
-                    *bg_color = BackgroundColor(empty_slot::SLOT_BACKGROUND);
-                }
+                *bg_color = BackgroundColor(empty_slot::SLOT_BACKGROUND);
             }
         }
     }
@@ -1531,7 +1509,7 @@ mod tests {
         }
 
         #[test]
-        fn bag_slot_visual_updates_when_spell_added() {
+        fn bag_slot_visual_uses_empty_slot_background() {
             let mut app = setup_test_app();
 
             // Setup inventory UI first (all slots empty)
@@ -1544,7 +1522,7 @@ mod tests {
             // Run unified refresh system
             let _ = app.world_mut().run_system_once(refresh_spell_slot_visuals);
 
-            // Verify slot 0 has updated background color (not the empty slot gray)
+            // Verify slot 0 has empty slot background (spell visual is via texture)
             let (bg_color, _slot) = app
                 .world_mut()
                 .query::<(&BackgroundColor, &InventorySlot)>()
@@ -1552,54 +1530,12 @@ mod tests {
                 .find(|(_, slot)| slot.index == 0)
                 .expect("Bag slot 0 should exist");
 
-            // The background should not be the empty slot color
-            assert_ne!(bg_color.0, empty_slot::SLOT_BACKGROUND, "Bag slot 0 should have spell color, not empty color");
+            // Background should always be empty slot color (spell visual is via texture)
+            assert_eq!(bg_color.0, empty_slot::SLOT_BACKGROUND, "Bag slot should use empty slot background");
         }
 
         #[test]
-        fn bag_slot_visual_updates_when_spell_removed() {
-            let mut app = setup_test_app();
-
-            // Add spell before UI setup so it appears
-            let fireball = Spell::new(SpellType::Fireball);
-            app.world_mut().resource_mut::<InventoryBag>().add(fireball);
-
-            // Setup inventory UI
-            let _ = app.world_mut().run_system_once(setup_inventory_ui);
-
-            // Verify initial spell color
-            let initial_bg = app
-                .world_mut()
-                .query::<(&BackgroundColor, &InventorySlot)>()
-                .iter(app.world())
-                .find(|(_, slot)| slot.index == 0)
-                .map(|(bg, _)| bg.0);
-            assert!(initial_bg.is_some(), "Bag slot 0 should exist");
-            assert_ne!(initial_bg, Some(empty_slot::SLOT_BACKGROUND), "Slot should have spell color initially");
-
-            // Remove the spell
-            app.world_mut().resource_mut::<InventoryBag>().remove(0);
-
-            // Run unified refresh system
-            let _ = app.world_mut().run_system_once(refresh_spell_slot_visuals);
-
-            // Check that the slot now has the empty slot background
-            let slot_bg = app
-                .world_mut()
-                .query::<(&BackgroundColor, &InventorySlot)>()
-                .iter(app.world())
-                .find(|(_, slot)| slot.index == 0)
-                .map(|(bg, _)| bg.0);
-
-            assert_eq!(
-                slot_bg,
-                Some(empty_slot::SLOT_BACKGROUND),
-                "Empty slot should have shared empty slot background"
-            );
-        }
-
-        #[test]
-        fn active_slot_visual_updates_when_spell_added() {
+        fn active_slot_visual_uses_empty_slot_background() {
             let mut app = setup_test_app();
 
             // Setup inventory UI first
@@ -1612,7 +1548,7 @@ mod tests {
             // Run unified refresh system
             let _ = app.world_mut().run_system_once(refresh_spell_slot_visuals);
 
-            // Verify slot 0 has updated background color (not the empty slot gray)
+            // Verify slot 0 has empty slot background (spell visual is via texture)
             let (bg_color, _slot) = app
                 .world_mut()
                 .query::<(&BackgroundColor, &ActiveSlotDisplay)>()
@@ -1620,8 +1556,8 @@ mod tests {
                 .find(|(_, slot)| slot.index == 0)
                 .expect("Active slot 0 should exist");
 
-            // The background should not be the empty slot color
-            assert_ne!(bg_color.0, empty_slot::SLOT_BACKGROUND, "Active slot 0 should have spell color, not empty color");
+            // Background should always be empty slot color (spell visual is via texture)
+            assert_eq!(bg_color.0, empty_slot::SLOT_BACKGROUND, "Active slot should use empty slot background");
         }
 
         #[test]
