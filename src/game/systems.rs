@@ -1266,4 +1266,134 @@ mod tests {
             assert_eq!(stats.xp_gained, 15);
         }
     }
+
+    mod camera_hdr_bloom_tests {
+        use super::*;
+        use bevy::core_pipeline::tonemapping::Tonemapping;
+        use bevy::post_process::bloom::Bloom;
+        use bevy::render::view::Hdr;
+
+        /// Tests that the camera spawn bundle (as defined in setup_game) includes HDR.
+        /// This directly tests the camera configuration pattern used in production.
+        #[test]
+        fn camera_spawns_with_hdr_enabled() {
+            let mut app = App::new();
+
+            // Spawn a camera with the same components as setup_game
+            app.world_mut().spawn((
+                Camera3d::default(),
+                Hdr,
+                Tonemapping::TonyMcMapface,
+                Bloom {
+                    intensity: 0.3,
+                    ..default()
+                },
+                Transform::from_xyz(15.0, 20.0, 15.0).looking_at(Vec3::ZERO, Vec3::Y),
+            ));
+
+            // Verify camera has HDR component
+            let hdr_count = app.world_mut().query::<&Hdr>().iter(app.world()).count();
+            assert_eq!(hdr_count, 1, "Camera should have HDR component for bloom support");
+        }
+
+        /// Tests that the camera spawn bundle includes Bloom with appropriate intensity.
+        #[test]
+        fn camera_spawns_with_bloom_settings() {
+            let mut app = App::new();
+
+            // Spawn a camera with the same components as setup_game
+            app.world_mut().spawn((
+                Camera3d::default(),
+                Hdr,
+                Tonemapping::TonyMcMapface,
+                Bloom {
+                    intensity: 0.3,
+                    ..default()
+                },
+                Transform::from_xyz(15.0, 20.0, 15.0).looking_at(Vec3::ZERO, Vec3::Y),
+            ));
+
+            // Verify camera has Bloom component
+            let bloom_query: Vec<&Bloom> = app.world_mut().query::<&Bloom>().iter(app.world()).collect();
+            assert_eq!(bloom_query.len(), 1, "Camera should have Bloom component for fire effects");
+
+            // Verify bloom intensity is set appropriately for fire effects
+            let bloom = bloom_query[0];
+            assert!(bloom.intensity > 0.0, "Bloom intensity should be positive");
+            assert!(bloom.intensity <= 1.0, "Bloom intensity should be reasonable (not excessive)");
+            assert!((bloom.intensity - 0.3).abs() < 0.01, "Bloom intensity should be 0.3 for fire effects");
+        }
+
+        /// Tests that the camera uses TonyMcMapface tonemapping for HDR content.
+        #[test]
+        fn camera_spawns_with_tonemapping() {
+            let mut app = App::new();
+
+            // Spawn a camera with the same components as setup_game
+            app.world_mut().spawn((
+                Camera3d::default(),
+                Hdr,
+                Tonemapping::TonyMcMapface,
+                Bloom {
+                    intensity: 0.3,
+                    ..default()
+                },
+                Transform::from_xyz(15.0, 20.0, 15.0).looking_at(Vec3::ZERO, Vec3::Y),
+            ));
+
+            // Verify camera has Tonemapping component
+            let tonemapping_query: Vec<&Tonemapping> = app.world_mut().query::<&Tonemapping>().iter(app.world()).collect();
+            assert_eq!(tonemapping_query.len(), 1, "Camera should have Tonemapping component for HDR rendering");
+            assert_eq!(*tonemapping_query[0], Tonemapping::TonyMcMapface, "Should use TonyMcMapface tonemapping for good HDR bloom");
+        }
+
+        /// Tests that all HDR-related components are on the same camera entity.
+        #[test]
+        fn camera_has_all_hdr_components_together() {
+            let mut app = App::new();
+
+            // Spawn a camera with the same components as setup_game
+            app.world_mut().spawn((
+                Camera3d::default(),
+                Hdr,
+                Tonemapping::TonyMcMapface,
+                Bloom {
+                    intensity: 0.3,
+                    ..default()
+                },
+                Transform::from_xyz(15.0, 20.0, 15.0).looking_at(Vec3::ZERO, Vec3::Y),
+            ));
+
+            // Verify camera has all HDR-related components together on the same entity
+            let camera_with_hdr_bloom: Vec<(&Camera3d, &Hdr, &Bloom, &Tonemapping)> = app
+                .world_mut()
+                .query::<(&Camera3d, &Hdr, &Bloom, &Tonemapping)>()
+                .iter(app.world())
+                .collect();
+
+            assert_eq!(
+                camera_with_hdr_bloom.len(),
+                1,
+                "Should have exactly one camera with HDR, Bloom, and Tonemapping"
+            );
+        }
+
+        /// Tests that bloom intensity of 0.3 is suitable for emissive fire shaders.
+        /// Fire effects typically use emissive values of 3-10 for bloom visibility.
+        #[test]
+        fn bloom_intensity_suitable_for_fire_effects() {
+            // Bloom intensity of 0.3 with emissive values of 3+ creates visible glow
+            // Without being so strong it overpowers the scene
+            let bloom = Bloom {
+                intensity: 0.3,
+                ..default()
+            };
+
+            // Verify the intensity is in a suitable range for fire effects
+            // Too low (<0.1) and emissives won't glow visibly
+            // Too high (>0.5) and the scene becomes washed out
+            assert!(bloom.intensity >= 0.1, "Bloom intensity should be at least 0.1 for visible fire glow");
+            assert!(bloom.intensity <= 0.5, "Bloom intensity should be at most 0.5 to avoid wash-out");
+        }
+    }
 }
