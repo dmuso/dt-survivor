@@ -44,6 +44,22 @@ impl Element {
         }
     }
 
+    /// Returns the path to the default spell texture for this element.
+    ///
+    /// Used when a spell doesn't have a custom texture.
+    pub fn default_texture_path(&self) -> &'static str {
+        match self {
+            Element::Fire => "textures/spell-fire-default.png",
+            Element::Frost => "textures/spell-frost-default.png",
+            Element::Poison => "textures/spell-poison-default.png",
+            Element::Lightning => "textures/spell-lightning-default.png",
+            Element::Light => "textures/spell-light-default.png",
+            Element::Dark => "textures/spell-dark-default.png",
+            Element::Chaos => "textures/spell-chaos-default.png",
+            Element::Psychic => "textures/spell-psychic-default.png",
+        }
+    }
+
     /// Returns all element variants for iteration.
     pub fn all() -> &'static [Element] {
         &[
@@ -156,6 +172,60 @@ mod tests {
         #[test]
         fn test_psychic_name() {
             assert_eq!(Element::Psychic.name(), "Psychic");
+        }
+    }
+
+    mod element_default_texture_path_tests {
+        use super::*;
+
+        #[test]
+        fn fire_returns_fire_default_texture() {
+            assert_eq!(Element::Fire.default_texture_path(), "textures/spell-fire-default.png");
+        }
+
+        #[test]
+        fn frost_returns_frost_default_texture() {
+            assert_eq!(Element::Frost.default_texture_path(), "textures/spell-frost-default.png");
+        }
+
+        #[test]
+        fn poison_returns_poison_default_texture() {
+            assert_eq!(Element::Poison.default_texture_path(), "textures/spell-poison-default.png");
+        }
+
+        #[test]
+        fn lightning_returns_lightning_default_texture() {
+            assert_eq!(Element::Lightning.default_texture_path(), "textures/spell-lightning-default.png");
+        }
+
+        #[test]
+        fn light_returns_light_default_texture() {
+            assert_eq!(Element::Light.default_texture_path(), "textures/spell-light-default.png");
+        }
+
+        #[test]
+        fn dark_returns_dark_default_texture() {
+            assert_eq!(Element::Dark.default_texture_path(), "textures/spell-dark-default.png");
+        }
+
+        #[test]
+        fn chaos_returns_chaos_default_texture() {
+            assert_eq!(Element::Chaos.default_texture_path(), "textures/spell-chaos-default.png");
+        }
+
+        #[test]
+        fn psychic_returns_psychic_default_texture() {
+            assert_eq!(Element::Psychic.default_texture_path(), "textures/spell-psychic-default.png");
+        }
+
+        #[test]
+        fn all_elements_have_default_texture_paths() {
+            for element in Element::all() {
+                let path = element.default_texture_path();
+                assert!(!path.is_empty(), "{:?} should have a default texture path", element);
+                assert!(path.ends_with(".png"), "{:?} path should end with .png", element);
+                assert!(path.starts_with("textures/"), "{:?} path should start with textures/", element);
+            }
         }
     }
 
