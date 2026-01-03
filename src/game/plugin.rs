@@ -27,10 +27,10 @@ use crate::game::events::{PlayerEnemyCollisionEvent, GameOverEvent, GameLevelUpE
 use crate::spells::fire::fireball_effects::init_fireball_effects;
 use crate::spells::fire::materials::{
     FireballCoreMaterial, FireballChargeMaterial, FireballTrailMaterial,
-    ExplosionCoreMaterial, ExplosionFireMaterial,
+    ExplosionCoreMaterial, ExplosionFireMaterial, ExplosionEmbersMaterial,
     update_fireball_core_material_time, update_fireball_charge_material_time,
     update_fireball_trail_material_time, update_explosion_core_material_time,
-    update_explosion_fire_material_time,
+    update_explosion_fire_material_time, update_explosion_embers_material_time,
 };
 
 pub fn plugin(app: &mut App) {
@@ -39,6 +39,7 @@ pub fn plugin(app: &mut App) {
     app.add_plugins(MaterialPlugin::<FireballTrailMaterial>::default());
     app.add_plugins(MaterialPlugin::<ExplosionCoreMaterial>::default());
     app.add_plugins(MaterialPlugin::<ExplosionFireMaterial>::default());
+    app.add_plugins(MaterialPlugin::<ExplosionEmbersMaterial>::default());
     app.init_resource::<PlayerPosition>()
         .init_resource::<Score>()
         .init_resource::<EnemySpawnState>()
@@ -120,6 +121,7 @@ pub fn plugin(app: &mut App) {
                 update_fireball_trail_material_time,
                 update_explosion_core_material_time,
                 update_explosion_fire_material_time,
+                update_explosion_embers_material_time,
             )
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),

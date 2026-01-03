@@ -20,6 +20,9 @@ pub const EXPLOSION_FIRE_SHADER: &str = "shaders/explosion_fire.wgsl";
 /// Shader asset path for the fireball sparks flying ember effect.
 pub const FIREBALL_SPARKS_SHADER: &str = "shaders/fireball_sparks.wgsl";
 
+/// Shader asset path for the explosion embers flying debris effect.
+pub const EXPLOSION_EMBERS_SHADER: &str = "shaders/explosion_embers.wgsl";
+
 /// Material for rendering the fireball core with volumetric fire effect.
 ///
 /// This shader creates an animated fire sphere with:
@@ -660,6 +663,115 @@ pub fn update_fireball_sparks_material_time(
     }
 }
 
+// ============================================================================
+// Explosion Embers Material - Flying debris particles effect
+// ============================================================================
+
+/// Material for rendering explosion embers as fast-moving flying debris.
+///
+/// This shader creates bright ember particles that fly outward with:
+/// - Many small bright particles radiating outward at high speed
+/// - Gravity arc trajectories (falling motion)
+/// - Cooling color progression: yellow -> orange -> deep red
+/// - Motion streaks for speed visualization
+/// - Duration ~0.8s
+/// - Progress-based animation (0.0 = start, 1.0 = end)
+#[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
+pub struct ExplosionEmbersMaterial {
+    /// Current time for animation (in seconds).
+    /// Used for noise and flicker animation. Packed as x component of Vec4 for 16-byte alignment.
+    #[uniform(0)]
+    pub time: Vec4,
+
+    /// Lifetime progress from 0.0 (start) to 1.0 (end).
+    /// Controls the cooling color transition and fade out.
+    /// Packed as x component of Vec4 for 16-byte alignment.
+    #[uniform(1)]
+    pub progress: Vec4,
+
+    /// Velocity of the ember (xyz = direction, w = speed magnitude).
+    /// Used for motion blur streak effect.
+    #[uniform(2)]
+    pub velocity: Vec4,
+
+    /// Emissive intensity for HDR bloom effect.
+    /// Values > 1.0 will bloom with HDR rendering.
+    /// Packed as x component of Vec4 for 16-byte alignment.
+    #[uniform(3)]
+    pub emissive_intensity: Vec4,
+}
+
+impl Default for ExplosionEmbersMaterial {
+    fn default() -> Self {
+        Self {
+            time: Vec4::ZERO,
+            progress: Vec4::ZERO,
+            // Default velocity: fast outward with slight upward arc
+            velocity: Vec4::new(1.0, 0.5, 0.0, 15.0),
+            // High emissive for bright embers
+            emissive_intensity: Vec4::new(6.0, 0.0, 0.0, 0.0),
+        }
+    }
+}
+
+impl ExplosionEmbersMaterial {
+    /// Create a new material with default settings.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Update the time uniform for animation.
+    pub fn set_time(&mut self, time: f32) {
+        self.time.x = time;
+    }
+
+    /// Set the lifetime progress (0.0 to 1.0).
+    /// Controls the cooling color transition and fade out.
+    pub fn set_progress(&mut self, progress: f32) {
+        self.progress.x = progress.clamp(0.0, 1.0);
+    }
+
+    /// Set the velocity for motion blur (direction and speed).
+    pub fn set_velocity(&mut self, direction: Vec3, speed: f32) {
+        let normalized = direction.normalize_or_zero();
+        self.velocity = Vec4::new(normalized.x, normalized.y, normalized.z, speed.max(0.0));
+    }
+
+    /// Set the emissive intensity for HDR bloom.
+    pub fn set_emissive_intensity(&mut self, intensity: f32) {
+        self.emissive_intensity.x = intensity.max(0.0);
+    }
+}
+
+impl Material for ExplosionEmbersMaterial {
+    fn fragment_shader() -> ShaderRef {
+        EXPLOSION_EMBERS_SHADER.into()
+    }
+
+    fn vertex_shader() -> ShaderRef {
+        EXPLOSION_EMBERS_SHADER.into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Add
+    }
+}
+
+/// Resource to store the explosion embers material handle for reuse.
+#[derive(Resource)]
+pub struct ExplosionEmbersMaterialHandle(pub Handle<ExplosionEmbersMaterial>);
+
+/// System to update time on all explosion embers materials.
+pub fn update_explosion_embers_material_time(
+    time: Res<Time>,
+    mut materials: ResMut<Assets<ExplosionEmbersMaterial>>,
+) {
+    let current_time = time.elapsed_secs();
+    for (_, material) in materials.iter_mut() {
+        material.set_time(current_time);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1278,6 +1390,141 @@ mod tests {
         #[test]
         fn alpha_mode_is_add() {
             let material = FireballSparksMaterial::new();
+            assert_eq!(material.alpha_mode(), AlphaMode::Add);
+        }
+    }
+
+    mod explosion_embers_material_tests {
+        use super::*;
+
+        #[test]
+        fn default_has_expected_values() {
+            let material = ExplosionEmbersMaterial::default();
+            assert_eq!(material.time.x, 0.0);
+            assert_eq!(material.progress.x, 0.0);
+            assert_eq!(material.velocity.x, 1.0);
+            assert_eq!(material.velocity.y, 0.5);
+            assert_eq!(material.velocity.z, 0.0);
+            assert_eq!(material.velocity.w, 15.0);
+            assert_eq!(material.emissive_intensity.x, 6.0);
+        }
+
+        #[test]
+        fn new_matches_default() {
+            let material = ExplosionEmbersMaterial::new();
+            let default = ExplosionEmbersMaterial::default();
+            assert_eq!(material.time, default.time);
+            assert_eq!(material.progress, default.progress);
+            assert_eq!(material.velocity, default.velocity);
+            assert_eq!(material.emissive_intensity, default.emissive_intensity);
+        }
+
+        #[test]
+        fn set_time_updates_x_component() {
+            let mut material = ExplosionEmbersMaterial::new();
+            material.set_time(3.5);
+            assert_eq!(material.time.x, 3.5);
+            assert_eq!(material.time.y, 0.0);
+            assert_eq!(material.time.z, 0.0);
+            assert_eq!(material.time.w, 0.0);
+        }
+
+        #[test]
+        fn set_progress_clamps_to_zero() {
+            let mut material = ExplosionEmbersMaterial::new();
+            material.set_progress(-0.5);
+            assert_eq!(material.progress.x, 0.0);
+        }
+
+        #[test]
+        fn set_progress_clamps_to_one() {
+            let mut material = ExplosionEmbersMaterial::new();
+            material.set_progress(1.5);
+            assert_eq!(material.progress.x, 1.0);
+        }
+
+        #[test]
+        fn set_progress_accepts_valid_values() {
+            let mut material = ExplosionEmbersMaterial::new();
+            material.set_progress(0.5);
+            assert_eq!(material.progress.x, 0.5);
+        }
+
+        #[test]
+        fn set_progress_at_boundaries() {
+            let mut material = ExplosionEmbersMaterial::new();
+            material.set_progress(0.0);
+            assert_eq!(material.progress.x, 0.0);
+            material.set_progress(1.0);
+            assert_eq!(material.progress.x, 1.0);
+        }
+
+        #[test]
+        fn set_velocity_normalizes_direction() {
+            let mut material = ExplosionEmbersMaterial::new();
+            material.set_velocity(Vec3::new(3.0, 0.0, 4.0), 10.0);
+            // Should be normalized to (0.6, 0.0, 0.8)
+            assert!((material.velocity.x - 0.6).abs() < 0.001);
+            assert_eq!(material.velocity.y, 0.0);
+            assert!((material.velocity.z - 0.8).abs() < 0.001);
+            assert_eq!(material.velocity.w, 10.0);
+        }
+
+        #[test]
+        fn set_velocity_handles_zero_vector() {
+            let mut material = ExplosionEmbersMaterial::new();
+            material.set_velocity(Vec3::ZERO, 5.0);
+            // normalize_or_zero returns zero for zero vector
+            assert_eq!(material.velocity.x, 0.0);
+            assert_eq!(material.velocity.y, 0.0);
+            assert_eq!(material.velocity.z, 0.0);
+            assert_eq!(material.velocity.w, 5.0);
+        }
+
+        #[test]
+        fn set_velocity_clamps_negative_speed() {
+            let mut material = ExplosionEmbersMaterial::new();
+            material.set_velocity(Vec3::X, -5.0);
+            assert_eq!(material.velocity.w, 0.0);
+        }
+
+        #[test]
+        fn set_velocity_unit_vectors() {
+            let mut material = ExplosionEmbersMaterial::new();
+
+            material.set_velocity(Vec3::X, 1.0);
+            assert_eq!(material.velocity.x, 1.0);
+            assert_eq!(material.velocity.y, 0.0);
+            assert_eq!(material.velocity.z, 0.0);
+
+            material.set_velocity(Vec3::Y, 2.0);
+            assert_eq!(material.velocity.x, 0.0);
+            assert_eq!(material.velocity.y, 1.0);
+            assert_eq!(material.velocity.z, 0.0);
+
+            material.set_velocity(Vec3::Z, 3.0);
+            assert_eq!(material.velocity.x, 0.0);
+            assert_eq!(material.velocity.y, 0.0);
+            assert_eq!(material.velocity.z, 1.0);
+        }
+
+        #[test]
+        fn set_emissive_intensity_clamps_negative() {
+            let mut material = ExplosionEmbersMaterial::new();
+            material.set_emissive_intensity(-5.0);
+            assert_eq!(material.emissive_intensity.x, 0.0);
+        }
+
+        #[test]
+        fn set_emissive_intensity_accepts_high_values() {
+            let mut material = ExplosionEmbersMaterial::new();
+            material.set_emissive_intensity(15.0);
+            assert_eq!(material.emissive_intensity.x, 15.0);
+        }
+
+        #[test]
+        fn alpha_mode_is_add() {
+            let material = ExplosionEmbersMaterial::new();
             assert_eq!(material.alpha_mode(), AlphaMode::Add);
         }
     }
