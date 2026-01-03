@@ -11,6 +11,9 @@ pub const FIREBALL_CHARGE_SHADER: &str = "shaders/fireball_charge.wgsl";
 /// Shader asset path for the fireball trail comet tail effect.
 pub const FIREBALL_TRAIL_SHADER: &str = "shaders/fireball_trail.wgsl";
 
+/// Shader asset path for the explosion core white-hot flash effect.
+pub const EXPLOSION_CORE_SHADER: &str = "shaders/explosion_core.wgsl";
+
 /// Material for rendering the fireball core with volumetric fire effect.
 ///
 /// This shader creates an animated fire sphere with:
@@ -325,6 +328,114 @@ pub fn update_fireball_trail_material_time(
     }
 }
 
+// ============================================================================
+// Explosion Core Material - White-hot flash effect
+// ============================================================================
+
+/// Material for rendering the explosion core as a white-hot flash.
+///
+/// This shader creates a blinding flash effect at explosion center:
+/// - Blinding bright white/yellow expanding sphere
+/// - Rapid expansion then fade (0.25s total duration)
+/// - Very high emissive for HDR bloom
+/// - Sharp falloff at edges for clean sphere boundary
+/// - Progress-based animation (0.0 = start, 1.0 = end)
+#[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
+pub struct ExplosionCoreMaterial {
+    /// Current time for animation (in seconds).
+    /// Used for noise animation. Packed as x component of Vec4 for 16-byte alignment.
+    #[uniform(0)]
+    pub time: Vec4,
+
+    /// Lifetime progress from 0.0 (start) to 1.0 (end).
+    /// Controls the expansion and fade animation phases.
+    /// Packed as x component of Vec4 for 16-byte alignment.
+    #[uniform(1)]
+    pub progress: Vec4,
+
+    /// Emissive intensity for HDR bloom effect.
+    /// Very high values (10+) recommended for blinding flash.
+    /// Packed as x component of Vec4 for 16-byte alignment.
+    #[uniform(2)]
+    pub emissive_intensity: Vec4,
+
+    /// Expansion scale multiplier.
+    /// Controls the visual scale of the explosion.
+    /// Packed as x component of Vec4 for 16-byte alignment.
+    #[uniform(3)]
+    pub expansion_scale: Vec4,
+}
+
+impl Default for ExplosionCoreMaterial {
+    fn default() -> Self {
+        Self {
+            time: Vec4::ZERO,
+            progress: Vec4::ZERO,
+            // Very high emissive for blinding flash
+            emissive_intensity: Vec4::new(15.0, 0.0, 0.0, 0.0),
+            expansion_scale: Vec4::new(1.0, 0.0, 0.0, 0.0),
+        }
+    }
+}
+
+impl ExplosionCoreMaterial {
+    /// Create a new material with default settings.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Update the time uniform for noise animation.
+    pub fn set_time(&mut self, time: f32) {
+        self.time.x = time;
+    }
+
+    /// Set the lifetime progress (0.0 to 1.0).
+    /// Controls the expansion and fade animation.
+    pub fn set_progress(&mut self, progress: f32) {
+        self.progress.x = progress.clamp(0.0, 1.0);
+    }
+
+    /// Set the emissive intensity for HDR bloom.
+    /// High values (10+) recommended for blinding flash effect.
+    pub fn set_emissive_intensity(&mut self, intensity: f32) {
+        self.emissive_intensity.x = intensity.max(0.0);
+    }
+
+    /// Set the expansion scale multiplier.
+    pub fn set_expansion_scale(&mut self, scale: f32) {
+        self.expansion_scale.x = scale.max(0.1);
+    }
+}
+
+impl Material for ExplosionCoreMaterial {
+    fn fragment_shader() -> ShaderRef {
+        EXPLOSION_CORE_SHADER.into()
+    }
+
+    fn vertex_shader() -> ShaderRef {
+        EXPLOSION_CORE_SHADER.into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Add
+    }
+}
+
+/// Resource to store the explosion core material handle for reuse.
+#[derive(Resource)]
+pub struct ExplosionCoreMaterialHandle(pub Handle<ExplosionCoreMaterial>);
+
+/// System to update time on all explosion core materials.
+pub fn update_explosion_core_material_time(
+    time: Res<Time>,
+    mut materials: ResMut<Assets<ExplosionCoreMaterial>>,
+) {
+    let current_time = time.elapsed_secs();
+    for (_, material) in materials.iter_mut() {
+        material.set_time(current_time);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -615,6 +726,103 @@ mod tests {
         fn alpha_mode_is_blend() {
             let material = FireballTrailMaterial::new();
             assert_eq!(material.alpha_mode(), AlphaMode::Blend);
+        }
+    }
+
+    mod explosion_core_material_tests {
+        use super::*;
+
+        #[test]
+        fn default_has_expected_values() {
+            let material = ExplosionCoreMaterial::default();
+            assert_eq!(material.time.x, 0.0);
+            assert_eq!(material.progress.x, 0.0);
+            assert_eq!(material.emissive_intensity.x, 15.0);
+            assert_eq!(material.expansion_scale.x, 1.0);
+        }
+
+        #[test]
+        fn new_matches_default() {
+            let material = ExplosionCoreMaterial::new();
+            let default = ExplosionCoreMaterial::default();
+            assert_eq!(material.time, default.time);
+            assert_eq!(material.progress, default.progress);
+            assert_eq!(material.emissive_intensity, default.emissive_intensity);
+            assert_eq!(material.expansion_scale, default.expansion_scale);
+        }
+
+        #[test]
+        fn set_time_updates_x_component() {
+            let mut material = ExplosionCoreMaterial::new();
+            material.set_time(3.5);
+            assert_eq!(material.time.x, 3.5);
+            assert_eq!(material.time.y, 0.0);
+            assert_eq!(material.time.z, 0.0);
+            assert_eq!(material.time.w, 0.0);
+        }
+
+        #[test]
+        fn set_progress_clamps_to_zero() {
+            let mut material = ExplosionCoreMaterial::new();
+            material.set_progress(-0.5);
+            assert_eq!(material.progress.x, 0.0);
+        }
+
+        #[test]
+        fn set_progress_clamps_to_one() {
+            let mut material = ExplosionCoreMaterial::new();
+            material.set_progress(1.5);
+            assert_eq!(material.progress.x, 1.0);
+        }
+
+        #[test]
+        fn set_progress_accepts_valid_values() {
+            let mut material = ExplosionCoreMaterial::new();
+            material.set_progress(0.5);
+            assert_eq!(material.progress.x, 0.5);
+        }
+
+        #[test]
+        fn set_progress_at_boundaries() {
+            let mut material = ExplosionCoreMaterial::new();
+            material.set_progress(0.0);
+            assert_eq!(material.progress.x, 0.0);
+            material.set_progress(1.0);
+            assert_eq!(material.progress.x, 1.0);
+        }
+
+        #[test]
+        fn set_emissive_intensity_clamps_negative() {
+            let mut material = ExplosionCoreMaterial::new();
+            material.set_emissive_intensity(-5.0);
+            assert_eq!(material.emissive_intensity.x, 0.0);
+        }
+
+        #[test]
+        fn set_emissive_intensity_accepts_high_values() {
+            let mut material = ExplosionCoreMaterial::new();
+            material.set_emissive_intensity(20.0);
+            assert_eq!(material.emissive_intensity.x, 20.0);
+        }
+
+        #[test]
+        fn set_expansion_scale_clamps_to_minimum() {
+            let mut material = ExplosionCoreMaterial::new();
+            material.set_expansion_scale(0.05);
+            assert_eq!(material.expansion_scale.x, 0.1);
+        }
+
+        #[test]
+        fn set_expansion_scale_accepts_valid_values() {
+            let mut material = ExplosionCoreMaterial::new();
+            material.set_expansion_scale(2.5);
+            assert_eq!(material.expansion_scale.x, 2.5);
+        }
+
+        #[test]
+        fn alpha_mode_is_add() {
+            let material = ExplosionCoreMaterial::new();
+            assert_eq!(material.alpha_mode(), AlphaMode::Add);
         }
     }
 }
