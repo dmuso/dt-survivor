@@ -179,6 +179,72 @@ pub struct FireballTrailEffect {
     pub material_handle: Handle<super::materials::FireballTrailMaterial>,
 }
 
+/// Component for the shader-based fireball core effect entity
+/// Stores the material handle for the volumetric fire sphere
+#[derive(Component, Debug)]
+pub struct FireballCoreEffect {
+    /// Handle to the core material for this entity
+    pub material_handle: Handle<super::materials::FireballCoreMaterial>,
+}
+
+/// Component for the shader-based explosion core flash effect
+/// Stores the material handle and lifetime timer for progress updates
+#[derive(Component, Debug)]
+pub struct ExplosionCoreEffect {
+    /// Handle to the explosion core material for this entity
+    pub material_handle: Handle<super::materials::ExplosionCoreMaterial>,
+    /// Lifetime timer (0.25s for flash)
+    pub lifetime: Timer,
+}
+
+impl ExplosionCoreEffect {
+    pub fn new(material_handle: Handle<super::materials::ExplosionCoreMaterial>) -> Self {
+        Self {
+            material_handle,
+            lifetime: Timer::from_seconds(0.25, TimerMode::Once),
+        }
+    }
+
+    /// Get progress (0.0 to 1.0) through the lifetime
+    pub fn progress(&self) -> f32 {
+        self.lifetime.fraction()
+    }
+
+    /// Check if the effect is finished
+    pub fn is_finished(&self) -> bool {
+        self.lifetime.is_finished()
+    }
+}
+
+/// Component for the shader-based explosion fire blast effect
+/// Stores the material handle and lifetime timer for progress updates
+#[derive(Component, Debug)]
+pub struct ExplosionFireEffect {
+    /// Handle to the explosion fire material for this entity
+    pub material_handle: Handle<super::materials::ExplosionFireMaterial>,
+    /// Lifetime timer (0.6s for fire blast)
+    pub lifetime: Timer,
+}
+
+impl ExplosionFireEffect {
+    pub fn new(material_handle: Handle<super::materials::ExplosionFireMaterial>) -> Self {
+        Self {
+            material_handle,
+            lifetime: Timer::from_seconds(0.6, TimerMode::Once),
+        }
+    }
+
+    /// Get progress (0.0 to 1.0) through the lifetime
+    pub fn progress(&self) -> f32 {
+        self.lifetime.fraction()
+    }
+
+    /// Check if the effect is finished
+    pub fn is_finished(&self) -> bool {
+        self.lifetime.is_finished()
+    }
+}
+
 /// Explosion particles (self-despawns after cleanup timer)
 #[derive(Component, Debug)]
 pub struct FireballExplosionParticles {
@@ -605,47 +671,63 @@ pub fn fireball_charge_to_flight_system(
 }
 
 /// System that spawns explosion particles at collision point
-/// Spawns all four explosion layers for maximum impact
+/// Spawns all four explosion layers for maximum impact, plus shader effects
+#[allow(clippy::too_many_arguments)]
 pub fn fireball_explosion_spawn_system(
     mut commands: Commands,
     mut collision_events: MessageReader<FireballEnemyCollisionEvent>,
     fireball_query: Query<&Transform, With<FireballProjectile>>,
     fireball_effects: Option<Res<FireballEffects>>,
+    game_meshes: Option<Res<GameMeshes>>,
+    mut explosion_core_materials: Option<ResMut<Assets<super::materials::ExplosionCoreMaterial>>>,
+    mut explosion_fire_materials: Option<ResMut<Assets<super::materials::ExplosionFireMaterial>>>,
 ) {
     for event in collision_events.read() {
         if let Ok(transform) = fireball_query.get(event.fireball_entity) {
+            let pos = transform.translation;
+
+            // Spawn particle effects (embers and smoke - keeping these as particles)
             if let Some(effects) = &fireball_effects {
-                let pos = transform.translation;
-
-                // Spawn all four explosion layers for massive visual impact
-                // Core flash - instant bright center
-                commands.spawn((
-                    ParticleEffect::new(effects.explosion_core_effect.clone()),
-                    Transform::from_translation(pos),
-                    FireballExplosionParticles::default(),
-                ));
-
-                // Main fire burst - the big orange-red explosion
-                commands.spawn((
-                    ParticleEffect::new(effects.explosion_fire_effect.clone()),
-                    Transform::from_translation(pos),
-                    FireballExplosionParticles::default(),
-                ));
-
-                // Flying ember sparks - debris flying outward
+                // Flying ember sparks - debris flying outward (particles work better for this)
                 commands.spawn((
                     ParticleEffect::new(effects.explosion_embers_effect.clone()),
                     Transform::from_translation(pos),
                     FireballExplosionParticles::default(),
                 ));
 
-                // Rising smoke - aftermath plume
+                // Rising smoke - aftermath plume (particles work better for this)
                 commands.spawn((
                     ParticleEffect::new(effects.explosion_smoke_effect.clone()),
                     Transform::from_translation(pos),
                     FireballExplosionParticles {
-                        cleanup_timer: Timer::from_seconds(1.5, TimerMode::Once), // Longer for smoke
+                        cleanup_timer: Timer::from_seconds(1.5, TimerMode::Once),
                     },
+                ));
+            }
+
+            // Spawn shader-based explosion core flash effect
+            if let (Some(meshes), Some(ref mut core_mats)) = (&game_meshes, &mut explosion_core_materials) {
+                let core_material = super::materials::ExplosionCoreMaterial::new();
+                let core_handle = core_mats.add(core_material);
+
+                commands.spawn((
+                    Mesh3d(meshes.fireball.clone()),
+                    MeshMaterial3d(core_handle.clone()),
+                    Transform::from_translation(pos).with_scale(Vec3::splat(2.5)), // Larger than fireball
+                    ExplosionCoreEffect::new(core_handle),
+                ));
+            }
+
+            // Spawn shader-based explosion fire blast effect
+            if let (Some(meshes), Some(ref mut fire_mats)) = (&game_meshes, &mut explosion_fire_materials) {
+                let fire_material = super::materials::ExplosionFireMaterial::new();
+                let fire_handle = fire_mats.add(fire_material);
+
+                commands.spawn((
+                    Mesh3d(meshes.fireball.clone()),
+                    MeshMaterial3d(fire_handle.clone()),
+                    Transform::from_translation(pos).with_scale(Vec3::splat(3.5)), // Even larger for main blast
+                    ExplosionFireEffect::new(fire_handle),
                 ));
             }
         }
@@ -654,36 +736,26 @@ pub fn fireball_explosion_spawn_system(
 
 /// System that checks for ground collision and spawns explosion
 /// Fireballs that hit the ground explode without dealing damage
+#[allow(clippy::too_many_arguments)]
 pub fn fireball_ground_collision_system(
     mut commands: Commands,
     fireball_query: Query<(Entity, &Transform), With<FireballProjectile>>,
     fireball_effects: Option<Res<FireballEffects>>,
+    game_meshes: Option<Res<GameMeshes>>,
+    mut explosion_core_materials: Option<ResMut<Assets<super::materials::ExplosionCoreMaterial>>>,
+    mut explosion_fire_materials: Option<ResMut<Assets<super::materials::ExplosionFireMaterial>>>,
 ) {
     for (entity, transform) in fireball_query.iter() {
         // Check if fireball has hit the ground (accounting for fireball radius)
         if transform.translation.y <= GROUND_LEVEL + 0.1 {
-            // Spawn explosion at ground level with all four layers
+            let pos = Vec3::new(
+                transform.translation.x,
+                GROUND_LEVEL + 0.1, // Slightly above ground
+                transform.translation.z,
+            );
+
+            // Spawn particle effects (embers and smoke - keeping these as particles)
             if let Some(effects) = &fireball_effects {
-                let pos = Vec3::new(
-                    transform.translation.x,
-                    GROUND_LEVEL + 0.1, // Slightly above ground
-                    transform.translation.z,
-                );
-
-                // Core flash
-                commands.spawn((
-                    ParticleEffect::new(effects.explosion_core_effect.clone()),
-                    Transform::from_translation(pos),
-                    FireballExplosionParticles::default(),
-                ));
-
-                // Main fire burst
-                commands.spawn((
-                    ParticleEffect::new(effects.explosion_fire_effect.clone()),
-                    Transform::from_translation(pos),
-                    FireballExplosionParticles::default(),
-                ));
-
                 // Flying embers
                 commands.spawn((
                     ParticleEffect::new(effects.explosion_embers_effect.clone()),
@@ -698,6 +770,32 @@ pub fn fireball_ground_collision_system(
                     FireballExplosionParticles {
                         cleanup_timer: Timer::from_seconds(1.5, TimerMode::Once),
                     },
+                ));
+            }
+
+            // Spawn shader-based explosion core flash effect
+            if let (Some(meshes), Some(ref mut core_mats)) = (&game_meshes, &mut explosion_core_materials) {
+                let core_material = super::materials::ExplosionCoreMaterial::new();
+                let core_handle = core_mats.add(core_material);
+
+                commands.spawn((
+                    Mesh3d(meshes.fireball.clone()),
+                    MeshMaterial3d(core_handle.clone()),
+                    Transform::from_translation(pos).with_scale(Vec3::splat(2.5)),
+                    ExplosionCoreEffect::new(core_handle),
+                ));
+            }
+
+            // Spawn shader-based explosion fire blast effect
+            if let (Some(meshes), Some(ref mut fire_mats)) = (&game_meshes, &mut explosion_fire_materials) {
+                let fire_material = super::materials::ExplosionFireMaterial::new();
+                let fire_handle = fire_mats.add(fire_material);
+
+                commands.spawn((
+                    Mesh3d(meshes.fireball.clone()),
+                    MeshMaterial3d(fire_handle.clone()),
+                    Transform::from_translation(pos).with_scale(Vec3::splat(3.5)),
+                    ExplosionFireEffect::new(fire_handle),
                 ));
             }
 
@@ -716,6 +814,60 @@ pub fn fireball_explosion_cleanup_system(
     for (entity, mut explosion) in query.iter_mut() {
         explosion.cleanup_timer.tick(time.delta());
         if explosion.cleanup_timer.is_finished() {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// System that updates explosion core shader effects (progress and cleanup)
+pub fn explosion_core_effect_update_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut ExplosionCoreEffect)>,
+    mut materials: Option<ResMut<Assets<super::materials::ExplosionCoreMaterial>>>,
+) {
+    let Some(materials) = materials.as_mut() else {
+        return; // No material assets available (e.g., in tests without MaterialPlugin)
+    };
+
+    for (entity, mut effect) in query.iter_mut() {
+        effect.lifetime.tick(time.delta());
+        let progress = effect.progress();
+
+        // Update the material's progress
+        if let Some(material) = materials.get_mut(&effect.material_handle) {
+            material.set_progress(progress);
+        }
+
+        // Despawn when finished
+        if effect.is_finished() {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// System that updates explosion fire shader effects (progress and cleanup)
+pub fn explosion_fire_effect_update_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut ExplosionFireEffect)>,
+    mut materials: Option<ResMut<Assets<super::materials::ExplosionFireMaterial>>>,
+) {
+    let Some(materials) = materials.as_mut() else {
+        return; // No material assets available (e.g., in tests without MaterialPlugin)
+    };
+
+    for (entity, mut effect) in query.iter_mut() {
+        effect.lifetime.tick(time.delta());
+        let progress = effect.progress();
+
+        // Update the material's progress
+        if let Some(material) = materials.get_mut(&effect.material_handle) {
+            material.set_progress(progress);
+        }
+
+        // Despawn when finished
+        if effect.is_finished() {
             commands.entity(entity).despawn();
         }
     }
@@ -1314,6 +1466,85 @@ mod tests {
             let burn = app.world().get::<BurnEffect>(enemy_entity);
             assert!(burn.is_some(), "Enemy should have BurnEffect after fireball hit");
             assert_eq!(burn.unwrap().tick_damage, 15.0 * BURN_DAMAGE_RATIO);
+        }
+    }
+
+    mod explosion_effect_tests {
+        use super::*;
+
+        #[test]
+        fn test_explosion_core_effect_new() {
+            let handle = Handle::default();
+            let effect = ExplosionCoreEffect::new(handle);
+            assert_eq!(effect.lifetime.duration(), Duration::from_secs_f32(0.25));
+            assert!(!effect.is_finished());
+            assert_eq!(effect.progress(), 0.0);
+        }
+
+        #[test]
+        fn test_explosion_core_effect_progress() {
+            let handle = Handle::default();
+            let mut effect = ExplosionCoreEffect::new(handle);
+
+            // Tick halfway through lifetime
+            effect.lifetime.tick(Duration::from_secs_f32(0.125));
+            assert!((effect.progress() - 0.5).abs() < 0.01);
+            assert!(!effect.is_finished());
+        }
+
+        #[test]
+        fn test_explosion_core_effect_finished() {
+            let handle = Handle::default();
+            let mut effect = ExplosionCoreEffect::new(handle);
+
+            // Tick past lifetime
+            effect.lifetime.tick(Duration::from_secs_f32(0.3));
+            assert!(effect.is_finished());
+            assert_eq!(effect.progress(), 1.0);
+        }
+
+        #[test]
+        fn test_explosion_fire_effect_new() {
+            let handle = Handle::default();
+            let effect = ExplosionFireEffect::new(handle);
+            assert_eq!(effect.lifetime.duration(), Duration::from_secs_f32(0.6));
+            assert!(!effect.is_finished());
+            assert_eq!(effect.progress(), 0.0);
+        }
+
+        #[test]
+        fn test_explosion_fire_effect_progress() {
+            let handle = Handle::default();
+            let mut effect = ExplosionFireEffect::new(handle);
+
+            // Tick halfway through lifetime
+            effect.lifetime.tick(Duration::from_secs_f32(0.3));
+            assert!((effect.progress() - 0.5).abs() < 0.01);
+            assert!(!effect.is_finished());
+        }
+
+        #[test]
+        fn test_explosion_fire_effect_finished() {
+            let handle = Handle::default();
+            let mut effect = ExplosionFireEffect::new(handle);
+
+            // Tick past lifetime
+            effect.lifetime.tick(Duration::from_secs_f32(0.7));
+            assert!(effect.is_finished());
+            assert_eq!(effect.progress(), 1.0);
+        }
+    }
+
+    mod fireball_core_effect_tests {
+        use super::*;
+
+        #[test]
+        fn test_fireball_core_effect_component_exists() {
+            // Verify the component can be created
+            let handle = Handle::default();
+            let effect = FireballCoreEffect { material_handle: handle };
+            // No panic = success
+            let _ = effect.material_handle;
         }
     }
 }

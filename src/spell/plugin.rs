@@ -9,9 +9,10 @@ use crate::spells::fire::fireball::{
     burn_damage_system, fireball_collision_detection, fireball_collision_effects,
     fireball_lifetime_system, fireball_movement_system,
     fireball_charge_update_system, fireball_charge_to_flight_system,
-    fireball_charge_effect_update_system,
+    fireball_charge_effect_update_system, fireball_trail_effect_update_system,
     fireball_explosion_spawn_system, fireball_explosion_cleanup_system,
     fireball_ground_collision_system,
+    explosion_core_effect_update_system, explosion_fire_effect_update_system,
 };
 use crate::spells::light::radiance::{
     radiance_pulse_system, radiance_pulse_visual_system,
@@ -271,6 +272,7 @@ pub fn plugin(app: &mut App) {
                 fireball_charge_update_system,
                 fireball_charge_effect_update_system,
                 fireball_charge_to_flight_system,
+                fireball_trail_effect_update_system,
             )
                 .chain()
                 .in_set(GameSet::Movement)
@@ -310,6 +312,16 @@ pub fn plugin(app: &mut App) {
             Update,
             fireball_ground_collision_system
                 .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Explosion shader effect updates (progress animation)
+        .add_systems(
+            Update,
+            (
+                explosion_core_effect_update_system,
+                explosion_fire_effect_update_system,
+            )
+                .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         )
         // Fireball explosion particle cleanup
