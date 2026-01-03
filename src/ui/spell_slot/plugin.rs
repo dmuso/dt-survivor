@@ -39,7 +39,7 @@ impl Plugin for SpellSlotPlugin {
 mod tests {
     use super::*;
     use crate::spell::{Spell, SpellType};
-    use crate::ui::spell_slot::components::{SlotSource, SpellSlotVisual};
+    use crate::ui::spell_slot::components::{SlotSource, SpellIconImage, SpellSlotVisual};
     use crate::ui::spell_slot::spawn::spawn_spell_slot;
     use bevy::ecs::system::RunSystemOnce;
 
@@ -87,14 +87,24 @@ mod tests {
             app.update();
 
             // Spawn a slot to be updated
-            let spawn_slot = |mut commands: Commands, asset_server: Res<AssetServer>| {
+            let spawn_slot = |mut commands: Commands| {
                 commands
                     .spawn((Node::default(), TestParent))
                     .with_children(|parent| {
-                        spawn_spell_slot(parent, SlotSource::Active, 0, None, &asset_server);
+                        spawn_spell_slot(parent, SlotSource::Active, 0);
                     });
             };
             let _ = app.world_mut().run_system_once(spawn_slot);
+
+            // Verify icon starts hidden
+            let initial_visibility = app
+                .world_mut()
+                .query::<(&Visibility, &SpellIconImage)>()
+                .iter(app.world())
+                .next()
+                .map(|(v, _)| *v)
+                .expect("Icon should exist");
+            assert_eq!(initial_visibility, Visibility::Hidden, "Icon should start hidden");
 
             // Add a spell to trigger change detection
             let fireball = Spell::new(SpellType::Fireball);
@@ -103,17 +113,15 @@ mod tests {
             // Run update - system should execute
             app.update();
 
-            // Verify the slot was updated with spell colors
-            let (bg, _, _) = app
+            // Verify icon is now visible
+            let final_visibility = app
                 .world_mut()
-                .query::<(&BackgroundColor, &BorderColor, &SpellSlotVisual)>()
+                .query::<(&Visibility, &SpellIconImage)>()
                 .iter(app.world())
                 .next()
-                .expect("Slot should exist");
-
-            // Background should not be the empty slot color (gray)
-            let empty_bg = crate::ui::components::empty_slot::SLOT_BACKGROUND;
-            assert_ne!(bg.0, empty_bg, "Slot should have spell color, not empty color");
+                .map(|(v, _)| *v)
+                .expect("Icon should exist");
+            assert_eq!(final_visibility, Visibility::Visible, "Icon should be visible after spell added");
         }
 
         #[test]
@@ -128,14 +136,24 @@ mod tests {
             app.update();
 
             // Spawn a bag slot to be updated
-            let spawn_slot = |mut commands: Commands, asset_server: Res<AssetServer>| {
+            let spawn_slot = |mut commands: Commands| {
                 commands
                     .spawn((Node::default(), TestParent))
                     .with_children(|parent| {
-                        spawn_spell_slot(parent, SlotSource::Bag, 0, None, &asset_server);
+                        spawn_spell_slot(parent, SlotSource::Bag, 0);
                     });
             };
             let _ = app.world_mut().run_system_once(spawn_slot);
+
+            // Verify icon starts hidden
+            let initial_visibility = app
+                .world_mut()
+                .query::<(&Visibility, &SpellIconImage)>()
+                .iter(app.world())
+                .next()
+                .map(|(v, _)| *v)
+                .expect("Icon should exist");
+            assert_eq!(initial_visibility, Visibility::Hidden, "Icon should start hidden");
 
             // Add a spell to inventory bag to trigger change detection
             let frost_nova = Spell::new(SpellType::FrostNova);
@@ -144,17 +162,15 @@ mod tests {
             // Run update - system should execute
             app.update();
 
-            // Verify the slot was updated with spell colors
-            let (bg, _, _) = app
+            // Verify icon is now visible
+            let final_visibility = app
                 .world_mut()
-                .query::<(&BackgroundColor, &BorderColor, &SpellSlotVisual)>()
+                .query::<(&Visibility, &SpellIconImage)>()
                 .iter(app.world())
                 .next()
-                .expect("Slot should exist");
-
-            // Background should not be the empty slot color (gray)
-            let empty_bg = crate::ui::components::empty_slot::SLOT_BACKGROUND;
-            assert_ne!(bg.0, empty_bg, "Slot should have spell color, not empty color");
+                .map(|(v, _)| *v)
+                .expect("Icon should exist");
+            assert_eq!(final_visibility, Visibility::Visible, "Icon should be visible after spell added");
         }
 
         #[test]
@@ -170,7 +186,7 @@ mod tests {
                 commands
                     .spawn((Node::default(), TestParent))
                     .with_children(|parent| {
-                        spawn_spell_slot(parent, SlotSource::Active, 0, None, &asset_server);
+                        spawn_spell_slot(parent, SlotSource::Active, 0);
                     });
             };
             let _ = app.world_mut().run_system_once(spawn_slot);
@@ -265,9 +281,8 @@ mod tests {
             let mut app = setup_test_app();
             app.add_plugins(SpellSlotPlugin);
 
-            // Pre-add a spell before transitioning (no change detection needed)
+            // Pre-add a spell before transitioning
             let fireball = Spell::new(SpellType::Fireball);
-            let expected_bg = fireball.element.color().with_alpha(crate::ui::spell_slot::spawn::BACKGROUND_ALPHA);
             app.world_mut().resource_mut::<SpellList>().equip(fireball);
 
             // Clear change detection so only state transition triggers refresh
@@ -275,26 +290,24 @@ mod tests {
             app.update();
 
             // Spawn a slot (in Intro state - system won't run yet)
-            let spawn_slot = |mut commands: Commands, asset_server: Res<AssetServer>| {
+            let spawn_slot = |mut commands: Commands| {
                 commands
                     .spawn((Node::default(), TestParent))
                     .with_children(|parent| {
-                        spawn_spell_slot(parent, SlotSource::Active, 0, None, &asset_server);
+                        spawn_spell_slot(parent, SlotSource::Active, 0);
                     });
             };
             let _ = app.world_mut().run_system_once(spawn_slot);
 
-            // Verify slot has empty colors initially (spawned without spell context)
-            let initial_bg = app
+            // Verify icon is hidden initially
+            let initial_visibility = app
                 .world_mut()
-                .query::<(&BackgroundColor, &SpellSlotVisual)>()
+                .query::<(&Visibility, &SpellIconImage)>()
                 .iter(app.world())
                 .next()
-                .map(|(bg, _)| bg.0)
-                .expect("Slot should exist");
-
-            let empty_bg = crate::ui::components::empty_slot::SLOT_BACKGROUND;
-            assert_eq!(initial_bg, empty_bg, "Slot should start with empty colors");
+                .map(|(v, _)| *v)
+                .expect("Icon should exist");
+            assert_eq!(initial_visibility, Visibility::Hidden, "Icon should start hidden");
 
             // Transition to InGame - OnEnter system should refresh slots
             app.world_mut()
@@ -302,16 +315,15 @@ mod tests {
                 .set(GameState::InGame);
             app.update();
 
-            // Verify slot now has spell colors (from OnEnter refresh)
-            let final_bg = app
+            // Verify icon is now visible (from OnEnter refresh)
+            let final_visibility = app
                 .world_mut()
-                .query::<(&BackgroundColor, &SpellSlotVisual)>()
+                .query::<(&Visibility, &SpellIconImage)>()
                 .iter(app.world())
                 .next()
-                .map(|(bg, _)| bg.0)
-                .expect("Slot should exist");
-
-            assert_eq!(final_bg, expected_bg, "Slot should have spell color after state transition");
+                .map(|(v, _)| *v)
+                .expect("Icon should exist");
+            assert_eq!(final_visibility, Visibility::Visible, "Icon should be visible after state transition");
         }
 
         #[test]
@@ -321,7 +333,6 @@ mod tests {
 
             // Pre-add a spell to inventory bag before transitioning
             let ice_shard = Spell::new(SpellType::IceShard);
-            let expected_bg = ice_shard.element.color().with_alpha(crate::ui::spell_slot::spawn::BACKGROUND_ALPHA);
             app.world_mut().resource_mut::<InventoryBag>().add(ice_shard);
 
             // Clear change detection
@@ -329,14 +340,24 @@ mod tests {
             app.update();
 
             // Spawn a bag slot (in Intro state - system won't run yet)
-            let spawn_slot = |mut commands: Commands, asset_server: Res<AssetServer>| {
+            let spawn_slot = |mut commands: Commands| {
                 commands
                     .spawn((Node::default(), TestParent))
                     .with_children(|parent| {
-                        spawn_spell_slot(parent, SlotSource::Bag, 0, None, &asset_server);
+                        spawn_spell_slot(parent, SlotSource::Bag, 0);
                     });
             };
             let _ = app.world_mut().run_system_once(spawn_slot);
+
+            // Verify icon is hidden initially
+            let initial_visibility = app
+                .world_mut()
+                .query::<(&Visibility, &SpellIconImage)>()
+                .iter(app.world())
+                .next()
+                .map(|(v, _)| *v)
+                .expect("Icon should exist");
+            assert_eq!(initial_visibility, Visibility::Hidden, "Icon should start hidden");
 
             // Transition to InventoryOpen - OnEnter system should refresh slots
             app.world_mut()
@@ -344,16 +365,15 @@ mod tests {
                 .set(GameState::InventoryOpen);
             app.update();
 
-            // Verify slot now has spell colors (from OnEnter refresh)
-            let final_bg = app
+            // Verify icon is now visible (from OnEnter refresh)
+            let final_visibility = app
                 .world_mut()
-                .query::<(&BackgroundColor, &SpellSlotVisual)>()
+                .query::<(&Visibility, &SpellIconImage)>()
                 .iter(app.world())
                 .next()
-                .map(|(bg, _)| bg.0)
-                .expect("Slot should exist");
-
-            assert_eq!(final_bg, expected_bg, "Slot should have spell color after state transition");
+                .map(|(v, _)| *v)
+                .expect("Icon should exist");
+            assert_eq!(final_visibility, Visibility::Visible, "Icon should be visible after state transition");
         }
     }
 }

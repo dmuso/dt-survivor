@@ -10,10 +10,6 @@ pub use crate::ui::components::empty_slot;
 /// Used consistently in the active spell bar and inventory bag.
 pub const SLOT_SIZE: f32 = 50.0;
 
-/// Alpha/opacity for spell element background tint.
-/// Applied to the element color when rendering slot backgrounds.
-pub const BACKGROUND_ALPHA: f32 = 0.4;
-
 /// Vertical offset for level indicator from the top of the slot.
 /// Negative value positions the level box above the slot edge.
 pub const LEVEL_TOP_OFFSET: f32 = -6.0;
@@ -35,23 +31,15 @@ use bevy::prelude::*;
 
 use crate::spell::Spell;
 use crate::ui::spell_slot::components::{
-    LevelIndicatorContainer, SlotSource, SpellAbbreviation, SpellIconImage, SpellIconVisual,
-    SpellLevelIndicator, SpellSlotState, SpellSlotVisual,
+    LevelIndicatorContainer, SlotSource, SpellIconImage, SpellIconVisual, SpellLevelIndicator,
+    SpellSlotState, SpellSlotVisual,
 };
 
 /// Returns background color for a spell slot.
 ///
-/// Single source of truth for spell slot color logic:
-/// - With spell: background = element color with alpha
-/// - Without spell: uses empty slot background constant
-pub fn spell_slot_background(spell: Option<&Spell>) -> BackgroundColor {
-    match spell {
-        Some(spell) => {
-            let element_color = spell.element.color();
-            BackgroundColor(element_color.with_alpha(BACKGROUND_ALPHA))
-        }
-        None => BackgroundColor(empty_slot::SLOT_BACKGROUND),
-    }
+/// Always returns the empty slot background - spell element is shown via texture.
+pub fn spell_slot_background(_spell: Option<&Spell>) -> BackgroundColor {
+    BackgroundColor(empty_slot::SLOT_BACKGROUND)
 }
 
 /// Spawns a complete spell slot with all required children.
@@ -59,44 +47,20 @@ pub fn spell_slot_background(spell: Option<&Spell>) -> BackgroundColor {
 /// Creates a stable entity structure that the refresh system can query and update:
 /// - Slot container with BackgroundColor, BorderRadius, SpellSlotVisual marker
 /// - ImageNode child for spell textures (with SpellIconImage marker)
-/// - Text child for spell abbreviation (with SpellAbbreviation marker, starts hidden)
 /// - Level indicator child (with SpellLevelIndicator marker)
 ///
-/// This function creates the structure once - the refresh system updates
-/// the visual properties (colors, textures, text, visibility) based on spell state.
+/// This function creates the structure only - the refresh system is the single
+/// source of truth for visual state (colors, textures, visibility).
 ///
 /// # Arguments
 /// * `parent` - The parent to spawn under
 /// * `source` - Whether this slot reads from SpellList (Active) or InventoryBag (Bag)
 /// * `index` - Index into the source's spell list
-/// * `spell` - Initial spell to display (or None for empty slot)
-/// * `asset_server` - Asset server for loading textures
 pub fn spawn_spell_slot(
     parent: &mut ChildSpawnerCommands,
     source: SlotSource,
     index: usize,
-    spell: Option<&Spell>,
-    asset_server: &AssetServer,
 ) -> Entity {
-    let bg_color = spell_slot_background(spell);
-
-    // Load texture if spell has an icon
-    let image_handle = spell
-        .and_then(|s| s.spell_type.icon_path())
-        .map(|path| asset_server.load(path));
-
-    // Determine visibility and abbreviation text
-    let (abbrev_visibility, abbrev_text) = match spell {
-        Some(s) if s.spell_type.icon_path().is_none() => {
-            // Spell without texture - show abbreviation
-            (Visibility::Visible, s.spell_type.abbreviation().to_string())
-        }
-        _ => {
-            // Spell with texture or empty slot - hide abbreviation
-            (Visibility::Hidden, String::new())
-        }
-    };
-
     parent
         .spawn((
             Button,
@@ -108,19 +72,13 @@ pub fn spawn_spell_slot(
                 justify_content: JustifyContent::Center,
                 ..default()
             },
-            bg_color,
+            BackgroundColor(empty_slot::SLOT_BACKGROUND),
             BorderRadius::all(Val::Px(BORDER_RADIUS)),
             SpellSlotVisual { source, index },
             SpellSlotState::default(),
         ))
         .with_children(|slot| {
-            // ImageNode for spell texture
-            // Uses transparent background to prevent white flash when no image loaded
-            let mut image_node = ImageNode::default();
-            if let Some(handle) = image_handle {
-                image_node.image = handle;
-            }
-
+            // ImageNode for spell texture - refresh system loads the texture
             slot.spawn((
                 Node {
                     width: Val::Px(SLOT_SIZE),
@@ -128,28 +86,15 @@ pub fn spawn_spell_slot(
                     position_type: PositionType::Absolute,
                     ..default()
                 },
-                image_node,
-                BackgroundColor(Color::NONE), // Prevents white flash for empty/loading images
+                ImageNode::default(),
+                BackgroundColor(Color::NONE),
                 BorderRadius::all(Val::Px(4.0)),
                 SpellIconImage { index },
-                Visibility::Inherited, // Refresh system controls visibility based on spell presence
+                Visibility::Hidden, // Refresh system controls visibility
             ));
 
-            // Text for spell abbreviation (shown when no texture)
-            slot.spawn((
-                Text::new(abbrev_text),
-                TextFont {
-                    font_size: SLOT_SIZE * 0.35,
-                    ..default()
-                },
-                TextColor(Color::WHITE),
-                TextLayout::new_with_justify(bevy::text::Justify::Center),
-                abbrev_visibility,
-                SpellAbbreviation { source, index },
-            ));
-
-            // Level indicator
-            spawn_level_indicator(slot, source, index, spell.is_some());
+            // Level indicator - refresh system controls visibility
+            spawn_level_indicator(slot, source, index, false);
         })
         .id()
 }
@@ -223,71 +168,42 @@ pub fn spawn_level_indicator(
 /// Used for drag visuals and other cases where a spell icon is needed
 /// outside of the standard slot refresh system.
 ///
-/// For spells with custom textures, the texture fills the entire area with no background.
-/// For spells without textures, uses element-colored background with spell abbreviation.
+/// Uses the spell's custom texture if available, otherwise uses the
+/// element's default texture.
 ///
 /// # Arguments
 /// * `parent` - The parent entity to spawn the icon under
 /// * `spell` - The spell to render (or None for empty slot)
 /// * `size` - The size of the icon in pixels
-/// * `asset_server` - Asset server for loading textures (optional)
+/// * `asset_server` - Asset server for loading textures
 pub fn spawn_spell_icon_visual(
     parent: &mut ChildSpawnerCommands,
     spell: Option<&Spell>,
     size: f32,
-    asset_server: Option<&AssetServer>,
+    asset_server: &AssetServer,
 ) {
     match spell {
         Some(spell) => {
-            // Check if spell has a custom icon texture
-            if let (Some(icon_path), Some(asset_server)) =
-                (spell.spell_type.icon_path(), asset_server)
-            {
-                // Use custom texture - transparent background prevents white flash during load
-                parent.spawn((
-                    Node {
-                        width: Val::Px(size),
-                        height: Val::Px(size),
-                        ..default()
-                    },
-                    ImageNode {
-                        image: asset_server.load(icon_path),
-                        ..default()
-                    },
-                    BackgroundColor(Color::NONE),
-                    BorderRadius::all(Val::Px(4.0)),
-                    SpellIconVisual,
-                ));
-            } else {
-                // Element-colored square with spell abbreviation
-                parent
-                    .spawn((
-                        Node {
-                            width: Val::Px(size),
-                            height: Val::Px(size),
-                            justify_content: JustifyContent::Center,
-                            align_items: AlignItems::Center,
-                            border: UiRect::all(Val::Px(2.0)),
-                            ..default()
-                        },
-                        BackgroundColor(spell.element.color()),
-                        BorderColor::all(spell.element.color().lighter(0.3)),
-                        BorderRadius::all(Val::Px(4.0)),
-                        SpellIconVisual,
-                    ))
-                    .with_children(|icon| {
-                        // Spell type abbreviation
-                        icon.spawn((
-                            Text::new(spell.spell_type.abbreviation()),
-                            TextFont {
-                                font_size: size * 0.35,
-                                ..default()
-                            },
-                            TextColor(Color::WHITE),
-                            TextLayout::new_with_justify(bevy::text::Justify::Center),
-                        ));
-                    });
-            }
+            // Use spell's custom icon or element's default texture
+            let icon_path = spell
+                .spell_type
+                .icon_path()
+                .unwrap_or_else(|| spell.element.default_texture_path());
+
+            parent.spawn((
+                Node {
+                    width: Val::Px(size),
+                    height: Val::Px(size),
+                    ..default()
+                },
+                ImageNode {
+                    image: asset_server.load(icon_path),
+                    ..default()
+                },
+                BackgroundColor(Color::NONE),
+                BorderRadius::all(Val::Px(4.0)),
+                SpellIconVisual,
+            ));
         }
         None => {
             // Empty slot - don't spawn any icon visual
@@ -312,13 +228,6 @@ mod tests {
         #[test]
         fn slot_size_is_50() {
             assert_eq!(SLOT_SIZE, 50.0);
-        }
-
-        #[test]
-        fn background_alpha_is_reasonable() {
-            assert!(BACKGROUND_ALPHA > 0.0);
-            assert!(BACKGROUND_ALPHA <= 1.0);
-            assert_eq!(BACKGROUND_ALPHA, 0.4);
         }
 
         #[test]
@@ -360,7 +269,6 @@ mod tests {
 
     mod spell_slot_background_tests {
         use super::*;
-        use crate::element::Element;
         use crate::spell::Spell;
         use crate::spell::spell_type::SpellType;
 
@@ -371,30 +279,11 @@ mod tests {
         }
 
         #[test]
-        fn returns_element_background_with_alpha_when_spell_present() {
+        fn returns_empty_slot_background_when_spell_present() {
+            // Element is shown via texture, not background color
             let spell = Spell::new(SpellType::Fireball);
             let bg = spell_slot_background(Some(&spell));
-            let expected = spell.element.color().with_alpha(BACKGROUND_ALPHA);
-            assert_eq!(bg.0, expected);
-        }
-
-        #[test]
-        fn works_with_different_elements() {
-            for element in Element::all() {
-                let spell_types = SpellType::by_element(*element);
-                if let Some(spell_type) = spell_types.first() {
-                    let spell = Spell::new(*spell_type);
-                    let bg = spell_slot_background(Some(&spell));
-
-                    let expected_bg = element.color().with_alpha(BACKGROUND_ALPHA);
-
-                    assert_eq!(
-                        bg.0, expected_bg,
-                        "Background color should match element {:?}",
-                        element
-                    );
-                }
-            }
+            assert_eq!(bg.0, empty_slot::SLOT_BACKGROUND);
         }
     }
 
@@ -662,8 +551,7 @@ mod tests {
 
     mod spawn_spell_slot_tests {
         use super::*;
-        use crate::spell::spell_type::SpellType;
-        use crate::ui::spell_slot::components::{SlotSource, SpellAbbreviation, SpellIconImage, SpellSlotVisual};
+        use crate::ui::spell_slot::components::{SlotSource, SpellIconImage, SpellSlotVisual};
         use bevy::ecs::system::RunSystemOnce;
 
         /// Test marker to find our spawned parent
@@ -678,18 +566,10 @@ mod tests {
             app
         }
 
-        fn spawn_test_slot_empty(source: SlotSource, index: usize) -> impl FnMut(Commands, Res<AssetServer>) {
-            move |mut commands: Commands, asset_server: Res<AssetServer>| {
+        fn spawn_test_slot(source: SlotSource, index: usize) -> impl FnMut(Commands) {
+            move |mut commands: Commands| {
                 commands.spawn((Node::default(), TestParent)).with_children(|parent| {
-                    spawn_spell_slot(parent, source, index, None, &asset_server);
-                });
-            }
-        }
-
-        fn spawn_test_slot_with_spell(source: SlotSource, index: usize, spell: Spell) -> impl FnMut(Commands, Res<AssetServer>) {
-            move |mut commands: Commands, asset_server: Res<AssetServer>| {
-                commands.spawn((Node::default(), TestParent)).with_children(|parent| {
-                    spawn_spell_slot(parent, source, index, Some(&spell), &asset_server);
+                    spawn_spell_slot(parent, source, index);
                 });
             }
         }
@@ -698,7 +578,7 @@ mod tests {
         fn spawns_entity_with_spell_slot_visual_component() {
             let mut app = setup_test_app();
 
-            let _ = app.world_mut().run_system_once(spawn_test_slot_empty(SlotSource::Active, 0));
+            let _ = app.world_mut().run_system_once(spawn_test_slot(SlotSource::Active, 0));
 
             let slot_visual = app
                 .world_mut()
@@ -712,7 +592,7 @@ mod tests {
         fn spell_slot_visual_has_correct_source_and_index() {
             let mut app = setup_test_app();
 
-            let _ = app.world_mut().run_system_once(spawn_test_slot_empty(SlotSource::Bag, 3));
+            let _ = app.world_mut().run_system_once(spawn_test_slot(SlotSource::Bag, 3));
 
             let slot_visual = app
                 .world_mut()
@@ -729,7 +609,7 @@ mod tests {
         fn spawns_entity_with_button_component() {
             let mut app = setup_test_app();
 
-            let _ = app.world_mut().run_system_once(spawn_test_slot_empty(SlotSource::Active, 0));
+            let _ = app.world_mut().run_system_once(spawn_test_slot(SlotSource::Active, 0));
 
             let has_button = app
                 .world_mut()
@@ -744,7 +624,7 @@ mod tests {
         fn spawns_entity_with_node_component() {
             let mut app = setup_test_app();
 
-            let _ = app.world_mut().run_system_once(spawn_test_slot_empty(SlotSource::Active, 0));
+            let _ = app.world_mut().run_system_once(spawn_test_slot(SlotSource::Active, 0));
 
             let node = app
                 .world_mut()
@@ -758,7 +638,7 @@ mod tests {
         fn spawns_entity_with_correct_size() {
             let mut app = setup_test_app();
 
-            let _ = app.world_mut().run_system_once(spawn_test_slot_empty(SlotSource::Active, 0));
+            let _ = app.world_mut().run_system_once(spawn_test_slot(SlotSource::Active, 0));
 
             let (node, _) = app
                 .world_mut()
@@ -775,7 +655,7 @@ mod tests {
         fn empty_slot_has_empty_slot_background_color() {
             let mut app = setup_test_app();
 
-            let _ = app.world_mut().run_system_once(spawn_test_slot_empty(SlotSource::Active, 0));
+            let _ = app.world_mut().run_system_once(spawn_test_slot(SlotSource::Active, 0));
 
             let (bg, _) = app
                 .world_mut()
@@ -791,7 +671,7 @@ mod tests {
         fn spawns_slot_with_border_radius() {
             let mut app = setup_test_app();
 
-            let _ = app.world_mut().run_system_once(spawn_test_slot_empty(SlotSource::Active, 0));
+            let _ = app.world_mut().run_system_once(spawn_test_slot(SlotSource::Active, 0));
 
             let (radius, _) = app
                 .world_mut()
@@ -807,7 +687,7 @@ mod tests {
         fn spawns_child_with_spell_icon_image_marker() {
             let mut app = setup_test_app();
 
-            let _ = app.world_mut().run_system_once(spawn_test_slot_empty(SlotSource::Active, 2));
+            let _ = app.world_mut().run_system_once(spawn_test_slot(SlotSource::Active, 2));
 
             let icon_image = app
                 .world_mut()
@@ -822,7 +702,7 @@ mod tests {
         fn spawns_child_with_image_node() {
             let mut app = setup_test_app();
 
-            let _ = app.world_mut().run_system_once(spawn_test_slot_empty(SlotSource::Active, 0));
+            let _ = app.world_mut().run_system_once(spawn_test_slot(SlotSource::Active, 0));
 
             let has_image_node = app
                 .world_mut()
@@ -834,41 +714,10 @@ mod tests {
         }
 
         #[test]
-        fn spawns_child_with_spell_abbreviation_marker() {
-            let mut app = setup_test_app();
-
-            let _ = app.world_mut().run_system_once(spawn_test_slot_empty(SlotSource::Active, 4));
-
-            let abbrev = app
-                .world_mut()
-                .query::<&SpellAbbreviation>()
-                .iter(app.world())
-                .next();
-            assert!(abbrev.is_some(), "Should spawn child with SpellAbbreviation marker");
-            assert_eq!(abbrev.unwrap().index, 4);
-        }
-
-        #[test]
-        fn empty_slot_abbreviation_is_hidden() {
-            let mut app = setup_test_app();
-
-            let _ = app.world_mut().run_system_once(spawn_test_slot_empty(SlotSource::Active, 0));
-
-            let (visibility, _) = app
-                .world_mut()
-                .query::<(&Visibility, &SpellAbbreviation)>()
-                .iter(app.world())
-                .next()
-                .expect("Abbreviation should exist");
-
-            assert_eq!(*visibility, Visibility::Hidden);
-        }
-
-        #[test]
         fn spawns_child_with_spell_level_indicator() {
             let mut app = setup_test_app();
 
-            let _ = app.world_mut().run_system_once(spawn_test_slot_empty(SlotSource::Active, 1));
+            let _ = app.world_mut().run_system_once(spawn_test_slot(SlotSource::Active, 1));
 
             let indicator = app
                 .world_mut()
@@ -880,10 +729,10 @@ mod tests {
         }
 
         #[test]
-        fn spell_slot_has_three_children() {
+        fn spell_slot_has_two_children() {
             let mut app = setup_test_app();
 
-            let _ = app.world_mut().run_system_once(spawn_test_slot_empty(SlotSource::Active, 0));
+            let _ = app.world_mut().run_system_once(spawn_test_slot(SlotSource::Active, 0));
 
             // Find the slot entity
             let (slot_entity, _) = app
@@ -895,33 +744,14 @@ mod tests {
 
             let children = app.world().get::<Children>(slot_entity);
             assert!(children.is_some(), "Slot should have children");
-            assert_eq!(children.unwrap().len(), 3, "Slot should have 3 children (image, abbreviation, level indicator)");
+            assert_eq!(children.unwrap().len(), 2, "Slot should have 2 children (image, level indicator)");
         }
 
         #[test]
-        fn spell_with_texture_has_abbreviation_hidden() {
+        fn slot_spawns_with_empty_slot_background() {
             let mut app = setup_test_app();
-            let spell = Spell::new(SpellType::Fireball); // Fireball has a texture
 
-            let _ = app.world_mut().run_system_once(spawn_test_slot_with_spell(SlotSource::Active, 0, spell));
-
-            let (visibility, _) = app
-                .world_mut()
-                .query::<(&Visibility, &SpellAbbreviation)>()
-                .iter(app.world())
-                .next()
-                .expect("Abbreviation should exist");
-
-            assert_eq!(*visibility, Visibility::Hidden);
-        }
-
-        #[test]
-        fn spell_with_texture_has_element_background() {
-            let mut app = setup_test_app();
-            let spell = Spell::new(SpellType::Fireball);
-            let expected_bg = spell.element.color().with_alpha(BACKGROUND_ALPHA);
-
-            let _ = app.world_mut().run_system_once(spawn_test_slot_with_spell(SlotSource::Active, 0, spell));
+            let _ = app.world_mut().run_system_once(spawn_test_slot(SlotSource::Active, 0));
 
             let (bg, _) = app
                 .world_mut()
@@ -930,14 +760,14 @@ mod tests {
                 .next()
                 .expect("Slot should exist");
 
-            assert_eq!(bg.0, expected_bg);
+            assert_eq!(bg.0, empty_slot::SLOT_BACKGROUND);
         }
 
         #[test]
         fn active_source_slot_has_correct_source() {
             let mut app = setup_test_app();
 
-            let _ = app.world_mut().run_system_once(spawn_test_slot_empty(SlotSource::Active, 0));
+            let _ = app.world_mut().run_system_once(spawn_test_slot(SlotSource::Active, 0));
 
             let slot_visual = app
                 .world_mut()
@@ -953,7 +783,7 @@ mod tests {
         fn bag_source_slot_has_correct_source() {
             let mut app = setup_test_app();
 
-            let _ = app.world_mut().run_system_once(spawn_test_slot_empty(SlotSource::Bag, 0));
+            let _ = app.world_mut().run_system_once(spawn_test_slot(SlotSource::Bag, 0));
 
             let slot_visual = app
                 .world_mut()
@@ -969,7 +799,7 @@ mod tests {
         fn icon_image_has_absolute_positioning() {
             let mut app = setup_test_app();
 
-            let _ = app.world_mut().run_system_once(spawn_test_slot_empty(SlotSource::Active, 0));
+            let _ = app.world_mut().run_system_once(spawn_test_slot(SlotSource::Active, 0));
 
             let (node, _) = app
                 .world_mut()
@@ -985,7 +815,7 @@ mod tests {
         fn icon_image_fills_slot_size() {
             let mut app = setup_test_app();
 
-            let _ = app.world_mut().run_system_once(spawn_test_slot_empty(SlotSource::Active, 0));
+            let _ = app.world_mut().run_system_once(spawn_test_slot(SlotSource::Active, 0));
 
             let (node, _) = app
                 .world_mut()
@@ -1020,9 +850,9 @@ mod tests {
         fn spawns_nothing_for_none_spell() {
             let mut app = setup_test_app();
 
-            let spawn_icon = |mut commands: Commands| {
+            let spawn_icon = |mut commands: Commands, asset_server: Res<AssetServer>| {
                 commands.spawn((Node::default(), TestParent)).with_children(|parent| {
-                    spawn_spell_icon_visual(parent, None, 40.0, None);
+                    spawn_spell_icon_visual(parent, None, 40.0, &asset_server);
                 });
             };
             let _ = app.world_mut().run_system_once(spawn_icon);
@@ -1046,7 +876,7 @@ mod tests {
 
             let spawn_icon = move |mut commands: Commands, asset_server: Res<AssetServer>| {
                 commands.spawn((Node::default(), TestParent)).with_children(|parent| {
-                    spawn_spell_icon_visual(parent, Some(&spell), 40.0, Some(&asset_server));
+                    spawn_spell_icon_visual(parent, Some(&spell), 40.0, &asset_server);
                 });
             };
             let _ = app.world_mut().run_system_once(spawn_icon);
@@ -1067,7 +897,7 @@ mod tests {
 
             let spawn_icon = move |mut commands: Commands, asset_server: Res<AssetServer>| {
                 commands.spawn((Node::default(), TestParent)).with_children(|parent| {
-                    spawn_spell_icon_visual(parent, Some(&spell), 60.0, Some(&asset_server));
+                    spawn_spell_icon_visual(parent, Some(&spell), 60.0, &asset_server);
                 });
             };
             let _ = app.world_mut().run_system_once(spawn_icon);
@@ -1090,7 +920,7 @@ mod tests {
 
             let spawn_icon = move |mut commands: Commands, asset_server: Res<AssetServer>| {
                 commands.spawn((Node::default(), TestParent)).with_children(|parent| {
-                    spawn_spell_icon_visual(parent, Some(&spell), 40.0, Some(&asset_server));
+                    spawn_spell_icon_visual(parent, Some(&spell), 40.0, &asset_server);
                 });
             };
             let _ = app.world_mut().run_system_once(spawn_icon);
@@ -1106,116 +936,51 @@ mod tests {
         }
 
         #[test]
-        fn spell_without_texture_uses_element_background() {
+        fn spell_without_custom_texture_uses_default_element_texture() {
             let mut app = setup_test_app();
-            let spell = Spell::new(SpellType::IceShard); // No icon_path
-            let expected_bg = spell.element.color();
+            let spell = Spell::new(SpellType::IceShard); // No icon_path, uses default
 
             let spawn_icon = move |mut commands: Commands, asset_server: Res<AssetServer>| {
                 commands.spawn((Node::default(), TestParent)).with_children(|parent| {
-                    spawn_spell_icon_visual(parent, Some(&spell), 40.0, Some(&asset_server));
+                    spawn_spell_icon_visual(parent, Some(&spell), 40.0, &asset_server);
                 });
             };
             let _ = app.world_mut().run_system_once(spawn_icon);
 
+            // Should spawn with ImageNode (using default texture)
+            let has_image = app
+                .world_mut()
+                .query::<(&ImageNode, &SpellIconVisual)>()
+                .iter(app.world())
+                .next()
+                .is_some();
+            assert!(has_image, "Spell without custom texture should use ImageNode with default texture");
+
+            // Background should be transparent (texture shows through)
             let (bg, _) = app
                 .world_mut()
                 .query::<(&BackgroundColor, &SpellIconVisual)>()
                 .iter(app.world())
                 .next()
                 .expect("Icon should exist");
-
-            assert_eq!(bg.0, expected_bg);
+            assert_eq!(bg.0, Color::NONE);
         }
 
         #[test]
-        fn spell_without_texture_has_border() {
+        fn spell_without_custom_texture_has_no_text_child() {
             let mut app = setup_test_app();
             let spell = Spell::new(SpellType::IceShard);
 
             let spawn_icon = move |mut commands: Commands, asset_server: Res<AssetServer>| {
                 commands.spawn((Node::default(), TestParent)).with_children(|parent| {
-                    spawn_spell_icon_visual(parent, Some(&spell), 40.0, Some(&asset_server));
+                    spawn_spell_icon_visual(parent, Some(&spell), 40.0, &asset_server);
                 });
             };
             let _ = app.world_mut().run_system_once(spawn_icon);
 
-            let (node, _) = app
-                .world_mut()
-                .query::<(&Node, &SpellIconVisual)>()
-                .iter(app.world())
-                .next()
-                .expect("Icon should exist");
-
-            assert_eq!(node.border.left, Val::Px(2.0));
-        }
-
-        #[test]
-        fn spell_without_texture_has_abbreviation_child() {
-            let mut app = setup_test_app();
-            let spell = Spell::new(SpellType::IceShard);
-            let expected_abbrev = spell.spell_type.abbreviation();
-
-            let spawn_icon = move |mut commands: Commands, asset_server: Res<AssetServer>| {
-                commands.spawn((Node::default(), TestParent)).with_children(|parent| {
-                    spawn_spell_icon_visual(parent, Some(&spell), 40.0, Some(&asset_server));
-                });
-            };
-            let _ = app.world_mut().run_system_once(spawn_icon);
-
-            // Find the text child
-            let text = app
-                .world_mut()
-                .query::<&Text>()
-                .iter(app.world())
-                .next()
-                .expect("Text should exist");
-
-            assert_eq!(text.0, expected_abbrev);
-        }
-
-        #[test]
-        fn spell_without_texture_text_has_scaled_font_size() {
-            let mut app = setup_test_app();
-            let spell = Spell::new(SpellType::IceShard);
-            let size = 50.0;
-
-            let spawn_icon = move |mut commands: Commands, asset_server: Res<AssetServer>| {
-                commands.spawn((Node::default(), TestParent)).with_children(|parent| {
-                    spawn_spell_icon_visual(parent, Some(&spell), size, Some(&asset_server));
-                });
-            };
-            let _ = app.world_mut().run_system_once(spawn_icon);
-
-            let text_font = app
-                .world_mut()
-                .query::<&TextFont>()
-                .iter(app.world())
-                .next()
-                .expect("TextFont should exist");
-
-            assert_eq!(text_font.font_size, size * 0.35);
-        }
-
-        #[test]
-        fn spell_without_asset_server_uses_abbreviation() {
-            let mut app = setup_test_app();
-            let spell = Spell::new(SpellType::Fireball); // Has icon_path but no asset_server
-
-            let spawn_icon = move |mut commands: Commands| {
-                commands.spawn((Node::default(), TestParent)).with_children(|parent| {
-                    spawn_spell_icon_visual(parent, Some(&spell), 40.0, None);
-                });
-            };
-            let _ = app.world_mut().run_system_once(spawn_icon);
-
-            // Without asset server, should fall back to abbreviation even for spells with icon
-            let bg = app
-                .world_mut()
-                .query::<(&BackgroundColor, &SpellIconVisual)>()
-                .iter(app.world())
-                .next();
-            assert!(bg.is_some(), "Should spawn with element background when no asset_server");
+            // Should not have any Text children (no abbreviation)
+            let text = app.world_mut().query::<&Text>().iter(app.world()).next();
+            assert!(text.is_none(), "Spell without custom texture should not have text abbreviation");
         }
     }
 }

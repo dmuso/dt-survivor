@@ -457,13 +457,7 @@ pub fn setup_spell_slots(
                     })
                     .with_children(|slot_container| {
                         // Spawn the spell slot using the shared module
-                        spawn_spell_slot(
-                            slot_container,
-                            SlotSource::Active,
-                            slot_index,
-                            spell_list.get_spell(slot_index),
-                            &asset_server,
-                        );
+                        spawn_spell_slot(slot_container, SlotSource::Active, slot_index);
 
                         // Radial cooldown overlay using custom shader (separate concern)
                         // Only spawn if cooldowns are visible

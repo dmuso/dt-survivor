@@ -237,13 +237,7 @@ pub fn setup_inventory_ui(
                                 .with_children(|grid| {
                                     // Spawn 30 bag slots using the shared spell_slot module
                                     for slot_index in 0..(BAG_ROWS * BAG_COLUMNS) {
-                                        let slot_entity = spawn_spell_slot(
-                                            grid,
-                                            SlotSource::Bag,
-                                            slot_index,
-                                            inventory_bag.get_spell(slot_index),
-                                            &asset_server,
-                                        );
+                                        let slot_entity = spawn_spell_slot(grid, SlotSource::Bag, slot_index);
                                         // Add interaction marker for inventory bag systems
                                         grid.commands().entity(slot_entity).insert(InventorySlot { index: slot_index });
                                     }
@@ -287,13 +281,7 @@ pub fn setup_inventory_ui(
                                                 ..default()
                                             })
                                             .with_children(|container| {
-                                                let slot_entity = spawn_spell_slot(
-                                                    container,
-                                                    SlotSource::Active,
-                                                    slot_index,
-                                                    spell_list.get_spell(slot_index),
-                                                    &asset_server,
-                                                );
+                                                let slot_entity = spawn_spell_slot(container, SlotSource::Active, slot_index);
                                                 // Add interaction marker for inventory bag systems
                                                 container.commands().entity(slot_entity).insert(ActiveSlotDisplay { index: slot_index });
 
@@ -749,7 +737,7 @@ fn spawn_drag_visual(commands: &mut Commands, spell: &Spell, cursor_pos: Vec2, a
     ))
     .with_children(|visual| {
         // Spell icon fills the slot - uses shared helper
-        spawn_spell_icon_visual(visual, Some(spell), SLOT_SIZE, Some(asset_server));
+        spawn_spell_icon_visual(visual, Some(spell), SLOT_SIZE, asset_server);
 
         // Level indicator (spell bar style) - uses pre-populated text for drag visual
         spawn_drag_level_indicator(visual, spell.level);

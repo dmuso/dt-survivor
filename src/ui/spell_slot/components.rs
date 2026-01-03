@@ -56,15 +56,6 @@ pub struct SpellLevelIndicator {
     pub index: usize,
 }
 
-/// Marker component for spell abbreviation text.
-#[derive(Component)]
-pub struct SpellAbbreviation {
-    /// Which resource this abbreviation reads spell data from
-    pub source: SlotSource,
-    /// Index into the spell list
-    pub index: usize,
-}
-
 /// Marker component for the level indicator container box.
 /// Used to control visibility - hidden when slot is empty.
 #[derive(Component)]
@@ -232,36 +223,6 @@ mod tests {
             };
             assert_eq!(indicator.source, SlotSource::Bag);
             assert_eq!(indicator.index, 10);
-        }
-    }
-
-    mod spell_abbreviation_tests {
-        use super::*;
-
-        #[test]
-        fn is_a_component() {
-            fn assert_component<T: Component>() {}
-            assert_component::<SpellAbbreviation>();
-        }
-
-        #[test]
-        fn stores_source_and_index() {
-            let abbrev = SpellAbbreviation {
-                source: SlotSource::Active,
-                index: 4,
-            };
-            assert_eq!(abbrev.source, SlotSource::Active);
-            assert_eq!(abbrev.index, 4);
-        }
-
-        #[test]
-        fn bag_source() {
-            let abbrev = SpellAbbreviation {
-                source: SlotSource::Bag,
-                index: 15,
-            };
-            assert_eq!(abbrev.source, SlotSource::Bag);
-            assert_eq!(abbrev.index, 15);
         }
     }
 
