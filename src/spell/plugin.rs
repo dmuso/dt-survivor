@@ -9,6 +9,7 @@ use crate::spells::fire::fireball::{
     burn_damage_system, fireball_collision_detection, fireball_collision_effects,
     fireball_lifetime_system, fireball_movement_system,
     fireball_charge_update_system, fireball_charge_to_flight_system,
+    fireball_charge_effect_update_system,
     fireball_explosion_spawn_system, fireball_explosion_cleanup_system,
     fireball_ground_collision_system,
 };
@@ -263,11 +264,12 @@ pub fn plugin(app: &mut App) {
             PostUpdate,
             spell_casting_system.run_if(in_state(GameState::InGame)),
         )
-        // Fireball charge phase systems (update scale, transition to flight)
+        // Fireball charge phase systems (update scale, shader effect, transition to flight)
         .add_systems(
             Update,
             (
                 fireball_charge_update_system,
+                fireball_charge_effect_update_system,
                 fireball_charge_to_flight_system,
             )
                 .chain()

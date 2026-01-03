@@ -299,6 +299,7 @@ pub fn execute_echo_spells_system(
                         game_meshes.as_deref(),
                         game_materials.as_deref(),
                         None, // No particle effects for echoed spell
+                        None, // No charge shader for echoed spell
                     );
                 }
                 SpellType::IceShard => {

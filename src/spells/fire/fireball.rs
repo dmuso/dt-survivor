@@ -163,6 +163,14 @@ pub struct FireballTrailParticles;
 #[derive(Component, Debug)]
 pub struct FireballSparkParticles;
 
+/// Component for the shader-based charge effect entity
+/// Stores the material handle so we can update charge progress
+#[derive(Component, Debug)]
+pub struct FireballChargeEffect {
+    /// Handle to the charge material for this entity
+    pub material_handle: Handle<super::materials::FireballChargeMaterial>,
+}
+
 /// Explosion particles (self-despawns after cleanup timer)
 #[derive(Component, Debug)]
 pub struct FireballExplosionParticles {
@@ -214,6 +222,7 @@ pub fn fire_fireball(
     game_meshes: Option<&GameMeshes>,
     game_materials: Option<&GameMaterials>,
     fireball_effects: Option<&FireballEffects>,
+    charge_materials: Option<&mut Assets<super::materials::FireballChargeMaterial>>,
 ) {
     fire_fireball_with_damage(
         commands,
@@ -227,6 +236,7 @@ pub fn fire_fireball(
         game_meshes,
         game_materials,
         fireball_effects,
+        charge_materials,
     );
 }
 
@@ -251,6 +261,7 @@ pub fn fire_fireball_with_damage(
     game_meshes: Option<&GameMeshes>,
     game_materials: Option<&GameMaterials>,
     fireball_effects: Option<&FireballEffects>,
+    charge_materials: Option<&mut Assets<super::materials::FireballChargeMaterial>>,
 ) {
     // Spawn position is above player (Whisper)
     let charge_position = spawn_position + Vec3::new(0.0, FIREBALL_CHARGE_HEIGHT, 0.0);
@@ -264,6 +275,17 @@ pub fn fire_fireball_with_damage(
     // Get projectile count based on spell level (1 at level 1-4, 2 at 5-9, 3 at 10)
     let projectile_count = spell.projectile_count();
     let spread_angle_rad = FIREBALL_SPREAD_ANGLE.to_radians();
+
+    // Pre-create charge shader material handles for all projectiles (if available)
+    let charge_material_handles: Vec<_> = if let Some(charge_mats) = charge_materials {
+        (0..projectile_count).map(|_| {
+            let mut charge_material = super::materials::FireballChargeMaterial::new();
+            charge_material.set_outer_radius(1.5); // Slightly larger than fireball
+            charge_mats.add(charge_material)
+        }).collect()
+    } else {
+        Vec::new()
+    };
 
     // Create projectiles in a spread pattern centered around the target direction
     // Spread is applied as rotation around the Y axis (horizontal spread)
@@ -290,6 +312,8 @@ pub fn fire_fireball_with_damage(
 
         // Spawn charging fireball above Whisper's position
         if let (Some(meshes), Some(materials)) = (game_meshes, game_materials) {
+            let fireball_mesh = meshes.fireball.clone();
+
             let mut entity_commands = commands.spawn((
                 Mesh3d(meshes.fireball.clone()),
                 MeshMaterial3d(materials.fireball.clone()),
@@ -305,6 +329,18 @@ pub fn fire_fireball_with_damage(
                         ParticleEffect::new(effects.charge_effect.clone()),
                         Transform::default(),
                         FireballChargeParticles,
+                    ));
+                });
+            }
+
+            // Add charge shader effect as child (swirling energy gathering)
+            if let Some(material_handle) = charge_material_handles.get(i).cloned() {
+                entity_commands.with_children(|parent| {
+                    parent.spawn((
+                        Mesh3d(fireball_mesh), // Reuse sphere mesh
+                        MeshMaterial3d(material_handle.clone()),
+                        Transform::from_scale(Vec3::splat(1.5)), // Larger than core
+                        FireballChargeEffect { material_handle },
                     ));
                 });
             }
@@ -444,19 +480,45 @@ pub fn fireball_charge_update_system(
     }
 }
 
+/// System that updates charge effect shader materials with current charge progress
+pub fn fireball_charge_effect_update_system(
+    parent_query: Query<&ChargingFireball>,
+    child_query: Query<(&ChildOf, &FireballChargeEffect)>,
+    mut materials: Option<ResMut<Assets<super::materials::FireballChargeMaterial>>>,
+) {
+    let Some(materials) = materials.as_mut() else {
+        return; // No material assets available (e.g., in tests without MaterialPlugin)
+    };
+
+    for (child_of, charge_effect) in child_query.iter() {
+        // Get the parent's charge progress
+        if let Ok(charging) = parent_query.get(child_of.parent()) {
+            let progress = charging.charge_timer.fraction();
+            // Update the material's charge progress
+            if let Some(material) = materials.get_mut(&charge_effect.material_handle) {
+                material.set_charge_progress(progress);
+            }
+        }
+    }
+}
+
 /// System that transitions charging fireballs to active flight phase
 pub fn fireball_charge_to_flight_system(
     mut commands: Commands,
     query: Query<(Entity, &ChargingFireball, &Transform, Option<&Children>)>,
     fireball_effects: Option<Res<FireballEffects>>,
     charge_particles_query: Query<Entity, With<FireballChargeParticles>>,
+    charge_effect_query: Query<Entity, With<FireballChargeEffect>>,
 ) {
     for (entity, charging, _transform, children) in query.iter() {
         if charging.is_finished() {
-            // Remove charge particles
+            // Remove charge particles and charge effect shader
             if let Some(children) = children {
                 for child in children.iter() {
                     if charge_particles_query.get(child).is_ok() {
+                        commands.entity(child).despawn();
+                    }
+                    if charge_effect_query.get(child).is_ok() {
                         commands.entity(child).despawn();
                     }
                 }
@@ -840,6 +902,7 @@ mod tests {
                     None,
                     None,
                     None, // No particle effects in test
+                    None, // No charge materials in test
                 );
             }
             app.update();
@@ -872,6 +935,7 @@ mod tests {
                     None,
                     None,
                     None, // No particle effects in test
+                    None, // No charge materials in test
                 );
             }
             app.update();
@@ -902,6 +966,7 @@ mod tests {
                     None,
                     None,
                     None, // No particle effects in test
+                    None, // No charge materials in test
                 );
             }
             app.update();
@@ -935,6 +1000,7 @@ mod tests {
                     None,
                     None,
                     None, // No particle effects in test
+                    None, // No charge materials in test
                 );
             }
             app.update();

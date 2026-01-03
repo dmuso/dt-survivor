@@ -25,10 +25,14 @@ use crate::game::resources::{FreshGameStart, GameLevel, LevelStats, PlayerPositi
 use crate::score::*;
 use crate::game::events::{PlayerEnemyCollisionEvent, GameOverEvent, GameLevelUpEvent};
 use crate::spells::fire::fireball_effects::init_fireball_effects;
-use crate::spells::fire::materials::{FireballCoreMaterial, update_fireball_core_material_time};
+use crate::spells::fire::materials::{
+    FireballCoreMaterial, FireballChargeMaterial,
+    update_fireball_core_material_time, update_fireball_charge_material_time,
+};
 
 pub fn plugin(app: &mut App) {
     app.add_plugins(MaterialPlugin::<FireballCoreMaterial>::default());
+    app.add_plugins(MaterialPlugin::<FireballChargeMaterial>::default());
     app.init_resource::<PlayerPosition>()
         .init_resource::<Score>()
         .init_resource::<EnemySpawnState>()
@@ -106,6 +110,7 @@ pub fn plugin(app: &mut App) {
                 track_level_kills_system,
                 track_level_xp_system,
                 update_fireball_core_material_time,
+                update_fireball_charge_material_time,
             )
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),

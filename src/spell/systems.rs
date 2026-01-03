@@ -2254,6 +2254,7 @@ pub fn spell_casting_system(
     player_query: Query<(Entity, &Transform, &Player)>,
     mut last_spell_cast: ResMut<crate::spells::psychic::echo_thought::LastSpellCast>,
     fireball_effects: Option<Res<crate::spells::fire::fireball_effects::FireballEffects>>,
+    mut fireball_charge_materials: Option<ResMut<Assets<crate::spells::fire::materials::FireballChargeMaterial>>>,
 ) {
     let current_time = time.elapsed_secs();
 
@@ -2325,6 +2326,7 @@ pub fn spell_casting_system(
                     game_meshes.as_deref(),
                     game_materials.as_deref(),
                     fireball_effects.as_deref(),
+                    fireball_charge_materials.as_deref_mut(),
                 );
             }
             SpellType::RadiantBeam | SpellType::HolyBeam => {
