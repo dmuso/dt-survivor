@@ -24,6 +24,7 @@ use crate::whisper::systems::spawn_whisper_drop;
 use crate::game::resources::{FreshGameStart, GameLevel, LevelStats, PlayerPosition, EnemySpawnState, PlayerDamageTimer, ScreenTintEffect, SurvivalTime};
 use crate::score::*;
 use crate::game::events::{PlayerEnemyCollisionEvent, GameOverEvent, GameLevelUpEvent};
+use crate::spells::fire::fireball_effects::init_fireball_effects;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<PlayerPosition>()
@@ -56,6 +57,7 @@ pub fn plugin(app: &mut App) {
         .add_systems(OnEnter(GameState::InGame), (
             setup_game_assets,
             setup_game,
+            init_fireball_effects,
             spawn_whisper_drop,
             inventory_initialization_system,
             reset_survival_time,

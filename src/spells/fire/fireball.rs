@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use bevy::prelude::*;
+use bevy_hanabi::prelude::*;
 use bevy_kira_audio::prelude::*;
 use crate::audio::plugin::*;
 use crate::combat::DamageEvent;
@@ -7,8 +8,8 @@ use crate::element::Element;
 use crate::enemies::components::Enemy;
 use crate::game::events::FireballEnemyCollisionEvent;
 use crate::game::resources::{GameMaterials, GameMeshes};
-use crate::movement::components::from_xz;
 use crate::spell::components::Spell;
+use super::fireball_effects::FireballEffects;
 
 /// Default configuration for Fireball spell
 pub const FIREBALL_SPREAD_ANGLE: f32 = 15.0;
@@ -21,11 +22,14 @@ pub const BURN_TICK_INTERVAL: f32 = 0.5;
 pub const BURN_TOTAL_DURATION: f32 = 3.0;
 pub const BURN_DAMAGE_RATIO: f32 = 0.25; // 25% of direct damage per tick
 
+/// Ground level for collision detection
+pub const GROUND_LEVEL: f32 = 0.0;
+
 /// Marker component for fireball projectiles
 #[derive(Component, Debug, Clone)]
 pub struct FireballProjectile {
-    /// Direction of travel on XZ plane
-    pub direction: Vec2,
+    /// Direction of travel in 3D space (normalized)
+    pub direction: Vec3,
     /// Speed in units per second
     pub speed: f32,
     /// Lifetime timer
@@ -37,10 +41,10 @@ pub struct FireballProjectile {
 }
 
 impl FireballProjectile {
-    pub fn new(direction: Vec2, speed: f32, lifetime_secs: f32, damage: f32) -> Self {
+    pub fn new(direction: Vec3, speed: f32, lifetime_secs: f32, damage: f32) -> Self {
         let burn_tick_damage = damage * BURN_DAMAGE_RATIO;
         Self {
-            direction,
+            direction: direction.normalize(),
             speed,
             lifetime: Timer::from_seconds(lifetime_secs, TimerMode::Once),
             damage,
@@ -48,7 +52,7 @@ impl FireballProjectile {
         }
     }
 
-    pub fn from_spell(direction: Vec2, spell: &Spell) -> Self {
+    pub fn from_spell(direction: Vec3, spell: &Spell) -> Self {
         Self::new(direction, FIREBALL_SPEED, FIREBALL_LIFETIME, spell.damage())
     }
 }
@@ -97,6 +101,82 @@ impl Default for BurnEffect {
     }
 }
 
+/// Charge phase duration in seconds
+pub const FIREBALL_CHARGE_DURATION: f32 = 0.5;
+/// Height offset above player during charge phase
+pub const FIREBALL_CHARGE_HEIGHT: f32 = 1.5;
+/// Default enemy center height (half of enemy mesh height 1.5)
+pub const ENEMY_CENTER_HEIGHT: f32 = 0.75;
+
+/// Fireball in charge phase - spawns above player, grows with particles
+#[derive(Component, Debug, Clone)]
+pub struct ChargingFireball {
+    /// Timer for the charge duration
+    pub charge_timer: Timer,
+    /// Target direction in 3D space (toward enemy center)
+    pub target_direction: Vec3,
+    /// Final damage to deal on hit
+    pub damage: f32,
+    /// Burn tick damage
+    pub burn_tick_damage: f32,
+    /// Starting scale (small)
+    pub start_scale: f32,
+    /// Final scale (full size)
+    pub end_scale: f32,
+}
+
+impl ChargingFireball {
+    pub fn new(target_direction: Vec3, damage: f32) -> Self {
+        Self {
+            charge_timer: Timer::from_seconds(FIREBALL_CHARGE_DURATION, TimerMode::Once),
+            target_direction: target_direction.normalize(),
+            damage,
+            burn_tick_damage: damage * BURN_DAMAGE_RATIO,
+            start_scale: 0.1,
+            end_scale: 1.0,
+        }
+    }
+
+    /// Get current scale based on charge progress (0.0 to 1.0)
+    /// Uses ease-out cubic for satisfying growth
+    pub fn current_scale(&self) -> f32 {
+        let t = self.charge_timer.fraction();
+        let eased = 1.0 - (1.0 - t).powi(3);
+        self.start_scale + (self.end_scale - self.start_scale) * eased
+    }
+
+    /// Check if charge is complete
+    pub fn is_finished(&self) -> bool {
+        self.charge_timer.is_finished()
+    }
+}
+
+/// Marker for the charge particle effect entity (child of charging fireball)
+#[derive(Component, Debug)]
+pub struct FireballChargeParticles;
+
+/// Marker for the trail particle effect entity (child of active fireball)
+#[derive(Component, Debug)]
+pub struct FireballTrailParticles;
+
+/// Marker for the spark particle effect entity (child of active fireball)
+#[derive(Component, Debug)]
+pub struct FireballSparkParticles;
+
+/// Explosion particles (self-despawns after cleanup timer)
+#[derive(Component, Debug)]
+pub struct FireballExplosionParticles {
+    pub cleanup_timer: Timer,
+}
+
+impl Default for FireballExplosionParticles {
+    fn default() -> Self {
+        Self {
+            cleanup_timer: Timer::from_seconds(1.0, TimerMode::Once),
+        }
+    }
+}
+
 /// System that applies burn damage over time
 pub fn burn_damage_system(
     mut commands: Commands,
@@ -133,6 +213,7 @@ pub fn fire_fireball(
     sound_limiter: Option<&mut ResMut<SoundLimiter>>,
     game_meshes: Option<&GameMeshes>,
     game_materials: Option<&GameMaterials>,
+    fireball_effects: Option<&FireballEffects>,
 ) {
     fire_fireball_with_damage(
         commands,
@@ -145,12 +226,18 @@ pub fn fire_fireball(
         sound_limiter,
         game_meshes,
         game_materials,
+        fireball_effects,
     );
 }
 
-/// Cast fireball spell with explicit damage - spawns projectiles with fire element visuals
+/// Cast fireball spell with explicit damage - spawns charging fireball with particle effects
 /// `spawn_position` is Whisper's full 3D position, `target_pos` is enemy position on XZ plane
 /// `damage` is the pre-calculated final damage (including attunement multiplier)
+///
+/// The fireball now goes through phases:
+/// 1. Charge phase (0.5s): Spawns above player, grows with swirling particles
+/// 2. Flight phase: Flies in 3D toward enemy center, can hit ground
+/// 3. Explosion: Burst particles on enemy or ground hit
 #[allow(clippy::too_many_arguments)]
 pub fn fire_fireball_with_damage(
     commands: &mut Commands,
@@ -163,16 +250,23 @@ pub fn fire_fireball_with_damage(
     sound_limiter: Option<&mut ResMut<SoundLimiter>>,
     game_meshes: Option<&GameMeshes>,
     game_materials: Option<&GameMaterials>,
+    fireball_effects: Option<&FireballEffects>,
 ) {
-    // Extract XZ position from spawn_position for direction calculation
-    let spawn_xz = from_xz(spawn_position);
-    let base_direction = (target_pos - spawn_xz).normalize();
+    // Spawn position is above player (Whisper)
+    let charge_position = spawn_position + Vec3::new(0.0, FIREBALL_CHARGE_HEIGHT, 0.0);
+
+    // Target position in 3D: enemy XZ position + enemy center height
+    let target_3d = Vec3::new(target_pos.x, ENEMY_CENTER_HEIGHT, target_pos.y);
+
+    // Calculate 3D direction from charge position to enemy center
+    let base_direction_3d = (target_3d - charge_position).normalize();
 
     // Get projectile count based on spell level (1 at level 1-4, 2 at 5-9, 3 at 10)
     let projectile_count = spell.projectile_count();
     let spread_angle_rad = FIREBALL_SPREAD_ANGLE.to_radians();
 
     // Create projectiles in a spread pattern centered around the target direction
+    // Spread is applied as rotation around the Y axis (horizontal spread)
     for i in 0..projectile_count {
         let angle_offset = if projectile_count == 1 {
             0.0
@@ -181,28 +275,45 @@ pub fn fire_fireball_with_damage(
             (i as f32 - half_spread) * spread_angle_rad
         };
 
+        // Rotate direction around Y axis for horizontal spread
         let cos_offset = angle_offset.cos();
         let sin_offset = angle_offset.sin();
-        let direction = Vec2::new(
-            base_direction.x * cos_offset - base_direction.y * sin_offset,
-            base_direction.x * sin_offset + base_direction.y * cos_offset,
-        );
+        let direction = Vec3::new(
+            base_direction_3d.x * cos_offset - base_direction_3d.z * sin_offset,
+            base_direction_3d.y, // Keep Y component unchanged
+            base_direction_3d.x * sin_offset + base_direction_3d.z * cos_offset,
+        ).normalize();
 
-        let fireball = FireballProjectile::new(direction, FIREBALL_SPEED, FIREBALL_LIFETIME, damage);
+        // Create ChargingFireball with 3D direction
+        let charging = ChargingFireball::new(direction, damage);
+        let initial_scale = charging.start_scale;
 
-        // Spawn fireball at Whisper's full 3D position
+        // Spawn charging fireball above Whisper's position
         if let (Some(meshes), Some(materials)) = (game_meshes, game_materials) {
-            commands.spawn((
-                Mesh3d(meshes.bullet.clone()),
+            let mut entity_commands = commands.spawn((
+                Mesh3d(meshes.fireball.clone()),
                 MeshMaterial3d(materials.fireball.clone()),
-                Transform::from_translation(spawn_position),
-                fireball,
+                Transform::from_translation(charge_position)
+                    .with_scale(Vec3::splat(initial_scale)),
+                charging,
             ));
+
+            // Add charge particle effect as child
+            if let Some(effects) = fireball_effects {
+                entity_commands.with_children(|parent| {
+                    parent.spawn((
+                        ParticleEffect::new(effects.charge_effect.clone()),
+                        Transform::default(),
+                        FireballChargeParticles,
+                    ));
+                });
+            }
         } else {
             // Fallback for tests without mesh resources
             commands.spawn((
-                Transform::from_translation(spawn_position),
-                fireball,
+                Transform::from_translation(charge_position)
+                    .with_scale(Vec3::splat(initial_scale)),
+                charging,
             ));
         }
     }
@@ -220,15 +331,15 @@ pub fn fire_fireball_with_damage(
     }
 }
 
-/// System that moves fireball projectiles
+/// System that moves fireball projectiles in 3D space
 pub fn fireball_movement_system(
     mut fireball_query: Query<(&mut Transform, &FireballProjectile)>,
     time: Res<Time>,
 ) {
     for (mut transform, fireball) in fireball_query.iter_mut() {
+        // Full 3D movement toward target
         let movement = fireball.direction * fireball.speed * time.delta_secs();
-        // Movement on XZ plane: direction.x -> X axis, direction.y -> Z axis
-        transform.translation += Vec3::new(movement.x, 0.0, movement.y);
+        transform.translation += movement;
     }
 }
 
@@ -315,6 +426,194 @@ pub fn fireball_collision_effects(
     }
 }
 
+// ============================================================================
+// Enhanced Fireball Systems (Charge Phase, Particles, Explosion)
+// ============================================================================
+
+/// System that updates charging fireballs - scales up and ticks timer
+pub fn fireball_charge_update_system(
+    time: Res<Time>,
+    mut query: Query<(&mut ChargingFireball, &mut Transform)>,
+) {
+    for (mut charging, mut transform) in query.iter_mut() {
+        charging.charge_timer.tick(time.delta());
+
+        // Update scale based on charge progress
+        let scale = charging.current_scale();
+        transform.scale = Vec3::splat(scale);
+    }
+}
+
+/// System that transitions charging fireballs to active flight phase
+pub fn fireball_charge_to_flight_system(
+    mut commands: Commands,
+    query: Query<(Entity, &ChargingFireball, &Transform, Option<&Children>)>,
+    fireball_effects: Option<Res<FireballEffects>>,
+    charge_particles_query: Query<Entity, With<FireballChargeParticles>>,
+) {
+    for (entity, charging, _transform, children) in query.iter() {
+        if charging.is_finished() {
+            // Remove charge particles
+            if let Some(children) = children {
+                for child in children.iter() {
+                    if charge_particles_query.get(child).is_ok() {
+                        commands.entity(child).despawn();
+                    }
+                }
+            }
+
+            // Create FireballProjectile from ChargingFireball
+            let fireball = FireballProjectile {
+                direction: charging.target_direction,
+                speed: FIREBALL_SPEED,
+                lifetime: Timer::from_seconds(FIREBALL_LIFETIME, TimerMode::Once),
+                damage: charging.damage,
+                burn_tick_damage: charging.burn_tick_damage,
+            };
+
+            // Update the entity: remove ChargingFireball, add FireballProjectile
+            commands.entity(entity)
+                .remove::<ChargingFireball>()
+                .insert(fireball);
+
+            // Add trail and spark particles
+            if let Some(effects) = &fireball_effects {
+                commands.entity(entity).with_children(|parent| {
+                    // Trail particles
+                    parent.spawn((
+                        ParticleEffect::new(effects.trail_effect.clone()),
+                        Transform::default(),
+                        FireballTrailParticles,
+                    ));
+                    // Spark particles
+                    parent.spawn((
+                        ParticleEffect::new(effects.spark_effect.clone()),
+                        Transform::default(),
+                        FireballSparkParticles,
+                    ));
+                });
+            }
+        }
+    }
+}
+
+/// System that spawns explosion particles at collision point
+/// Spawns all four explosion layers for maximum impact
+pub fn fireball_explosion_spawn_system(
+    mut commands: Commands,
+    mut collision_events: MessageReader<FireballEnemyCollisionEvent>,
+    fireball_query: Query<&Transform, With<FireballProjectile>>,
+    fireball_effects: Option<Res<FireballEffects>>,
+) {
+    for event in collision_events.read() {
+        if let Ok(transform) = fireball_query.get(event.fireball_entity) {
+            if let Some(effects) = &fireball_effects {
+                let pos = transform.translation;
+
+                // Spawn all four explosion layers for massive visual impact
+                // Core flash - instant bright center
+                commands.spawn((
+                    ParticleEffect::new(effects.explosion_core_effect.clone()),
+                    Transform::from_translation(pos),
+                    FireballExplosionParticles::default(),
+                ));
+
+                // Main fire burst - the big orange-red explosion
+                commands.spawn((
+                    ParticleEffect::new(effects.explosion_fire_effect.clone()),
+                    Transform::from_translation(pos),
+                    FireballExplosionParticles::default(),
+                ));
+
+                // Flying ember sparks - debris flying outward
+                commands.spawn((
+                    ParticleEffect::new(effects.explosion_embers_effect.clone()),
+                    Transform::from_translation(pos),
+                    FireballExplosionParticles::default(),
+                ));
+
+                // Rising smoke - aftermath plume
+                commands.spawn((
+                    ParticleEffect::new(effects.explosion_smoke_effect.clone()),
+                    Transform::from_translation(pos),
+                    FireballExplosionParticles {
+                        cleanup_timer: Timer::from_seconds(1.5, TimerMode::Once), // Longer for smoke
+                    },
+                ));
+            }
+        }
+    }
+}
+
+/// System that checks for ground collision and spawns explosion
+/// Fireballs that hit the ground explode without dealing damage
+pub fn fireball_ground_collision_system(
+    mut commands: Commands,
+    fireball_query: Query<(Entity, &Transform), With<FireballProjectile>>,
+    fireball_effects: Option<Res<FireballEffects>>,
+) {
+    for (entity, transform) in fireball_query.iter() {
+        // Check if fireball has hit the ground (accounting for fireball radius)
+        if transform.translation.y <= GROUND_LEVEL + 0.1 {
+            // Spawn explosion at ground level with all four layers
+            if let Some(effects) = &fireball_effects {
+                let pos = Vec3::new(
+                    transform.translation.x,
+                    GROUND_LEVEL + 0.1, // Slightly above ground
+                    transform.translation.z,
+                );
+
+                // Core flash
+                commands.spawn((
+                    ParticleEffect::new(effects.explosion_core_effect.clone()),
+                    Transform::from_translation(pos),
+                    FireballExplosionParticles::default(),
+                ));
+
+                // Main fire burst
+                commands.spawn((
+                    ParticleEffect::new(effects.explosion_fire_effect.clone()),
+                    Transform::from_translation(pos),
+                    FireballExplosionParticles::default(),
+                ));
+
+                // Flying embers
+                commands.spawn((
+                    ParticleEffect::new(effects.explosion_embers_effect.clone()),
+                    Transform::from_translation(pos),
+                    FireballExplosionParticles::default(),
+                ));
+
+                // Rising smoke
+                commands.spawn((
+                    ParticleEffect::new(effects.explosion_smoke_effect.clone()),
+                    Transform::from_translation(pos),
+                    FireballExplosionParticles {
+                        cleanup_timer: Timer::from_seconds(1.5, TimerMode::Once),
+                    },
+                ));
+            }
+
+            // Despawn the fireball and its children (particles)
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// System that cleans up explosion particles after their timer expires
+pub fn fireball_explosion_cleanup_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut FireballExplosionParticles)>,
+) {
+    for (entity, mut explosion) in query.iter_mut() {
+        explosion.cleanup_timer.tick(time.delta());
+        if explosion.cleanup_timer.is_finished() {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -326,10 +625,10 @@ mod tests {
 
         #[test]
         fn test_fireball_projectile_new() {
-            let direction = Vec2::new(1.0, 0.0);
+            let direction = Vec3::new(1.0, 0.0, 0.0);
             let fireball = FireballProjectile::new(direction, 20.0, 5.0, 15.0);
 
-            assert_eq!(fireball.direction, direction);
+            assert_eq!(fireball.direction, direction.normalize());
             assert_eq!(fireball.speed, 20.0);
             assert_eq!(fireball.damage, 15.0);
             assert_eq!(fireball.burn_tick_damage, 15.0 * BURN_DAMAGE_RATIO);
@@ -338,17 +637,17 @@ mod tests {
         #[test]
         fn test_fireball_from_spell() {
             let spell = Spell::new(SpellType::Fireball);
-            let direction = Vec2::new(0.0, 1.0);
+            let direction = Vec3::new(0.0, 0.0, 1.0);
             let fireball = FireballProjectile::from_spell(direction, &spell);
 
-            assert_eq!(fireball.direction, direction);
+            assert_eq!(fireball.direction, direction.normalize());
             assert_eq!(fireball.speed, FIREBALL_SPEED);
             assert_eq!(fireball.damage, spell.damage());
         }
 
         #[test]
         fn test_fireball_lifetime_timer() {
-            let fireball = FireballProjectile::new(Vec2::X, 20.0, 5.0, 15.0);
+            let fireball = FireballProjectile::new(Vec3::X, 20.0, 5.0, 15.0);
             assert_eq!(fireball.lifetime.duration(), Duration::from_secs_f32(5.0));
             assert!(!fireball.lifetime.is_finished());
         }
@@ -521,7 +820,7 @@ mod tests {
         }
 
         #[test]
-        fn test_fire_fireball_spawns_projectile() {
+        fn test_fire_fireball_spawns_charging_fireball() {
             let mut app = setup_test_app();
 
             let spell = Spell::new(SpellType::Fireball);
@@ -540,12 +839,13 @@ mod tests {
                     None,
                     None,
                     None,
+                    None, // No particle effects in test
                 );
             }
             app.update();
 
-            // Should have spawned 1 fireball (level 1)
-            let mut query = app.world_mut().query::<&FireballProjectile>();
+            // Should have spawned 1 charging fireball (level 1)
+            let mut query = app.world_mut().query::<&ChargingFireball>();
             let count = query.iter(app.world()).count();
             assert_eq!(count, 1);
         }
@@ -571,11 +871,12 @@ mod tests {
                     None,
                     None,
                     None,
+                    None, // No particle effects in test
                 );
             }
             app.update();
 
-            let mut query = app.world_mut().query::<&FireballProjectile>();
+            let mut query = app.world_mut().query::<&ChargingFireball>();
             let count = query.iter(app.world()).count();
             assert_eq!(count, 2);
         }
@@ -600,14 +901,15 @@ mod tests {
                     None,
                     None,
                     None,
+                    None, // No particle effects in test
                 );
             }
             app.update();
 
-            let mut query = app.world_mut().query::<&FireballProjectile>();
-            for fireball in query.iter(app.world()) {
+            let mut query = app.world_mut().query::<&ChargingFireball>();
+            for charging in query.iter(app.world()) {
                 // Direction should point toward +X
-                assert!(fireball.direction.x > 0.9, "Fireball should move toward target");
+                assert!(charging.target_direction.x > 0.9, "Fireball should target +X direction");
             }
         }
 
@@ -632,14 +934,15 @@ mod tests {
                     None,
                     None,
                     None,
+                    None, // No particle effects in test
                 );
             }
             app.update();
 
-            let mut query = app.world_mut().query::<&FireballProjectile>();
-            for fireball in query.iter(app.world()) {
-                assert_eq!(fireball.damage, expected_damage);
-                assert_eq!(fireball.burn_tick_damage, expected_damage * BURN_DAMAGE_RATIO);
+            let mut query = app.world_mut().query::<&ChargingFireball>();
+            for charging in query.iter(app.world()) {
+                assert_eq!(charging.damage, expected_damage);
+                assert_eq!(charging.burn_tick_damage, expected_damage * BURN_DAMAGE_RATIO);
             }
         }
     }
@@ -654,10 +957,10 @@ mod tests {
             let mut app = App::new();
             app.add_plugins(bevy::time::TimePlugin::default());
 
-            // Create fireball moving in +X direction
+            // Create fireball moving in +X direction (3D direction)
             let entity = app.world_mut().spawn((
                 Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
-                FireballProjectile::new(Vec2::new(1.0, 0.0), 100.0, 5.0, 15.0),
+                FireballProjectile::new(Vec3::new(1.0, 0.0, 0.0), 100.0, 5.0, 15.0),
             )).id();
 
             // Advance time 1 second
@@ -679,10 +982,10 @@ mod tests {
             let mut app = App::new();
             app.add_plugins(bevy::time::TimePlugin::default());
 
-            // Create fireball moving in +Z direction (direction.y maps to Z)
+            // Create fireball moving in +Z direction (3D direction)
             let entity = app.world_mut().spawn((
                 Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
-                FireballProjectile::new(Vec2::new(0.0, 1.0), 50.0, 5.0, 15.0),
+                FireballProjectile::new(Vec3::new(0.0, 0.0, 1.0), 50.0, 5.0, 15.0),
             )).id();
 
             // Advance time 1 second
@@ -712,7 +1015,7 @@ mod tests {
 
             let entity = app.world_mut().spawn((
                 Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
-                FireballProjectile::new(Vec2::X, 100.0, 5.0, 15.0),
+                FireballProjectile::new(Vec3::X, 100.0, 5.0, 15.0),
             )).id();
 
             // Advance time past lifetime
@@ -733,7 +1036,7 @@ mod tests {
 
             let entity = app.world_mut().spawn((
                 Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
-                FireballProjectile::new(Vec2::X, 100.0, 5.0, 15.0),
+                FireballProjectile::new(Vec3::X, 100.0, 5.0, 15.0),
             )).id();
 
             // Advance time but not past lifetime
@@ -787,7 +1090,7 @@ mod tests {
             // Spawn fireball at origin
             app.world_mut().spawn((
                 Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
-                FireballProjectile::new(Vec2::X, 20.0, 5.0, 15.0),
+                FireballProjectile::new(Vec3::X, 20.0, 5.0, 15.0),
             ));
 
             // Spawn enemy within collision radius
@@ -828,7 +1131,7 @@ mod tests {
             // Spawn fireball at origin
             app.world_mut().spawn((
                 Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
-                FireballProjectile::new(Vec2::X, 20.0, 5.0, 15.0),
+                FireballProjectile::new(Vec3::X, 20.0, 5.0, 15.0),
             ));
 
             // Spawn enemy far away (beyond collision radius)
@@ -854,7 +1157,7 @@ mod tests {
 
             let fireball_entity = app.world_mut().spawn((
                 Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
-                FireballProjectile::new(Vec2::X, 20.0, 5.0, 15.0),
+                FireballProjectile::new(Vec3::X, 20.0, 5.0, 15.0),
             )).id();
 
             let enemy_entity = app.world_mut().spawn((
@@ -882,7 +1185,7 @@ mod tests {
 
             app.world_mut().spawn((
                 Transform::from_translation(Vec3::new(0.0, 0.5, 0.0)),
-                FireballProjectile::new(Vec2::X, 20.0, 5.0, 15.0),
+                FireballProjectile::new(Vec3::X, 20.0, 5.0, 15.0),
             ));
 
             let enemy_entity = app.world_mut().spawn((

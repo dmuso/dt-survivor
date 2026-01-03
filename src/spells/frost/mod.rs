@@ -1,5 +1,6 @@
 pub mod frozen_orb;
 pub mod glacial_pulse;
+pub mod glacial_spike;
 pub mod hoarfrost;
 pub mod ice_lance;
 pub mod ice_shard;
@@ -9,6 +10,7 @@ pub mod shatter;
 
 pub use frozen_orb::*;
 pub use glacial_pulse::*;
+pub use glacial_spike::*;
 pub use hoarfrost::*;
 pub use ice_lance::*;
 pub use ice_shard::*;

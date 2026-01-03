@@ -52,7 +52,7 @@ mod tests {
             app.update();
 
             let fireball_count = app.world_mut()
-                .query::<&crate::spells::fire::fireball::FireballProjectile>()
+                .query::<&crate::spells::fire::fireball::ChargingFireball>()
                 .iter(app.world())
                 .count();
             assert_eq!(fireball_count, 1, "Fireball should spawn from SpellList");
@@ -89,7 +89,7 @@ mod tests {
 
             // All three spell types should have cast
             let fireball_count = app.world_mut()
-                .query::<&crate::spells::fire::fireball::FireballProjectile>()
+                .query::<&crate::spells::fire::fireball::ChargingFireball>()
                 .iter(app.world())
                 .count();
             let beam_count = app.world_mut()
@@ -156,7 +156,7 @@ mod tests {
             app.update();
 
             let fireball_count = app.world_mut()
-                .query::<&crate::spells::fire::fireball::FireballProjectile>()
+                .query::<&crate::spells::fire::fireball::ChargingFireball>()
                 .iter(app.world())
                 .count();
             assert_eq!(fireball_count, 0, "Fireball should not spawn when on cooldown");
@@ -263,7 +263,7 @@ mod tests {
 
     mod whisper_attunement_tests {
         use super::*;
-        use crate::spells::fire::fireball::FireballProjectile;
+        use crate::spells::fire::fireball::ChargingFireball;
 
         #[test]
         fn attunement_bonus_applied_to_matching_element() {
@@ -292,7 +292,7 @@ mod tests {
             app.init_resource::<Time>();
             app.update();
 
-            let mut query = app.world_mut().query::<&FireballProjectile>();
+            let mut query = app.world_mut().query::<&ChargingFireball>();
             let projectiles: Vec<_> = query.iter(app.world()).collect();
             assert_eq!(projectiles.len(), 1);
 
@@ -334,7 +334,7 @@ mod tests {
             app.init_resource::<Time>();
             app.update();
 
-            let mut query = app.world_mut().query::<&FireballProjectile>();
+            let mut query = app.world_mut().query::<&ChargingFireball>();
             let projectiles: Vec<_> = query.iter(app.world()).collect();
             assert_eq!(projectiles.len(), 1);
 
@@ -375,7 +375,7 @@ mod tests {
             app.init_resource::<Time>();
             app.update();
 
-            let mut query = app.world_mut().query::<&FireballProjectile>();
+            let mut query = app.world_mut().query::<&ChargingFireball>();
             let projectiles: Vec<_> = query.iter(app.world()).collect();
             assert_eq!(projectiles.len(), 1);
 
@@ -417,7 +417,7 @@ mod tests {
             app.update();
 
             let fireball_count = app.world_mut()
-                .query::<&crate::spells::fire::fireball::FireballProjectile>()
+                .query::<&crate::spells::fire::fireball::ChargingFireball>()
                 .iter(app.world())
                 .count();
             assert_eq!(fireball_count, 0, "No fireballs should spawn when Whisper not collected");
@@ -458,7 +458,7 @@ mod tests {
 
             // Should cast toward one of the 5 closest enemies
             let fireball_count = app.world_mut()
-                .query::<&crate::spells::fire::fireball::FireballProjectile>()
+                .query::<&crate::spells::fire::fireball::ChargingFireball>()
                 .iter(app.world())
                 .count();
             assert!(fireball_count >= 1, "Fireball should be cast");
@@ -2253,6 +2253,7 @@ pub fn spell_casting_system(
     mut damage_events: Option<MessageWriter<DamageEvent>>,
     player_query: Query<(Entity, &Transform, &Player)>,
     mut last_spell_cast: ResMut<crate::spells::psychic::echo_thought::LastSpellCast>,
+    fireball_effects: Option<Res<crate::spells::fire::fireball_effects::FireballEffects>>,
 ) {
     let current_time = time.elapsed_secs();
 
@@ -2323,6 +2324,7 @@ pub fn spell_casting_system(
                     sound_limiter.as_mut(),
                     game_meshes.as_deref(),
                     game_materials.as_deref(),
+                    fireball_effects.as_deref(),
                 );
             }
             SpellType::RadiantBeam | SpellType::HolyBeam => {
@@ -2405,11 +2407,10 @@ pub fn spell_casting_system(
                 );
             }
             SpellType::GlacialSpike => {
-                crate::spells::frost::ice_shards::fire_ice_shards_with_damage(
+                crate::spells::frost::glacial_spike::fire_glacial_spike_with_damage(
                     &mut commands,
                     spell,
                     final_damage,
-                    origin_pos,
                     target_pos,
                     game_meshes.as_deref(),
                     game_materials.as_deref(),
@@ -2523,13 +2524,12 @@ pub fn spell_casting_system(
                 );
             }
             SpellType::Electrocute => {
-                crate::spells::lightning::ion_field::fire_ion_field_with_damage(
+                crate::spells::lightning::electrocute::fire_electrocute_with_damage(
                     &mut commands,
                     spell,
                     final_damage,
                     origin_pos,
-                    game_meshes.as_deref(),
-                    game_materials.as_deref(),
+                    &enemy_query,
                 );
             }
             SpellType::Flashstep => {
@@ -2595,8 +2595,7 @@ pub fn spell_casting_system(
                     spell,
                     final_damage,
                     origin_pos,
-                    game_meshes.as_deref(),
-                    game_materials.as_deref(),
+                    &enemy_query,
                 );
             }
             SpellType::DarkPulse => {

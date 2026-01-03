@@ -156,6 +156,8 @@ pub struct GameMeshes {
     pub enemy: Handle<Mesh>,
     /// Bullet mesh (0.3 x 0.3 x 0.3 cube)
     pub bullet: Handle<Mesh>,
+    /// Fireball mesh (sphere with radius 0.3)
+    pub fireball: Handle<Mesh>,
     /// Laser beam mesh (thin elongated cube: 0.1 x 0.1 x 1.0, scaled by length)
     pub laser: Handle<Mesh>,
     /// Rocket mesh (elongated cube: 0.25 x 0.25 x 0.6)
@@ -182,6 +184,8 @@ pub struct GameMeshes {
     pub orbital_particle: Handle<Mesh>,
     /// Powerup mesh (medium cube for powerup items)
     pub powerup: Handle<Mesh>,
+    /// Glacial spike mesh (tall thin spike for ground eruption)
+    pub glacial_spike: Handle<Mesh>,
 }
 
 impl GameMeshes {
@@ -190,6 +194,7 @@ impl GameMeshes {
             player: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
             enemy: meshes.add(Cuboid::new(0.75, 1.5, 0.75)),
             bullet: meshes.add(Cuboid::new(0.3, 0.3, 0.3)),
+            fireball: meshes.add(Sphere::new(0.3)),
             laser: meshes.add(Cuboid::new(0.1, 0.1, 1.0)),
             rocket: meshes.add(Cuboid::new(0.25, 0.25, 0.6)),
             explosion: meshes.add(Sphere::new(1.0)),
@@ -203,6 +208,8 @@ impl GameMeshes {
             whisper_arc: meshes.add(Cuboid::new(0.1, 0.02, 0.02)),
             orbital_particle: meshes.add(Sphere::new(0.05)),
             powerup: meshes.add(Cuboid::new(0.5, 0.5, 0.5)),
+            // Pointed spike cone (base radius 1.0, height 1.0 - scaled during eruption)
+            glacial_spike: meshes.add(Cone::new(1.0, 1.0)),
         }
     }
 }
@@ -538,6 +545,8 @@ pub struct GameMaterials {
     pub judgment_beam: Handle<StandardMaterial>,
     /// Judgment AoE ground effect material (white/gold with 30% opacity)
     pub judgment_aoe: Handle<StandardMaterial>,
+    /// Glacial spike material (ice blue with strong emissive glow)
+    pub glacial_spike: Handle<StandardMaterial>,
 }
 
 impl GameMaterials {
@@ -740,6 +749,11 @@ impl GameMaterials {
                 base_color: Color::srgba(1.0, 1.0, 0.9, 0.3), // White/gold with 30% opacity
                 emissive: bevy::color::LinearRgba::rgb(2.0, 2.0, 1.5), // Softer glow for ground effect
                 alpha_mode: AlphaMode::Add,
+                ..default()
+            }),
+            glacial_spike: materials.add(StandardMaterial {
+                base_color: Color::srgb(0.53, 0.81, 0.92), // Ice blue (Frost element color)
+                emissive: bevy::color::LinearRgba::rgb(1.5, 2.0, 2.5), // Strong ice blue glow
                 ..default()
             }),
         }
@@ -1015,6 +1029,7 @@ mod tests {
             assert!(meshes.get(&game_meshes.whisper_arc).is_some());
             assert!(meshes.get(&game_meshes.orbital_particle).is_some());
             assert!(meshes.get(&game_meshes.powerup).is_some());
+            assert!(meshes.get(&game_meshes.glacial_spike).is_some());
         }
 
         #[test]
@@ -1052,6 +1067,7 @@ mod tests {
             assert!(materials.get(&game_materials.chaos_aoe).is_some());
             assert!(materials.get(&game_materials.judgment_beam).is_some());
             assert!(materials.get(&game_materials.judgment_aoe).is_some());
+            assert!(materials.get(&game_materials.glacial_spike).is_some());
         }
 
         #[test]
@@ -1178,6 +1194,10 @@ mod tests {
             let judgment_aoe_mat = materials.get(&game_materials.judgment_aoe).unwrap();
             assert_eq!(judgment_aoe_mat.base_color, Color::srgba(1.0, 1.0, 0.9, 0.3));
             assert_eq!(judgment_aoe_mat.alpha_mode, AlphaMode::Add);
+
+            // Verify glacial_spike is ice blue (Frost element color)
+            let glacial_spike_mat = materials.get(&game_materials.glacial_spike).unwrap();
+            assert_eq!(glacial_spike_mat.base_color, Color::srgb(0.53, 0.81, 0.92));
         }
 
         #[test]

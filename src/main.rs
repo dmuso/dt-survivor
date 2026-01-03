@@ -51,7 +51,7 @@ mod tests {
     use super::*;
     use donny_tango_survivor::prelude::*;
     use donny_tango_survivor::spells::fire::fireball::{
-        FireballProjectile, fireball_collision_detection, fireball_collision_effects,
+        FireballProjectile, ChargingFireball, fireball_collision_detection, fireball_collision_effects,
     };
     use donny_tango_survivor::score::Score;
     use donny_tango_survivor::spell::systems::spell_casting_system;
@@ -407,9 +407,9 @@ mod tests {
         // Run spell casting system
         let _ = app.world_mut().run_system_once(spell_casting_system);
 
-        // Check that fireballs were spawned
+        // Check that charging fireballs were spawned (charge phase)
         let world = app.world_mut();
-        let fireball_count = world.query::<&FireballProjectile>().iter(world).count();
+        let fireball_count = world.query::<&ChargingFireball>().iter(world).count();
         assert_eq!(fireball_count, 1, "Spell casting should spawn 1 fireball");
     }
 
@@ -512,7 +512,7 @@ mod tests {
         let fireball_entity = app.world_mut().spawn((
             Transform::from_translation(Vec3::new(0.0, 0.15, 0.0)), // X=0, Z=0
             FireballProjectile {
-                direction: Vec2::new(1.0, 0.0),
+                direction: Vec3::new(1.0, 0.0, 0.0),
                 speed: 300.0,
                 damage: 10.0,
                 burn_tick_damage: 2.0,
@@ -594,7 +594,7 @@ mod tests {
             let fireball_entity = app.world_mut().spawn((
                 Transform::from_translation(Vec3::new(0.0, 0.15, i as f32 * 20.0)), // Spread in Z
                 FireballProjectile {
-                    direction: Vec2::new(1.0, 0.0),
+                    direction: Vec3::new(1.0, 0.0, 0.0),
                     speed: 300.0,
                     damage: 10.0,
                     burn_tick_damage: 2.0,

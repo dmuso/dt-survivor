@@ -8,6 +8,9 @@ use crate::spell::systems::*;
 use crate::spells::fire::fireball::{
     burn_damage_system, fireball_collision_detection, fireball_collision_effects,
     fireball_lifetime_system, fireball_movement_system,
+    fireball_charge_update_system, fireball_charge_to_flight_system,
+    fireball_explosion_spawn_system, fireball_explosion_cleanup_system,
+    fireball_ground_collision_system,
 };
 use crate::spells::light::radiance::{
     radiance_pulse_system, radiance_pulse_visual_system,
@@ -42,6 +45,10 @@ use crate::spells::frost::ice_shards::{
 use crate::spells::frost::glacial_pulse::{
     glacial_pulse_cleanup_system, glacial_pulse_collision_system,
     glacial_pulse_expansion_system, glacial_pulse_visual_system,
+};
+use crate::spells::frost::glacial_spike::{
+    glacial_spike_cleanup_system, glacial_spike_collision_system,
+    glacial_spike_eruption_system,
 };
 use crate::spells::frost::frozen_orb::{
     blizzard_shard_cleanup_system, blizzard_shard_movement_system, blizzard_shard_spawn_system,
@@ -111,6 +118,9 @@ use crate::spells::lightning::ion_field::{
 use crate::spells::lightning::flashstep::{
     execute_flashstep_system, lightning_burst_damage_system, update_lightning_bursts,
 };
+use crate::spells::lightning::electrocute::{
+    electrocute_damage_system, electrocute_visual_system,
+};
 use crate::spells::poison::acid_rain::{
     acid_rain_cleanup_droplets_system, acid_rain_cleanup_zone_system,
     acid_rain_droplet_collision_system, acid_rain_move_droplets_system,
@@ -121,7 +131,7 @@ use crate::spells::dark::nightfall::{
     nightfall_zone_tracking_system,
 };
 use crate::spells::dark::soul_drain::{
-    soul_drain_system, soul_drain_pulse_visual_system,
+    soul_drain_system, soul_drain_visual_system,
 };
 use crate::spells::dark::wraith_form::{
     wraith_form_cleanup_system, wraith_form_damage_system,
@@ -253,6 +263,17 @@ pub fn plugin(app: &mut App) {
             PostUpdate,
             spell_casting_system.run_if(in_state(GameState::InGame)),
         )
+        // Fireball charge phase systems (update scale, transition to flight)
+        .add_systems(
+            Update,
+            (
+                fireball_charge_update_system,
+                fireball_charge_to_flight_system,
+            )
+                .chain()
+                .in_set(GameSet::Movement)
+                .run_if(in_state(GameState::InGame)),
+        )
         // Fireball movement and lifetime systems
         .add_systems(
             Update,
@@ -268,6 +289,7 @@ pub fn plugin(app: &mut App) {
             Update,
             (
                 fireball_collision_detection,
+                fireball_explosion_spawn_system,
                 fireball_collision_effects,
             )
                 .chain()
@@ -279,6 +301,20 @@ pub fn plugin(app: &mut App) {
             Update,
             burn_damage_system
                 .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Fireball ground collision (explodes on hitting ground)
+        .add_systems(
+            Update,
+            fireball_ground_collision_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Fireball explosion particle cleanup
+        .add_systems(
+            Update,
+            fireball_explosion_cleanup_system
+                .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )
         // Radiant beam systems
@@ -437,6 +473,25 @@ pub fn plugin(app: &mut App) {
             Update,
             glacial_pulse_visual_system
                 .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Glacial spike systems - eruption in Effects, collision in Combat, cleanup in Cleanup
+        .add_systems(
+            Update,
+            glacial_spike_eruption_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            glacial_spike_collision_system
+                .in_set(GameSet::Combat)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            glacial_spike_cleanup_system
+                .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )
         // Frozen orb systems - movement and tick in Movement, damage in Combat, cleanup in Cleanup
@@ -822,6 +877,19 @@ pub fn plugin(app: &mut App) {
                 .in_set(GameSet::Cleanup)
                 .run_if(in_state(GameState::InGame)),
         )
+        // Electrocute systems - damage tick in Effects, visual update in Effects
+        .add_systems(
+            Update,
+            electrocute_damage_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        .add_systems(
+            Update,
+            electrocute_visual_system
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
         // Acid Rain systems - spawning in Effects, movement/collision in Combat, cleanup in Cleanup
         .add_systems(
             Update,
@@ -861,16 +929,16 @@ pub fn plugin(app: &mut App) {
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         )
-        // Soul Drain aura systems - damage/heal in Combat, visual expansion in Effects
+        // Soul Drain beam systems - damage/heal in Effects, visual update in Effects
         .add_systems(
             Update,
             soul_drain_system
-                .in_set(GameSet::Combat)
+                .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         )
         .add_systems(
             Update,
-            soul_drain_pulse_visual_system
+            soul_drain_visual_system
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         )
