@@ -2327,6 +2327,7 @@ pub fn spell_casting_system(
                     game_materials.as_deref(),
                     fireball_effects.as_deref(),
                     fireball_charge_materials.as_deref_mut(),
+                    None, // Trail materials handled by charge_to_flight system
                 );
             }
             SpellType::RadiantBeam | SpellType::HolyBeam => {

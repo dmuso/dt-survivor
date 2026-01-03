@@ -8,6 +8,9 @@ pub const FIREBALL_CORE_SHADER: &str = "shaders/fireball_core.wgsl";
 /// Shader asset path for the fireball charge swirling energy effect.
 pub const FIREBALL_CHARGE_SHADER: &str = "shaders/fireball_charge.wgsl";
 
+/// Shader asset path for the fireball trail comet tail effect.
+pub const FIREBALL_TRAIL_SHADER: &str = "shaders/fireball_trail.wgsl";
+
 /// Material for rendering the fireball core with volumetric fire effect.
 ///
 /// This shader creates an animated fire sphere with:
@@ -215,6 +218,113 @@ pub fn update_fireball_charge_material_time(
     }
 }
 
+// ============================================================================
+// Fireball Trail Material - Comet tail effect
+// ============================================================================
+
+/// Material for rendering the fireball trail as a comet tail effect.
+///
+/// This shader creates an elongated flame trail that:
+/// - Shows an elongated flame shape trailing behind the fireball
+/// - Uses noise-animated flame edges for organic movement
+/// - Color gradient: bright orange at head -> red -> dark smoke at tail
+/// - Fades out over distance from fireball
+/// - Works in global space (trail stays in world position)
+#[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
+pub struct FireballTrailMaterial {
+    /// Current time for animation (in seconds).
+    /// Packed as x component of Vec4 for 16-byte alignment.
+    #[uniform(0)]
+    pub time: Vec4,
+
+    /// Velocity direction of the fireball (normalized).
+    /// xyz = direction, w unused.
+    #[uniform(1)]
+    pub velocity_dir: Vec4,
+
+    /// Trail length multiplier.
+    /// Controls how far the trail extends behind the fireball.
+    /// Packed as x component of Vec4 for 16-byte alignment.
+    #[uniform(2)]
+    pub trail_length: Vec4,
+
+    /// Emissive intensity for HDR bloom effect.
+    /// Values > 1.0 will bloom with HDR rendering.
+    /// Packed as x component of Vec4 for 16-byte alignment.
+    #[uniform(3)]
+    pub emissive_intensity: Vec4,
+}
+
+impl Default for FireballTrailMaterial {
+    fn default() -> Self {
+        Self {
+            time: Vec4::ZERO,
+            // Default direction: pointing in -Z (common forward direction)
+            velocity_dir: Vec4::new(0.0, 0.0, -1.0, 0.0),
+            trail_length: Vec4::new(1.5, 0.0, 0.0, 0.0),
+            emissive_intensity: Vec4::new(2.5, 0.0, 0.0, 0.0),
+        }
+    }
+}
+
+impl FireballTrailMaterial {
+    /// Create a new material with default settings.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Update the time uniform for animation.
+    pub fn set_time(&mut self, time: f32) {
+        self.time.x = time;
+    }
+
+    /// Set the velocity direction (will be normalized).
+    /// The trail extends opposite to this direction.
+    pub fn set_velocity_direction(&mut self, direction: Vec3) {
+        let normalized = direction.normalize_or_zero();
+        self.velocity_dir = Vec4::new(normalized.x, normalized.y, normalized.z, 0.0);
+    }
+
+    /// Set the trail length multiplier.
+    pub fn set_trail_length(&mut self, length: f32) {
+        self.trail_length.x = length.max(0.1);
+    }
+
+    /// Set the emissive intensity for HDR bloom.
+    pub fn set_emissive_intensity(&mut self, intensity: f32) {
+        self.emissive_intensity.x = intensity.max(0.0);
+    }
+}
+
+impl Material for FireballTrailMaterial {
+    fn fragment_shader() -> ShaderRef {
+        FIREBALL_TRAIL_SHADER.into()
+    }
+
+    fn vertex_shader() -> ShaderRef {
+        FIREBALL_TRAIL_SHADER.into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Blend
+    }
+}
+
+/// Resource to store the fireball trail material handle for reuse.
+#[derive(Resource)]
+pub struct FireballTrailMaterialHandle(pub Handle<FireballTrailMaterial>);
+
+/// System to update time on all fireball trail materials.
+pub fn update_fireball_trail_material_time(
+    time: Res<Time>,
+    mut materials: ResMut<Assets<FireballTrailMaterial>>,
+) {
+    let current_time = time.elapsed_secs();
+    for (_, material) in materials.iter_mut() {
+        material.set_time(current_time);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -396,6 +506,115 @@ mod tests {
         fn alpha_mode_is_add() {
             let material = FireballChargeMaterial::new();
             assert_eq!(material.alpha_mode(), AlphaMode::Add);
+        }
+    }
+
+    mod fireball_trail_material_tests {
+        use super::*;
+
+        #[test]
+        fn default_has_expected_values() {
+            let material = FireballTrailMaterial::default();
+            assert_eq!(material.time.x, 0.0);
+            assert_eq!(material.velocity_dir.x, 0.0);
+            assert_eq!(material.velocity_dir.y, 0.0);
+            assert_eq!(material.velocity_dir.z, -1.0);
+            assert_eq!(material.trail_length.x, 1.5);
+            assert_eq!(material.emissive_intensity.x, 2.5);
+        }
+
+        #[test]
+        fn new_matches_default() {
+            let material = FireballTrailMaterial::new();
+            let default = FireballTrailMaterial::default();
+            assert_eq!(material.time, default.time);
+            assert_eq!(material.velocity_dir, default.velocity_dir);
+            assert_eq!(material.trail_length, default.trail_length);
+            assert_eq!(material.emissive_intensity, default.emissive_intensity);
+        }
+
+        #[test]
+        fn set_time_updates_x_component() {
+            let mut material = FireballTrailMaterial::new();
+            material.set_time(3.5);
+            assert_eq!(material.time.x, 3.5);
+            assert_eq!(material.time.y, 0.0);
+            assert_eq!(material.time.z, 0.0);
+            assert_eq!(material.time.w, 0.0);
+        }
+
+        #[test]
+        fn set_velocity_direction_normalizes_input() {
+            let mut material = FireballTrailMaterial::new();
+            material.set_velocity_direction(Vec3::new(3.0, 0.0, 4.0));
+            // Should be normalized to (0.6, 0.0, 0.8)
+            assert!((material.velocity_dir.x - 0.6).abs() < 0.001);
+            assert_eq!(material.velocity_dir.y, 0.0);
+            assert!((material.velocity_dir.z - 0.8).abs() < 0.001);
+        }
+
+        #[test]
+        fn set_velocity_direction_handles_zero_vector() {
+            let mut material = FireballTrailMaterial::new();
+            material.set_velocity_direction(Vec3::ZERO);
+            // normalize_or_zero returns zero for zero vector
+            assert_eq!(material.velocity_dir.x, 0.0);
+            assert_eq!(material.velocity_dir.y, 0.0);
+            assert_eq!(material.velocity_dir.z, 0.0);
+        }
+
+        #[test]
+        fn set_velocity_direction_unit_vectors() {
+            let mut material = FireballTrailMaterial::new();
+
+            material.set_velocity_direction(Vec3::X);
+            assert_eq!(material.velocity_dir.x, 1.0);
+            assert_eq!(material.velocity_dir.y, 0.0);
+            assert_eq!(material.velocity_dir.z, 0.0);
+
+            material.set_velocity_direction(Vec3::Y);
+            assert_eq!(material.velocity_dir.x, 0.0);
+            assert_eq!(material.velocity_dir.y, 1.0);
+            assert_eq!(material.velocity_dir.z, 0.0);
+
+            material.set_velocity_direction(Vec3::Z);
+            assert_eq!(material.velocity_dir.x, 0.0);
+            assert_eq!(material.velocity_dir.y, 0.0);
+            assert_eq!(material.velocity_dir.z, 1.0);
+        }
+
+        #[test]
+        fn set_trail_length_clamps_to_minimum() {
+            let mut material = FireballTrailMaterial::new();
+            material.set_trail_length(0.05);
+            assert_eq!(material.trail_length.x, 0.1);
+        }
+
+        #[test]
+        fn set_trail_length_accepts_valid_values() {
+            let mut material = FireballTrailMaterial::new();
+            material.set_trail_length(3.0);
+            assert_eq!(material.trail_length.x, 3.0);
+        }
+
+        #[test]
+        fn set_emissive_intensity_clamps_negative() {
+            let mut material = FireballTrailMaterial::new();
+            material.set_emissive_intensity(-5.0);
+            assert_eq!(material.emissive_intensity.x, 0.0);
+        }
+
+        #[test]
+        fn set_emissive_intensity_accepts_high_values() {
+            let mut material = FireballTrailMaterial::new();
+            material.set_emissive_intensity(10.0);
+            assert_eq!(material.emissive_intensity.x, 10.0);
+        }
+
+        #[test]
+        fn alpha_mode_is_blend() {
+            let material = FireballTrailMaterial::new();
+            assert_eq!(material.alpha_mode(), AlphaMode::Blend);
         }
     }
 }

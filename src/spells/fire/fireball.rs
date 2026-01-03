@@ -171,6 +171,14 @@ pub struct FireballChargeEffect {
     pub material_handle: Handle<super::materials::FireballChargeMaterial>,
 }
 
+/// Component for the shader-based trail effect entity (comet tail)
+/// Stores the material handle so we can update velocity direction
+#[derive(Component, Debug)]
+pub struct FireballTrailEffect {
+    /// Handle to the trail material for this entity
+    pub material_handle: Handle<super::materials::FireballTrailMaterial>,
+}
+
 /// Explosion particles (self-despawns after cleanup timer)
 #[derive(Component, Debug)]
 pub struct FireballExplosionParticles {
@@ -223,6 +231,7 @@ pub fn fire_fireball(
     game_materials: Option<&GameMaterials>,
     fireball_effects: Option<&FireballEffects>,
     charge_materials: Option<&mut Assets<super::materials::FireballChargeMaterial>>,
+    trail_materials: Option<&mut Assets<super::materials::FireballTrailMaterial>>,
 ) {
     fire_fireball_with_damage(
         commands,
@@ -237,6 +246,7 @@ pub fn fire_fireball(
         game_materials,
         fireball_effects,
         charge_materials,
+        trail_materials,
     );
 }
 
@@ -262,6 +272,7 @@ pub fn fire_fireball_with_damage(
     game_materials: Option<&GameMaterials>,
     fireball_effects: Option<&FireballEffects>,
     charge_materials: Option<&mut Assets<super::materials::FireballChargeMaterial>>,
+    _trail_materials: Option<&mut Assets<super::materials::FireballTrailMaterial>>,
 ) {
     // Spawn position is above player (Whisper)
     let charge_position = spawn_position + Vec3::new(0.0, FIREBALL_CHARGE_HEIGHT, 0.0);
@@ -502,6 +513,27 @@ pub fn fireball_charge_effect_update_system(
     }
 }
 
+/// System that updates trail effect shader materials with current velocity direction
+pub fn fireball_trail_effect_update_system(
+    parent_query: Query<&FireballProjectile>,
+    child_query: Query<(&ChildOf, &FireballTrailEffect)>,
+    mut materials: Option<ResMut<Assets<super::materials::FireballTrailMaterial>>>,
+) {
+    let Some(materials) = materials.as_mut() else {
+        return; // No material assets available (e.g., in tests without MaterialPlugin)
+    };
+
+    for (child_of, trail_effect) in child_query.iter() {
+        // Get the parent's velocity direction
+        if let Ok(fireball) = parent_query.get(child_of.parent()) {
+            // Update the material's velocity direction
+            if let Some(material) = materials.get_mut(&trail_effect.material_handle) {
+                material.set_velocity_direction(fireball.direction);
+            }
+        }
+    }
+}
+
 /// System that transitions charging fireballs to active flight phase
 pub fn fireball_charge_to_flight_system(
     mut commands: Commands,
@@ -509,6 +541,8 @@ pub fn fireball_charge_to_flight_system(
     fireball_effects: Option<Res<FireballEffects>>,
     charge_particles_query: Query<Entity, With<FireballChargeParticles>>,
     charge_effect_query: Query<Entity, With<FireballChargeEffect>>,
+    game_meshes: Option<Res<GameMeshes>>,
+    mut trail_materials: Option<ResMut<Assets<super::materials::FireballTrailMaterial>>>,
 ) {
     for (entity, charging, _transform, children) in query.iter() {
         if charging.is_finished() {
@@ -538,15 +572,26 @@ pub fn fireball_charge_to_flight_system(
                 .remove::<ChargingFireball>()
                 .insert(fireball);
 
-            // Add trail and spark particles
+            // Add shader-based trail effect (comet tail)
+            if let (Some(meshes), Some(ref mut trail_mats)) = (&game_meshes, &mut trail_materials) {
+                let mut trail_material = super::materials::FireballTrailMaterial::new();
+                trail_material.set_velocity_direction(charging.target_direction);
+                trail_material.set_trail_length(1.5);
+                let trail_handle = trail_mats.add(trail_material);
+
+                commands.entity(entity).with_children(|parent| {
+                    parent.spawn((
+                        Mesh3d(meshes.fireball.clone()),
+                        MeshMaterial3d(trail_handle.clone()),
+                        Transform::from_scale(Vec3::splat(2.0)), // Larger than fireball
+                        FireballTrailEffect { material_handle: trail_handle },
+                    ));
+                });
+            }
+
+            // Add spark particles (keep particles for sparks)
             if let Some(effects) = &fireball_effects {
                 commands.entity(entity).with_children(|parent| {
-                    // Trail particles
-                    parent.spawn((
-                        ParticleEffect::new(effects.trail_effect.clone()),
-                        Transform::default(),
-                        FireballTrailParticles,
-                    ));
                     // Spark particles
                     parent.spawn((
                         ParticleEffect::new(effects.spark_effect.clone()),
@@ -903,6 +948,7 @@ mod tests {
                     None,
                     None, // No particle effects in test
                     None, // No charge materials in test
+                    None, // No trail materials in test
                 );
             }
             app.update();
@@ -936,6 +982,7 @@ mod tests {
                     None,
                     None, // No particle effects in test
                     None, // No charge materials in test
+                    None, // No trail materials in test
                 );
             }
             app.update();
@@ -967,6 +1014,7 @@ mod tests {
                     None,
                     None, // No particle effects in test
                     None, // No charge materials in test
+                    None, // No trail materials in test
                 );
             }
             app.update();
@@ -1001,6 +1049,7 @@ mod tests {
                     None,
                     None, // No particle effects in test
                     None, // No charge materials in test
+                    None, // No trail materials in test
                 );
             }
             app.update();
