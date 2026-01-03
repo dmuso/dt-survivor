@@ -7,6 +7,7 @@ pub mod fireball_effects;
 pub mod flame_arc;
 pub mod immolate;
 pub mod inferno_pulse;
+pub mod materials;
 pub mod scorch_trail;
 
 pub use ashfall::*;
@@ -18,4 +19,5 @@ pub use fireball_effects::*;
 pub use flame_arc::*;
 pub use immolate::*;
 pub use inferno_pulse::*;
+pub use materials::*;
 pub use scorch_trail::*;
