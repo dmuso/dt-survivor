@@ -17,6 +17,9 @@ pub const EXPLOSION_CORE_SHADER: &str = "shaders/explosion_core.wgsl";
 /// Shader asset path for the explosion fire main blast effect.
 pub const EXPLOSION_FIRE_SHADER: &str = "shaders/explosion_fire.wgsl";
 
+/// Shader asset path for the fireball sparks flying ember effect.
+pub const FIREBALL_SPARKS_SHADER: &str = "shaders/fireball_sparks.wgsl";
+
 /// Material for rendering the fireball core with volumetric fire effect.
 ///
 /// This shader creates an animated fire sphere with:
@@ -549,6 +552,114 @@ pub fn update_explosion_fire_material_time(
     }
 }
 
+// ============================================================================
+// Fireball Sparks Material - Flying ember particles effect
+// ============================================================================
+
+/// Material for rendering fireball sparks as flying ember particles.
+///
+/// This shader creates bright flying spark particles that:
+/// - Have a bright yellow-white core with orange halo
+/// - Show motion blur / streak effect based on velocity
+/// - Animate with flicker for lifelike behavior
+/// - Cool from white-hot to orange to red as they age
+/// - Support HDR bloom for bright sparks
+#[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
+pub struct FireballSparksMaterial {
+    /// Current time for animation (in seconds).
+    /// Packed as x component of Vec4 for 16-byte alignment.
+    #[uniform(0)]
+    pub time: Vec4,
+
+    /// Velocity of the spark (xyz = direction, w = speed magnitude).
+    /// Used for motion blur streak effect.
+    #[uniform(1)]
+    pub velocity: Vec4,
+
+    /// Lifetime progress from 0.0 (new spark) to 1.0 (dying).
+    /// Controls the cooling color transition and fade out.
+    /// Packed as x component of Vec4 for 16-byte alignment.
+    #[uniform(2)]
+    pub lifetime_progress: Vec4,
+
+    /// Emissive intensity for HDR bloom effect.
+    /// Values > 1.0 will bloom with HDR rendering.
+    /// Packed as x component of Vec4 for 16-byte alignment.
+    #[uniform(3)]
+    pub emissive_intensity: Vec4,
+}
+
+impl Default for FireballSparksMaterial {
+    fn default() -> Self {
+        Self {
+            time: Vec4::ZERO,
+            // Default velocity: moving outward from center
+            velocity: Vec4::new(1.0, 0.5, 0.0, 3.0),
+            lifetime_progress: Vec4::ZERO,
+            // High emissive for bright sparks
+            emissive_intensity: Vec4::new(5.0, 0.0, 0.0, 0.0),
+        }
+    }
+}
+
+impl FireballSparksMaterial {
+    /// Create a new material with default settings.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Update the time uniform for animation.
+    pub fn set_time(&mut self, time: f32) {
+        self.time.x = time;
+    }
+
+    /// Set the velocity for motion blur (direction and speed).
+    pub fn set_velocity(&mut self, direction: Vec3, speed: f32) {
+        let normalized = direction.normalize_or_zero();
+        self.velocity = Vec4::new(normalized.x, normalized.y, normalized.z, speed.max(0.0));
+    }
+
+    /// Set the lifetime progress (0.0 to 1.0).
+    /// Controls the cooling color transition.
+    pub fn set_lifetime_progress(&mut self, progress: f32) {
+        self.lifetime_progress.x = progress.clamp(0.0, 1.0);
+    }
+
+    /// Set the emissive intensity for HDR bloom.
+    pub fn set_emissive_intensity(&mut self, intensity: f32) {
+        self.emissive_intensity.x = intensity.max(0.0);
+    }
+}
+
+impl Material for FireballSparksMaterial {
+    fn fragment_shader() -> ShaderRef {
+        FIREBALL_SPARKS_SHADER.into()
+    }
+
+    fn vertex_shader() -> ShaderRef {
+        FIREBALL_SPARKS_SHADER.into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Add
+    }
+}
+
+/// Resource to store the fireball sparks material handle for reuse.
+#[derive(Resource)]
+pub struct FireballSparksMaterialHandle(pub Handle<FireballSparksMaterial>);
+
+/// System to update time on all fireball sparks materials.
+pub fn update_fireball_sparks_material_time(
+    time: Res<Time>,
+    mut materials: ResMut<Assets<FireballSparksMaterial>>,
+) {
+    let current_time = time.elapsed_secs();
+    for (_, material) in materials.iter_mut() {
+        material.set_time(current_time);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1033,6 +1144,141 @@ mod tests {
         fn alpha_mode_is_blend() {
             let material = ExplosionFireMaterial::new();
             assert_eq!(material.alpha_mode(), AlphaMode::Blend);
+        }
+    }
+
+    mod fireball_sparks_material_tests {
+        use super::*;
+
+        #[test]
+        fn default_has_expected_values() {
+            let material = FireballSparksMaterial::default();
+            assert_eq!(material.time.x, 0.0);
+            assert_eq!(material.velocity.x, 1.0);
+            assert_eq!(material.velocity.y, 0.5);
+            assert_eq!(material.velocity.z, 0.0);
+            assert_eq!(material.velocity.w, 3.0);
+            assert_eq!(material.lifetime_progress.x, 0.0);
+            assert_eq!(material.emissive_intensity.x, 5.0);
+        }
+
+        #[test]
+        fn new_matches_default() {
+            let material = FireballSparksMaterial::new();
+            let default = FireballSparksMaterial::default();
+            assert_eq!(material.time, default.time);
+            assert_eq!(material.velocity, default.velocity);
+            assert_eq!(material.lifetime_progress, default.lifetime_progress);
+            assert_eq!(material.emissive_intensity, default.emissive_intensity);
+        }
+
+        #[test]
+        fn set_time_updates_x_component() {
+            let mut material = FireballSparksMaterial::new();
+            material.set_time(3.5);
+            assert_eq!(material.time.x, 3.5);
+            assert_eq!(material.time.y, 0.0);
+            assert_eq!(material.time.z, 0.0);
+            assert_eq!(material.time.w, 0.0);
+        }
+
+        #[test]
+        fn set_velocity_normalizes_direction() {
+            let mut material = FireballSparksMaterial::new();
+            material.set_velocity(Vec3::new(3.0, 0.0, 4.0), 5.0);
+            // Should be normalized to (0.6, 0.0, 0.8)
+            assert!((material.velocity.x - 0.6).abs() < 0.001);
+            assert_eq!(material.velocity.y, 0.0);
+            assert!((material.velocity.z - 0.8).abs() < 0.001);
+            assert_eq!(material.velocity.w, 5.0);
+        }
+
+        #[test]
+        fn set_velocity_handles_zero_vector() {
+            let mut material = FireballSparksMaterial::new();
+            material.set_velocity(Vec3::ZERO, 2.0);
+            // normalize_or_zero returns zero for zero vector
+            assert_eq!(material.velocity.x, 0.0);
+            assert_eq!(material.velocity.y, 0.0);
+            assert_eq!(material.velocity.z, 0.0);
+            assert_eq!(material.velocity.w, 2.0);
+        }
+
+        #[test]
+        fn set_velocity_clamps_negative_speed() {
+            let mut material = FireballSparksMaterial::new();
+            material.set_velocity(Vec3::X, -5.0);
+            assert_eq!(material.velocity.w, 0.0);
+        }
+
+        #[test]
+        fn set_velocity_unit_vectors() {
+            let mut material = FireballSparksMaterial::new();
+
+            material.set_velocity(Vec3::X, 1.0);
+            assert_eq!(material.velocity.x, 1.0);
+            assert_eq!(material.velocity.y, 0.0);
+            assert_eq!(material.velocity.z, 0.0);
+
+            material.set_velocity(Vec3::Y, 2.0);
+            assert_eq!(material.velocity.x, 0.0);
+            assert_eq!(material.velocity.y, 1.0);
+            assert_eq!(material.velocity.z, 0.0);
+
+            material.set_velocity(Vec3::Z, 3.0);
+            assert_eq!(material.velocity.x, 0.0);
+            assert_eq!(material.velocity.y, 0.0);
+            assert_eq!(material.velocity.z, 1.0);
+        }
+
+        #[test]
+        fn set_lifetime_progress_clamps_to_zero() {
+            let mut material = FireballSparksMaterial::new();
+            material.set_lifetime_progress(-0.5);
+            assert_eq!(material.lifetime_progress.x, 0.0);
+        }
+
+        #[test]
+        fn set_lifetime_progress_clamps_to_one() {
+            let mut material = FireballSparksMaterial::new();
+            material.set_lifetime_progress(1.5);
+            assert_eq!(material.lifetime_progress.x, 1.0);
+        }
+
+        #[test]
+        fn set_lifetime_progress_accepts_valid_values() {
+            let mut material = FireballSparksMaterial::new();
+            material.set_lifetime_progress(0.5);
+            assert_eq!(material.lifetime_progress.x, 0.5);
+        }
+
+        #[test]
+        fn set_lifetime_progress_at_boundaries() {
+            let mut material = FireballSparksMaterial::new();
+            material.set_lifetime_progress(0.0);
+            assert_eq!(material.lifetime_progress.x, 0.0);
+            material.set_lifetime_progress(1.0);
+            assert_eq!(material.lifetime_progress.x, 1.0);
+        }
+
+        #[test]
+        fn set_emissive_intensity_clamps_negative() {
+            let mut material = FireballSparksMaterial::new();
+            material.set_emissive_intensity(-5.0);
+            assert_eq!(material.emissive_intensity.x, 0.0);
+        }
+
+        #[test]
+        fn set_emissive_intensity_accepts_high_values() {
+            let mut material = FireballSparksMaterial::new();
+            material.set_emissive_intensity(15.0);
+            assert_eq!(material.emissive_intensity.x, 15.0);
+        }
+
+        #[test]
+        fn alpha_mode_is_add() {
+            let material = FireballSparksMaterial::new();
+            assert_eq!(material.alpha_mode(), AlphaMode::Add);
         }
     }
 }
