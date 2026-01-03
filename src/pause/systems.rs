@@ -6,6 +6,7 @@ use crate::enemies::components::Enemy;
 use crate::loot::components::DroppedItem;
 use crate::pause::components::*;
 use crate::states::GameState;
+use crate::ui::components::RadialCooldownOverlay;
 use crate::ui::systems::DebugHudVisible;
 
 /// Button colors
@@ -20,6 +21,7 @@ pub fn setup_pause_menu(
     mut commands: Commands,
     debug_visible: Res<DebugHudVisible>,
     wall_lights_enabled: Res<WallLightsEnabled>,
+    spell_cooldowns_visible: Res<SpellCooldownsVisible>,
 ) {
     // Create pause menu UI root with semi-transparent overlay
     commands
@@ -118,6 +120,8 @@ pub fn setup_pause_menu(
                             .with_children(|row| {
                                 let lights_label = if wall_lights_enabled.0 { "Lights: ON" } else { "Lights: OFF" };
                                 spawn_debug_button(row, lights_label, ToggleWallLightsButton);
+                                let cooldowns_label = if spell_cooldowns_visible.0 { "Cooldowns: ON" } else { "Cooldowns: OFF" };
+                                spawn_debug_button(row, cooldowns_label, ToggleSpellCooldownsButton);
                             });
                     });
             }
@@ -225,7 +229,7 @@ pub fn pause_menu_interactions(
 }
 
 /// Handles debug button interactions
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub fn debug_button_interactions(
     mut commands: Commands,
     mut interaction_query: Query<
@@ -235,15 +239,18 @@ pub fn debug_button_interactions(
             Option<&DespawnEnemiesButton>,
             Option<&DespawnLootButton>,
             Option<&ToggleWallLightsButton>,
+            Option<&ToggleSpellCooldownsButton>,
         ),
         (Changed<Interaction>, With<Button>),
     >,
     enemies: Query<Entity, With<Enemy>>,
     loot: Query<Entity, With<DroppedItem>>,
     mut lights: Query<&mut Visibility, With<TorchLight>>,
+    cooldown_overlays: Query<Entity, With<RadialCooldownOverlay>>,
     mut wall_lights_enabled: ResMut<WallLightsEnabled>,
+    mut spell_cooldowns_visible: ResMut<SpellCooldownsVisible>,
 ) {
-    for (interaction, mut background_color, despawn_enemies, despawn_loot, toggle_lights) in
+    for (interaction, mut background_color, despawn_enemies, despawn_loot, toggle_lights, toggle_cooldowns) in
         &mut interaction_query
     {
         match *interaction {
@@ -267,6 +274,16 @@ pub fn debug_button_interactions(
                     for mut visibility in lights.iter_mut() {
                         *visibility = new_visibility;
                     }
+                } else if toggle_cooldowns.is_some() {
+                    // Toggle spell cooldown overlays - despawn when off, respawn on resume
+                    spell_cooldowns_visible.0 = !spell_cooldowns_visible.0;
+                    if !spell_cooldowns_visible.0 {
+                        // Despawn all cooldown overlay entities
+                        for entity in cooldown_overlays.iter() {
+                            commands.entity(entity).despawn();
+                        }
+                    }
+                    // When toggled on, overlays will be spawned when game resumes
                 }
             }
             Interaction::Hovered => {
@@ -276,6 +293,7 @@ pub fn debug_button_interactions(
                 if despawn_enemies.is_some()
                     || despawn_loot.is_some()
                     || toggle_lights.is_some()
+                    || toggle_cooldowns.is_some()
                 {
                     *background_color = BackgroundColor(BUTTON_ORANGE);
                 }
@@ -287,7 +305,9 @@ pub fn debug_button_interactions(
 /// Updates toggle button text to reflect current state
 pub fn update_toggle_button_text(
     wall_lights_enabled: Res<WallLightsEnabled>,
+    spell_cooldowns_visible: Res<SpellCooldownsVisible>,
     lights_btn_query: Query<&Children, With<ToggleWallLightsButton>>,
+    cooldowns_btn_query: Query<&Children, With<ToggleSpellCooldownsButton>>,
     mut text_query: Query<&mut Text>,
 ) {
     // Update wall lights button text
@@ -295,6 +315,18 @@ pub fn update_toggle_button_text(
         for child in children.iter() {
             if let Ok(mut text) = text_query.get_mut(child) {
                 let label = if wall_lights_enabled.0 { "Lights: ON" } else { "Lights: OFF" };
+                if text.0 != label {
+                    text.0 = label.to_string();
+                }
+            }
+        }
+    }
+
+    // Update spell cooldowns button text
+    for children in cooldowns_btn_query.iter() {
+        for child in children.iter() {
+            if let Ok(mut text) = text_query.get_mut(child) {
+                let label = if spell_cooldowns_visible.0 { "Cooldowns: ON" } else { "Cooldowns: OFF" };
                 if text.0 != label {
                     text.0 = label.to_string();
                 }
@@ -347,6 +379,7 @@ mod tests {
         app.init_state::<GameState>();
         app.init_resource::<DebugHudVisible>();
         app.init_resource::<WallLightsEnabled>();
+        app.init_resource::<SpellCooldownsVisible>();
         app
     }
 
@@ -441,9 +474,16 @@ mod tests {
             .iter(app.world())
             .count();
 
+        let toggle_cooldowns_count = app
+            .world_mut()
+            .query::<&ToggleSpellCooldownsButton>()
+            .iter(app.world())
+            .count();
+
         assert_eq!(despawn_enemies_count, 1, "Should create DespawnEnemiesButton");
         assert_eq!(despawn_loot_count, 1, "Should create DespawnLootButton");
         assert_eq!(toggle_lights_count, 1, "Should create ToggleWallLightsButton");
+        assert_eq!(toggle_cooldowns_count, 1, "Should create ToggleSpellCooldownsButton");
     }
 
     #[test]

@@ -35,35 +35,29 @@ use bevy::prelude::*;
 
 use crate::spell::Spell;
 use crate::ui::spell_slot::components::{
-    SlotSource, SpellAbbreviation, SpellIconImage, SpellIconVisual, SpellLevelIndicator,
-    SpellSlotVisual,
+    LevelIndicatorContainer, SlotSource, SpellAbbreviation, SpellIconImage, SpellIconVisual,
+    SpellLevelIndicator, SpellSlotState, SpellSlotVisual,
 };
 
-/// Returns background and border colors for a spell slot.
+/// Returns background color for a spell slot.
 ///
 /// Single source of truth for spell slot color logic:
-/// - With spell: background = element color with alpha, border = element color
-/// - Without spell: uses empty slot constants
-pub fn spell_slot_colors(spell: Option<&Spell>) -> (BackgroundColor, BorderColor) {
+/// - With spell: background = element color with alpha
+/// - Without spell: uses empty slot background constant
+pub fn spell_slot_background(spell: Option<&Spell>) -> BackgroundColor {
     match spell {
         Some(spell) => {
             let element_color = spell.element.color();
-            (
-                BackgroundColor(element_color.with_alpha(BACKGROUND_ALPHA)),
-                BorderColor::all(element_color),
-            )
+            BackgroundColor(element_color.with_alpha(BACKGROUND_ALPHA))
         }
-        None => (
-            BackgroundColor(empty_slot::SLOT_BACKGROUND),
-            BorderColor::all(empty_slot::SLOT_BORDER),
-        ),
+        None => BackgroundColor(empty_slot::SLOT_BACKGROUND),
     }
 }
 
 /// Spawns a complete spell slot with all required children.
 ///
 /// Creates a stable entity structure that the refresh system can query and update:
-/// - Slot container with BackgroundColor, BorderColor, BorderRadius, SpellSlotVisual marker
+/// - Slot container with BackgroundColor, BorderRadius, SpellSlotVisual marker
 /// - ImageNode child for spell textures (with SpellIconImage marker)
 /// - Text child for spell abbreviation (with SpellAbbreviation marker, starts hidden)
 /// - Level indicator child (with SpellLevelIndicator marker)
@@ -84,7 +78,7 @@ pub fn spawn_spell_slot(
     spell: Option<&Spell>,
     asset_server: &AssetServer,
 ) -> Entity {
-    let (bg_color, border_color) = spell_slot_colors(spell);
+    let bg_color = spell_slot_background(spell);
 
     // Load texture if spell has an icon
     let image_handle = spell
@@ -115,12 +109,13 @@ pub fn spawn_spell_slot(
                 ..default()
             },
             bg_color,
-            border_color,
             BorderRadius::all(Val::Px(BORDER_RADIUS)),
             SpellSlotVisual { source, index },
+            SpellSlotState::default(),
         ))
         .with_children(|slot| {
             // ImageNode for spell texture
+            // Uses transparent background to prevent white flash when no image loaded
             let mut image_node = ImageNode::default();
             if let Some(handle) = image_handle {
                 image_node.image = handle;
@@ -134,8 +129,10 @@ pub fn spawn_spell_slot(
                     ..default()
                 },
                 image_node,
+                BackgroundColor(Color::NONE), // Prevents white flash for empty/loading images
                 BorderRadius::all(Val::Px(4.0)),
                 SpellIconImage { index },
+                Visibility::Inherited, // Refresh system controls visibility based on spell presence
             ));
 
             // Text for spell abbreviation (shown when no texture)
@@ -148,11 +145,11 @@ pub fn spawn_spell_slot(
                 TextColor(Color::WHITE),
                 TextLayout::new_with_justify(bevy::text::Justify::Center),
                 abbrev_visibility,
-                SpellAbbreviation { index },
+                SpellAbbreviation { source, index },
             ));
 
             // Level indicator
-            spawn_level_indicator(slot, index);
+            spawn_level_indicator(slot, source, index, spell.is_some());
         })
         .id()
 }
@@ -163,9 +160,29 @@ pub fn spawn_spell_slot(
 /// - Absolute positioning (top: LEVEL_TOP_OFFSET, centered horizontally)
 /// - Black background with white border
 /// - Child Text with SpellLevelIndicator marker for refresh system
+/// - LevelIndicatorContainer marker for visibility control
 ///
-/// The text content is empty initially - the refresh system updates it.
-pub fn spawn_level_indicator(parent: &mut ChildSpawnerCommands, index: usize) -> Entity {
+/// The container starts hidden if no spell is present (has_spell = false).
+/// The refresh system controls visibility based on spell presence.
+///
+/// # Arguments
+/// * `parent` - The parent entity to spawn under
+/// * `source` - Which resource this indicator reads spell data from
+/// * `index` - Index into the source's spell list
+/// * `has_spell` - Whether the slot currently has a spell (controls initial visibility)
+pub fn spawn_level_indicator(
+    parent: &mut ChildSpawnerCommands,
+    source: SlotSource,
+    index: usize,
+    has_spell: bool,
+) -> Entity {
+    // Start hidden if no spell - fixes corner border artifacts on empty slots
+    let visibility = if has_spell {
+        Visibility::Visible
+    } else {
+        Visibility::Hidden
+    };
+
     parent
         .spawn((
             Node {
@@ -183,6 +200,8 @@ pub fn spawn_level_indicator(parent: &mut ChildSpawnerCommands, index: usize) ->
             BorderColor::all(Color::srgb(1.0, 1.0, 1.0)),
             BorderRadius::all(Val::Px(2.0)),
             ZIndex(10),
+            visibility,
+            LevelIndicatorContainer { source, index },
         ))
         .with_children(|level_box| {
             level_box.spawn((
@@ -193,7 +212,7 @@ pub fn spawn_level_indicator(parent: &mut ChildSpawnerCommands, index: usize) ->
                 },
                 TextColor(Color::srgb(1.0, 1.0, 1.0)),
                 TextLayout::new_with_justify(bevy::text::Justify::Center),
-                SpellLevelIndicator { index },
+                SpellLevelIndicator { source, index },
             ));
         })
         .id()
@@ -224,7 +243,7 @@ pub fn spawn_spell_icon_visual(
             if let (Some(icon_path), Some(asset_server)) =
                 (spell.spell_type.icon_path(), asset_server)
             {
-                // Use custom texture - no background, just the image
+                // Use custom texture - transparent background prevents white flash during load
                 parent.spawn((
                     Node {
                         width: Val::Px(size),
@@ -235,6 +254,7 @@ pub fn spawn_spell_icon_visual(
                         image: asset_server.load(icon_path),
                         ..default()
                     },
+                    BackgroundColor(Color::NONE),
                     BorderRadius::all(Val::Px(4.0)),
                     SpellIconVisual,
                 ));
@@ -333,48 +353,29 @@ mod tests {
         }
 
         #[test]
-        fn empty_slot_border_is_accessible() {
-            let _color = empty_slot::SLOT_BORDER;
-        }
-
-        #[test]
         fn empty_slot_hover_background_is_accessible() {
             let _color = empty_slot::SLOT_BACKGROUND_HOVER;
         }
-
-        #[test]
-        fn empty_slot_hover_border_is_accessible() {
-            let _color = empty_slot::SLOT_BORDER_HOVER;
-        }
     }
 
-    mod spell_slot_colors_tests {
+    mod spell_slot_background_tests {
         use super::*;
         use crate::element::Element;
         use crate::spell::Spell;
         use crate::spell::spell_type::SpellType;
 
         #[test]
-        fn returns_empty_slot_colors_when_no_spell() {
-            let (bg, border) = spell_slot_colors(None);
+        fn returns_empty_slot_background_when_no_spell() {
+            let bg = spell_slot_background(None);
             assert_eq!(bg.0, empty_slot::SLOT_BACKGROUND);
-            assert_eq!(border.top, empty_slot::SLOT_BORDER);
         }
 
         #[test]
         fn returns_element_background_with_alpha_when_spell_present() {
             let spell = Spell::new(SpellType::Fireball);
-            let (bg, _) = spell_slot_colors(Some(&spell));
+            let bg = spell_slot_background(Some(&spell));
             let expected = spell.element.color().with_alpha(BACKGROUND_ALPHA);
             assert_eq!(bg.0, expected);
-        }
-
-        #[test]
-        fn returns_element_border_when_spell_present() {
-            let spell = Spell::new(SpellType::Fireball);
-            let (_, border) = spell_slot_colors(Some(&spell));
-            let expected = spell.element.color();
-            assert_eq!(border.top, expected);
         }
 
         #[test]
@@ -383,19 +384,13 @@ mod tests {
                 let spell_types = SpellType::by_element(*element);
                 if let Some(spell_type) = spell_types.first() {
                     let spell = Spell::new(*spell_type);
-                    let (bg, border) = spell_slot_colors(Some(&spell));
+                    let bg = spell_slot_background(Some(&spell));
 
                     let expected_bg = element.color().with_alpha(BACKGROUND_ALPHA);
-                    let expected_border = element.color();
 
                     assert_eq!(
                         bg.0, expected_bg,
                         "Background color should match element {:?}",
-                        element
-                    );
-                    assert_eq!(
-                        border.top, expected_border,
-                        "Border color should match element {:?}",
                         element
                     );
                 }
@@ -421,7 +416,7 @@ mod tests {
         fn spawn_test_indicator_with_index(index: usize) -> impl FnMut(Commands) {
             move |mut commands: Commands| {
                 commands.spawn((Node::default(), TestParent)).with_children(|parent| {
-                    spawn_level_indicator(parent, index);
+                    spawn_level_indicator(parent, SlotSource::Active, index, true);
                 });
             }
         }
@@ -793,22 +788,6 @@ mod tests {
         }
 
         #[test]
-        fn empty_slot_has_empty_slot_border_color() {
-            let mut app = setup_test_app();
-
-            let _ = app.world_mut().run_system_once(spawn_test_slot_empty(SlotSource::Active, 0));
-
-            let (border, _) = app
-                .world_mut()
-                .query::<(&BorderColor, &SpellSlotVisual)>()
-                .iter(app.world())
-                .next()
-                .expect("Slot should exist");
-
-            assert_eq!(border.top, empty_slot::SLOT_BORDER);
-        }
-
-        #[test]
         fn spawns_slot_with_border_radius() {
             let mut app = setup_test_app();
 
@@ -952,24 +931,6 @@ mod tests {
                 .expect("Slot should exist");
 
             assert_eq!(bg.0, expected_bg);
-        }
-
-        #[test]
-        fn spell_with_texture_has_element_border() {
-            let mut app = setup_test_app();
-            let spell = Spell::new(SpellType::Fireball);
-            let expected_border = spell.element.color();
-
-            let _ = app.world_mut().run_system_once(spawn_test_slot_with_spell(SlotSource::Active, 0, spell));
-
-            let (border, _) = app
-                .world_mut()
-                .query::<(&BorderColor, &SpellSlotVisual)>()
-                .iter(app.world())
-                .next()
-                .expect("Slot should exist");
-
-            assert_eq!(border.top, expected_border);
         }
 
         #[test]

@@ -5,6 +5,7 @@ mod tests {
     use crate::powerup::components::*;
     use crate::powerup::systems::*;
     use crate::player::components::*;
+    use rand::SeedableRng;
     use rand::Rng;
 
     #[test]
@@ -64,17 +65,19 @@ mod tests {
 
     #[test]
     fn test_powerup_spawning_logic() {
-        // Test that powerup spawning probability works (this is a simplified test)
+        // Test that powerup spawning probability works with a seeded RNG for determinism
+        let mut rng = rand::rngs::StdRng::seed_from_u64(12345);
         let mut spawned_count = 0;
         for _ in 0..1000 {
             // Simulate 2% chance
-            if rand::thread_rng().gen_bool(0.02) {
+            if rng.gen_bool(0.02) {
                 spawned_count += 1;
             }
         }
-        // With 1000 attempts at 2%, we should get roughly 20 spawns (allowing some variance)
-        assert!(spawned_count > 10, "Should spawn some powerups with 2% chance");
-        assert!(spawned_count < 50, "Should not spawn too many powerups with 2% chance");
+        // With seed 12345 and 1000 attempts at 2%, we get a deterministic result
+        // The seeded RNG ensures this test is reproducible
+        assert!(spawned_count > 10, "Should spawn some powerups with 2% chance (got {})", spawned_count);
+        assert!(spawned_count < 50, "Should not spawn too many powerups with 2% chance (got {})", spawned_count);
     }
 
     #[test]

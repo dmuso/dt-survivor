@@ -11,27 +11,8 @@ pub mod empty_slot {
     /// Background color for the slot container.
     pub const SLOT_BACKGROUND: Color = Color::srgba(0.2, 0.2, 0.2, 0.8);
 
-    /// Border color for the slot container.
-    pub const SLOT_BORDER: Color = Color::srgba(0.4, 0.4, 0.4, 0.8);
-
     /// Hover state background for empty slots.
     pub const SLOT_BACKGROUND_HOVER: Color = Color::srgba(0.4, 0.4, 0.4, 0.8);
-
-    /// Hover state border for empty slots.
-    pub const SLOT_BORDER_HOVER: Color = Color::srgba(0.6, 0.6, 0.6, 0.8);
-}
-
-/// Apply empty slot styling to a slot's background and border.
-/// Use this to ensure consistent empty slot appearance across UI.
-pub fn apply_empty_slot_style(bg_color: &mut BackgroundColor, border_color: &mut BorderColor) {
-    *bg_color = BackgroundColor(empty_slot::SLOT_BACKGROUND);
-    *border_color = BorderColor::all(empty_slot::SLOT_BORDER);
-}
-
-/// Apply empty slot hover styling to a slot's background and border.
-pub fn apply_empty_slot_hover_style(bg_color: &mut BackgroundColor, border_color: &mut BorderColor) {
-    *bg_color = BackgroundColor(empty_slot::SLOT_BACKGROUND_HOVER);
-    *border_color = BorderColor::all(empty_slot::SLOT_BORDER_HOVER);
 }
 
 #[derive(Component)]
@@ -311,8 +292,8 @@ mod tests {
         }
 
         #[test]
-        fn slot_border_is_medium_gray() {
-            let color = empty_slot::SLOT_BORDER;
+        fn slot_background_hover_is_lighter_gray() {
+            let color = empty_slot::SLOT_BACKGROUND_HOVER;
             if let Color::Srgba(srgba) = color {
                 assert!((srgba.red - 0.4).abs() < 0.01);
                 assert!((srgba.green - 0.4).abs() < 0.01);
@@ -321,29 +302,6 @@ mod tests {
             } else {
                 panic!("Expected Srgba color");
             }
-        }
-
-        #[test]
-        fn apply_empty_slot_style_sets_correct_colors() {
-            let mut bg_color = BackgroundColor(Color::WHITE);
-            let mut border_color = BorderColor::all(Color::WHITE);
-
-            apply_empty_slot_style(&mut bg_color, &mut border_color);
-
-            assert_eq!(bg_color.0, empty_slot::SLOT_BACKGROUND);
-            // BorderColor stores colors per side, check the overall color
-            assert_eq!(border_color.top, empty_slot::SLOT_BORDER);
-        }
-
-        #[test]
-        fn apply_empty_slot_hover_style_sets_correct_colors() {
-            let mut bg_color = BackgroundColor(Color::WHITE);
-            let mut border_color = BorderColor::all(Color::WHITE);
-
-            apply_empty_slot_hover_style(&mut bg_color, &mut border_color);
-
-            assert_eq!(bg_color.0, empty_slot::SLOT_BACKGROUND_HOVER);
-            assert_eq!(border_color.top, empty_slot::SLOT_BORDER_HOVER);
         }
     }
 }

@@ -1,11 +1,12 @@
 use bevy::prelude::*;
 
-use crate::pause::components::WallLightsEnabled;
+use crate::pause::components::{SpellCooldownsVisible, WallLightsEnabled};
 use crate::pause::systems::*;
 use crate::states::GameState;
 
 pub fn plugin(app: &mut App) {
     app.init_resource::<WallLightsEnabled>()
+        .init_resource::<SpellCooldownsVisible>()
         // ESC key to enter pause from InGame
         .add_systems(
             Update,
@@ -43,6 +44,7 @@ mod tests {
         ));
         app.init_state::<GameState>();
         app.init_resource::<crate::ui::systems::DebugHudVisible>();
+        app.init_resource::<SpellCooldownsVisible>();
 
         // This would panic if the plugin has configuration issues
         app.add_plugins(plugin);

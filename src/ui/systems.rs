@@ -10,6 +10,7 @@ use crate::ui::materials::RadialCooldownMaterial;
 use crate::ui::spell_slot::{spawn_spell_slot, SlotSource, SLOT_SIZE as SPELL_SLOT_MODULE_SIZE};
 use crate::player::components::*;
 use crate::inventory::SpellList;
+use crate::pause::components::SpellCooldownsVisible;
 
 /// Resource to track debug HUD visibility
 #[derive(Resource, Default)]
@@ -422,6 +423,7 @@ pub fn setup_game_over_ui(
 pub fn setup_spell_slots(
     mut commands: Commands,
     spell_list: Res<SpellList>,
+    spell_cooldowns_visible: Res<SpellCooldownsVisible>,
     asset_server: Res<AssetServer>,
     mut cooldown_materials: ResMut<Assets<RadialCooldownMaterial>>,
 ) {
@@ -464,17 +466,20 @@ pub fn setup_spell_slots(
                         );
 
                         // Radial cooldown overlay using custom shader (separate concern)
-                        slot_container.spawn((
-                            Node {
-                                position_type: PositionType::Absolute,
-                                width: Val::Px(SPELL_SLOT_MODULE_SIZE),
-                                height: Val::Px(SPELL_SLOT_MODULE_SIZE),
-                                ..default()
-                            },
-                            MaterialNode(cooldown_materials.add(RadialCooldownMaterial::default())),
-                            BorderRadius::all(Val::Px(4.0)),
-                            RadialCooldownOverlay { slot_index },
-                        ));
+                        // Only spawn if cooldowns are visible
+                        if spell_cooldowns_visible.0 {
+                            slot_container.spawn((
+                                Node {
+                                    position_type: PositionType::Absolute,
+                                    width: Val::Px(SPELL_SLOT_MODULE_SIZE),
+                                    height: Val::Px(SPELL_SLOT_MODULE_SIZE),
+                                    ..default()
+                                },
+                                MaterialNode(cooldown_materials.add(RadialCooldownMaterial::default())),
+                                BorderRadius::all(Val::Px(4.0)),
+                                RadialCooldownOverlay { slot_index },
+                            ));
+                        }
                     });
             }
         });
@@ -1409,6 +1414,7 @@ mod tests {
             app.init_asset::<Shader>();
             app.add_plugins(UiMaterialPlugin::<RadialCooldownMaterial>::default());
             app.init_resource::<SpellList>();
+            app.init_resource::<SpellCooldownsVisible>();
             app.init_resource::<Time>();
             app
         }

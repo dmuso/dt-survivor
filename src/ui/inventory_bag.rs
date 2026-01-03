@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use crate::inventory::{InventoryBag, SpellList};
 use crate::spell::Spell;
 use crate::states::GameState;
-use crate::ui::components::{apply_empty_slot_hover_style, apply_empty_slot_style};
+use crate::ui::components::empty_slot;
 use crate::ui::spell_slot::{
     spawn_spell_icon_visual, spawn_spell_slot, SlotSource, SLOT_SIZE as SPELL_SLOT_SIZE,
 };
@@ -388,7 +388,7 @@ pub fn handle_inventory_toggle(
 #[allow(clippy::type_complexity)]
 pub fn handle_bag_slot_click(
     mut interaction_query: Query<
-        (Entity, &Interaction, &mut BackgroundColor, &mut BorderColor, &InventorySlot),
+        (Entity, &Interaction, &mut BackgroundColor, &InventorySlot),
         Changed<Interaction>,
     >,
     mut selected_slot: ResMut<SelectedBagSlot>,
@@ -396,7 +396,7 @@ pub fn handle_bag_slot_click(
     mut commands: Commands,
     selected_query: Query<Entity, With<SelectedSpell>>,
 ) {
-    for (entity, interaction, mut bg_color, mut border_color, slot) in &mut interaction_query {
+    for (entity, interaction, mut bg_color, slot) in &mut interaction_query {
         let spell = inventory_bag.get_spell(slot.index);
         let element_color = spell.map(|s| s.element.color());
 
@@ -416,17 +416,15 @@ pub fn handle_bag_slot_click(
             Interaction::Hovered => {
                 if let Some(color) = element_color {
                     *bg_color = BackgroundColor(color.with_alpha(0.7));
-                    *border_color = BorderColor::all(Color::WHITE);
                 } else {
-                    apply_empty_slot_hover_style(&mut bg_color, &mut border_color);
+                    *bg_color = BackgroundColor(empty_slot::SLOT_BACKGROUND_HOVER);
                 }
             }
             Interaction::None => {
                 if let Some(color) = element_color {
                     *bg_color = BackgroundColor(color.with_alpha(0.4));
-                    *border_color = BorderColor::all(color);
                 } else {
-                    apply_empty_slot_style(&mut bg_color, &mut border_color);
+                    *bg_color = BackgroundColor(empty_slot::SLOT_BACKGROUND);
                 }
             }
         }
@@ -437,7 +435,7 @@ pub fn handle_bag_slot_click(
 #[allow(clippy::type_complexity)]
 pub fn handle_active_slot_click(
     mut interaction_query: Query<
-        (&Interaction, &mut BackgroundColor, &mut BorderColor, &ActiveSlotDisplay),
+        (&Interaction, &mut BackgroundColor, &ActiveSlotDisplay),
         Changed<Interaction>,
     >,
     mut selected_slot: ResMut<SelectedBagSlot>,
@@ -445,7 +443,7 @@ pub fn handle_active_slot_click(
     mut inventory_bag: ResMut<InventoryBag>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
-    for (interaction, mut bg_color, mut border_color, active_slot) in &mut interaction_query {
+    for (interaction, mut bg_color, active_slot) in &mut interaction_query {
         let spell = spell_list.get_spell(active_slot.index);
         let element_color = spell.map(|s| s.element.color());
 
@@ -475,39 +473,17 @@ pub fn handle_active_slot_click(
             Interaction::Hovered => {
                 if let Some(color) = element_color {
                     *bg_color = BackgroundColor(color.with_alpha(0.9));
-                    *border_color = BorderColor::all(Color::WHITE);
                 } else {
-                    apply_empty_slot_hover_style(&mut bg_color, &mut border_color);
+                    *bg_color = BackgroundColor(empty_slot::SLOT_BACKGROUND_HOVER);
                 }
             }
             Interaction::None => {
                 if let Some(color) = element_color {
                     *bg_color = BackgroundColor(color.with_alpha(0.6));
-                    *border_color = BorderColor::all(color);
                 } else {
-                    apply_empty_slot_style(&mut bg_color, &mut border_color);
+                    *bg_color = BackgroundColor(empty_slot::SLOT_BACKGROUND);
                 }
             }
-        }
-    }
-}
-
-/// Update visual highlight for selected slot.
-pub fn update_selected_slot_visual(
-    selected_query: Query<Entity, With<SelectedSpell>>,
-    mut slot_query: Query<(Entity, &mut BorderColor, &InventorySlot)>,
-    inventory_bag: Res<InventoryBag>,
-) {
-    for (entity, mut border_color, slot) in &mut slot_query {
-        let spell = inventory_bag.get_spell(slot.index);
-        let is_selected = selected_query.iter().any(|e| e == entity);
-
-        if is_selected {
-            *border_color = BorderColor::all(Color::srgb(1.0, 0.84, 0.0)); // Gold highlight
-        } else if let Some(spell) = spell {
-            *border_color = BorderColor::all(spell.element.color());
-        } else {
-            *border_color = BorderColor::all(Color::srgba(0.4, 0.4, 0.4, 0.8));
         }
     }
 }

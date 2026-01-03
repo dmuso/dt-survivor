@@ -8,9 +8,10 @@ use bevy::prelude::*;
 use crate::inventory::{InventoryBag, SpellList};
 use crate::spell::Spell;
 use crate::ui::spell_slot::components::{
-    SlotSource, SpellAbbreviation, SpellIconImage, SpellLevelIndicator, SpellSlotVisual,
+    LevelIndicatorContainer, SlotSource, SpellAbbreviation, SpellIconImage, SpellLevelIndicator,
+    SpellSlotVisual,
 };
-use crate::ui::spell_slot::spawn::spell_slot_colors;
+use crate::ui::spell_slot::spawn::spell_slot_background;
 
 /// Refreshes all spell slot visuals based on current SpellList and InventoryBag state.
 ///
@@ -24,29 +25,33 @@ pub fn refresh_spell_slot_visuals(
     spell_list: Res<SpellList>,
     inventory_bag: Res<InventoryBag>,
     asset_server: Res<AssetServer>,
-    mut slots: Query<(&SpellSlotVisual, &mut BackgroundColor, &mut BorderColor)>,
-    mut icons: Query<(&SpellIconImage, &mut ImageNode, &ChildOf)>,
+    mut slots: Query<(&SpellSlotVisual, &mut BackgroundColor)>,
+    mut icons: Query<(&SpellIconImage, &mut ImageNode, &mut Visibility, &ChildOf)>,
     mut levels: Query<(&SpellLevelIndicator, &mut Text, &ChildOf)>,
-    mut abbrevs: Query<(&SpellAbbreviation, &mut Text, &mut Visibility, &ChildOf), Without<SpellLevelIndicator>>,
+    mut level_containers: Query<
+        (&LevelIndicatorContainer, &mut Visibility),
+        (Without<SpellLevelIndicator>, Without<SpellIconImage>),
+    >,
+    mut abbrevs: Query<
+        (&SpellAbbreviation, &mut Text, &mut Visibility, &ChildOf),
+        (Without<SpellLevelIndicator>, Without<LevelIndicatorContainer>, Without<SpellIconImage>),
+    >,
 ) {
-    // Build a map of slot entity -> spell for efficient lookup
-    for (slot_visual, mut bg_color, mut border_color) in &mut slots {
+    // Update slot container background colors
+    for (slot_visual, mut bg_color) in &mut slots {
         let spell = get_spell_for_slot(slot_visual, &spell_list, &inventory_bag);
-
-        // Update slot container colors
-        let (new_bg, new_border) = spell_slot_colors(spell);
-        *bg_color = new_bg;
-        *border_color = new_border;
+        *bg_color = spell_slot_background(spell);
     }
 
     // Update all icon images
-    for (_icon, mut image_node, child_of) in &mut icons {
+    for (_icon, mut image_node, mut visibility, child_of) in &mut icons {
         // Find the parent slot to get the spell
-        if let Ok((slot_visual, _, _)) = slots.get(child_of.parent()) {
+        if let Ok((slot_visual, _)) = slots.get(child_of.parent()) {
             let spell = get_spell_for_slot(slot_visual, &spell_list, &inventory_bag);
 
-            // Update image based on spell
+            // Update image and visibility based on spell
             if let Some(spell) = spell {
+                *visibility = Visibility::Visible;
                 if let Some(path) = spell.spell_type.icon_path() {
                     image_node.image = asset_server.load(path);
                 } else {
@@ -54,17 +59,27 @@ pub fn refresh_spell_slot_visuals(
                     image_node.image = Handle::default();
                 }
             } else {
-                // Clear image for empty slots
+                // Hide and clear image for empty slots
+                *visibility = Visibility::Hidden;
                 image_node.image = Handle::default();
             }
         }
     }
 
-    // Update all level indicators
+    // Update level indicator container visibility (fixes corner border artifacts)
+    for (container, mut visibility) in &mut level_containers {
+        let spell = find_spell_for_source(container.source, container.index, &spell_list, &inventory_bag);
+        *visibility = if spell.is_some() {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+    }
+
+    // Update all level indicator text
     for (indicator, mut text, _child_of) in &mut levels {
-        // Level indicator's parent is the level box, which is a child of the slot
-        // We need to find the slot by matching indices
-        let spell = find_spell_for_index(indicator.index, &spell_list, &inventory_bag, &slots);
+        // Use source-aware lookup (fixes ghost level indicators from index collision)
+        let spell = find_spell_for_source(indicator.source, indicator.index, &spell_list, &inventory_bag);
 
         if let Some(spell) = spell {
             **text = format!("{}", spell.level);
@@ -75,8 +90,8 @@ pub fn refresh_spell_slot_visuals(
 
     // Update all abbreviations
     for (abbrev, mut text, mut visibility, _child_of) in &mut abbrevs {
-        // Find spell by matching index
-        let spell = find_spell_for_index(abbrev.index, &spell_list, &inventory_bag, &slots);
+        // Use source-aware lookup
+        let spell = find_spell_for_source(abbrev.source, abbrev.index, &spell_list, &inventory_bag);
 
         match spell {
             Some(spell) if spell.spell_type.icon_path().is_none() => {
@@ -105,20 +120,20 @@ fn get_spell_for_slot<'a>(
     }
 }
 
-/// Finds a spell by index, checking both Active and Bag sources in the query.
-fn find_spell_for_index<'a>(
+/// Finds a spell by source and index directly from the appropriate resource.
+///
+/// This is source-aware, fixing the index collision bug where bag slot 0 and
+/// active slot 0 would return the wrong spell.
+fn find_spell_for_source<'a>(
+    source: SlotSource,
     index: usize,
     spell_list: &'a SpellList,
     inventory_bag: &'a InventoryBag,
-    slots: &Query<(&SpellSlotVisual, &mut BackgroundColor, &mut BorderColor)>,
 ) -> Option<&'a Spell> {
-    // First check if there's an Active slot with this index
-    for (slot_visual, _, _) in slots.iter() {
-        if slot_visual.index == index {
-            return get_spell_for_slot(slot_visual, spell_list, inventory_bag);
-        }
+    match source {
+        SlotSource::Active => spell_list.get_spell(index),
+        SlotSource::Bag => inventory_bag.get_spell(index),
     }
-    None
 }
 
 #[cfg(test)]
@@ -153,7 +168,7 @@ mod tests {
         }
 
         #[test]
-        fn empty_slot_has_empty_slot_colors() {
+        fn empty_slot_has_empty_slot_background() {
             let mut app = setup_test_app();
 
             // Spawn an empty slot
@@ -167,26 +182,24 @@ mod tests {
             // Run refresh system
             let _ = app.world_mut().run_system_once(refresh_spell_slot_visuals);
 
-            // Check colors
-            let (bg, border, _) = app
+            // Check background color
+            let (bg, _) = app
                 .world_mut()
-                .query::<(&BackgroundColor, &BorderColor, &SpellSlotVisual)>()
+                .query::<(&BackgroundColor, &SpellSlotVisual)>()
                 .iter(app.world())
                 .next()
                 .expect("Slot should exist");
 
             assert_eq!(bg.0, empty_slot::SLOT_BACKGROUND);
-            assert_eq!(border.top, empty_slot::SLOT_BORDER);
         }
 
         #[test]
-        fn slot_with_spell_has_element_colors() {
+        fn slot_with_spell_has_element_background() {
             let mut app = setup_test_app();
 
             // Add a spell to the spell list
             let fireball = Spell::new(SpellType::Fireball);
             let expected_bg = fireball.element.color().with_alpha(BACKGROUND_ALPHA);
-            let expected_border = fireball.element.color();
             app.world_mut().resource_mut::<SpellList>().equip(fireball);
 
             // Spawn a slot (starts empty)
@@ -197,19 +210,18 @@ mod tests {
             };
             let _ = app.world_mut().run_system_once(spawn_slot);
 
-            // Run refresh system - should update colors based on spell list
+            // Run refresh system - should update background based on spell list
             let _ = app.world_mut().run_system_once(refresh_spell_slot_visuals);
 
-            // Check colors
-            let (bg, border, _) = app
+            // Check background color
+            let (bg, _) = app
                 .world_mut()
-                .query::<(&BackgroundColor, &BorderColor, &SpellSlotVisual)>()
+                .query::<(&BackgroundColor, &SpellSlotVisual)>()
                 .iter(app.world())
                 .next()
                 .expect("Slot should exist");
 
             assert_eq!(bg.0, expected_bg);
-            assert_eq!(border.top, expected_border);
         }
 
         #[test]
@@ -325,10 +337,10 @@ mod tests {
             // Run refresh system
             let _ = app.world_mut().run_system_once(refresh_spell_slot_visuals);
 
-            // Check colors come from bag spell
-            let (bg, _, slot) = app
+            // Check background comes from bag spell
+            let (bg, slot) = app
                 .world_mut()
-                .query::<(&BackgroundColor, &BorderColor, &SpellSlotVisual)>()
+                .query::<(&BackgroundColor, &SpellSlotVisual)>()
                 .iter(app.world())
                 .next()
                 .expect("Slot should exist");
@@ -374,6 +386,62 @@ mod tests {
 
             // They should have different background colors (Fire vs Frost)
             assert_ne!(active_slot.0 .0, bag_slot.0 .0);
+        }
+
+        #[test]
+        fn empty_slot_icon_is_hidden() {
+            let mut app = setup_test_app();
+
+            // Spawn an empty slot
+            let spawn_slot = |mut commands: Commands, asset_server: Res<AssetServer>| {
+                commands.spawn((Node::default(), TestParent)).with_children(|parent| {
+                    spawn_spell_slot(parent, SlotSource::Active, 0, None, &asset_server);
+                });
+            };
+            let _ = app.world_mut().run_system_once(spawn_slot);
+
+            // Run refresh system
+            let _ = app.world_mut().run_system_once(refresh_spell_slot_visuals);
+
+            // Check icon visibility
+            let (visibility, _) = app
+                .world_mut()
+                .query::<(&Visibility, &SpellIconImage)>()
+                .iter(app.world())
+                .next()
+                .expect("Icon should exist");
+
+            assert_eq!(*visibility, Visibility::Hidden);
+        }
+
+        #[test]
+        fn slot_with_spell_icon_is_visible() {
+            let mut app = setup_test_app();
+
+            // Add a spell to the spell list
+            let fireball = Spell::new(SpellType::Fireball);
+            app.world_mut().resource_mut::<SpellList>().equip(fireball);
+
+            // Spawn a slot
+            let spawn_slot = |mut commands: Commands, asset_server: Res<AssetServer>| {
+                commands.spawn((Node::default(), TestParent)).with_children(|parent| {
+                    spawn_spell_slot(parent, SlotSource::Active, 0, None, &asset_server);
+                });
+            };
+            let _ = app.world_mut().run_system_once(spawn_slot);
+
+            // Run refresh system
+            let _ = app.world_mut().run_system_once(refresh_spell_slot_visuals);
+
+            // Check icon visibility
+            let (visibility, _) = app
+                .world_mut()
+                .query::<(&Visibility, &SpellIconImage)>()
+                .iter(app.world())
+                .next()
+                .expect("Icon should exist");
+
+            assert_eq!(*visibility, Visibility::Visible);
         }
 
         #[test]
@@ -500,6 +568,71 @@ mod tests {
             let spell = get_spell_for_slot(&slot_visual, &spell_list, &inventory_bag);
             assert!(spell.is_some());
             assert_eq!(spell.unwrap().spell_type, SpellType::VenomBolt);
+        }
+    }
+
+    mod find_spell_for_source_tests {
+        use super::*;
+
+        #[test]
+        fn active_source_returns_from_spell_list() {
+            let mut spell_list = SpellList::default();
+            let inventory_bag = InventoryBag::default();
+
+            spell_list.equip(Spell::new(SpellType::Fireball));
+
+            let spell = find_spell_for_source(SlotSource::Active, 0, &spell_list, &inventory_bag);
+            assert!(spell.is_some());
+            assert_eq!(spell.unwrap().spell_type, SpellType::Fireball);
+        }
+
+        #[test]
+        fn bag_source_returns_from_inventory_bag() {
+            let spell_list = SpellList::default();
+            let mut inventory_bag = InventoryBag::default();
+
+            inventory_bag.add(Spell::new(SpellType::IceShard));
+
+            let spell = find_spell_for_source(SlotSource::Bag, 0, &spell_list, &inventory_bag);
+            assert!(spell.is_some());
+            assert_eq!(spell.unwrap().spell_type, SpellType::IceShard);
+        }
+
+        #[test]
+        fn same_index_different_sources_return_different_spells() {
+            // This is the key test for the index collision bug fix
+            let mut spell_list = SpellList::default();
+            let mut inventory_bag = InventoryBag::default();
+
+            // Both index 0, but different sources have different spells
+            spell_list.equip(Spell::new(SpellType::Fireball));
+            inventory_bag.add(Spell::new(SpellType::IceShard));
+
+            let active_spell = find_spell_for_source(SlotSource::Active, 0, &spell_list, &inventory_bag);
+            let bag_spell = find_spell_for_source(SlotSource::Bag, 0, &spell_list, &inventory_bag);
+
+            assert!(active_spell.is_some());
+            assert!(bag_spell.is_some());
+            assert_eq!(active_spell.unwrap().spell_type, SpellType::Fireball);
+            assert_eq!(bag_spell.unwrap().spell_type, SpellType::IceShard);
+        }
+
+        #[test]
+        fn returns_none_for_empty_slot_in_active() {
+            let spell_list = SpellList::default();
+            let inventory_bag = InventoryBag::default();
+
+            let spell = find_spell_for_source(SlotSource::Active, 0, &spell_list, &inventory_bag);
+            assert!(spell.is_none());
+        }
+
+        #[test]
+        fn returns_none_for_empty_slot_in_bag() {
+            let spell_list = SpellList::default();
+            let inventory_bag = InventoryBag::default();
+
+            let spell = find_spell_for_source(SlotSource::Bag, 0, &spell_list, &inventory_bag);
+            assert!(spell.is_none());
         }
     }
 }

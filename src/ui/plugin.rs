@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use crate::game::sets::GameSet;
+use crate::pause::components::SpellCooldownsVisible;
 use crate::states::*;
 use crate::ui::attunement::*;
 use crate::ui::inventory_bag::*;
@@ -7,6 +8,11 @@ use crate::ui::materials::RadialCooldownMaterial;
 use crate::ui::spell_slot::SpellSlotPlugin;
 use crate::ui::systems::*;
 use crate::score::*;
+
+/// Run condition: only run if spell cooldowns are visible
+fn spell_cooldowns_enabled(visible: Res<SpellCooldownsVisible>) -> bool {
+    visible.0
+}
 
 pub fn plugin(app: &mut App) {
     app.add_plugins((
@@ -42,7 +48,6 @@ pub fn plugin(app: &mut App) {
             handle_inventory_input,
             handle_bag_slot_click,
             handle_active_slot_click,
-            update_selected_slot_visual,
             // Spell info panel systems
             update_spell_info_on_hover,
             rebuild_spell_info_content,
@@ -67,7 +72,9 @@ pub fn plugin(app: &mut App) {
         )
             .in_set(GameSet::Effects)
             .run_if(in_state(GameState::InGame)))
-        .add_systems(PostUpdate, update_spell_cooldowns.run_if(in_state(GameState::InGame)))
+        .add_systems(PostUpdate, update_spell_cooldowns
+            .run_if(in_state(GameState::InGame))
+            .run_if(spell_cooldowns_enabled))
         // Level Complete state systems
         .add_systems(OnEnter(GameState::LevelComplete), (
             setup_level_complete_screen,
