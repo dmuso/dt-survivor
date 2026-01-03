@@ -446,6 +446,13 @@ impl SpellType {
     pub fn icon_path(&self) -> Option<&'static str> {
         match self {
             SpellType::Fireball => Some("textures/spell-fireball.png"),
+            SpellType::FlameLance => Some("textures/spell-flame-lance.png"),
+            SpellType::Ashfall => Some("textures/spell-ashfall.png"),
+            SpellType::MeteorShower => Some("textures/spell-meteor-shower.png"),
+            SpellType::PhoenixFlare => Some("textures/spell-phoenix-flare.png"),
+            SpellType::Combustion => Some("textures/spell-combustion.png"),
+            SpellType::Immolate => Some("textures/spell-immolate.png"),
+            SpellType::Hellfire => Some("textures/spell-hellfire.png"),
             _ => None,
         }
     }
@@ -1083,6 +1090,55 @@ mod tests {
             let icon_path = SpellType::Fireball.icon_path();
             assert!(icon_path.is_some(), "Fireball should have a custom icon");
             assert_eq!(icon_path.unwrap(), "textures/spell-fireball.png");
+        }
+
+        #[test]
+        fn flame_lance_has_custom_icon() {
+            let icon_path = SpellType::FlameLance.icon_path();
+            assert!(icon_path.is_some(), "FlameLance should have a custom icon");
+            assert_eq!(icon_path.unwrap(), "textures/spell-flame-lance.png");
+        }
+
+        #[test]
+        fn ashfall_has_custom_icon() {
+            let icon_path = SpellType::Ashfall.icon_path();
+            assert!(icon_path.is_some(), "Ashfall should have a custom icon");
+            assert_eq!(icon_path.unwrap(), "textures/spell-ashfall.png");
+        }
+
+        #[test]
+        fn meteor_shower_has_custom_icon() {
+            let icon_path = SpellType::MeteorShower.icon_path();
+            assert!(icon_path.is_some(), "MeteorShower should have a custom icon");
+            assert_eq!(icon_path.unwrap(), "textures/spell-meteor-shower.png");
+        }
+
+        #[test]
+        fn phoenix_flare_has_custom_icon() {
+            let icon_path = SpellType::PhoenixFlare.icon_path();
+            assert!(icon_path.is_some(), "PhoenixFlare should have a custom icon");
+            assert_eq!(icon_path.unwrap(), "textures/spell-phoenix-flare.png");
+        }
+
+        #[test]
+        fn combustion_has_custom_icon() {
+            let icon_path = SpellType::Combustion.icon_path();
+            assert!(icon_path.is_some(), "Combustion should have a custom icon");
+            assert_eq!(icon_path.unwrap(), "textures/spell-combustion.png");
+        }
+
+        #[test]
+        fn immolate_has_custom_icon() {
+            let icon_path = SpellType::Immolate.icon_path();
+            assert!(icon_path.is_some(), "Immolate should have a custom icon");
+            assert_eq!(icon_path.unwrap(), "textures/spell-immolate.png");
+        }
+
+        #[test]
+        fn hellfire_has_custom_icon() {
+            let icon_path = SpellType::Hellfire.icon_path();
+            assert!(icon_path.is_some(), "Hellfire should have a custom icon");
+            assert_eq!(icon_path.unwrap(), "textures/spell-hellfire.png");
         }
 
         #[test]
