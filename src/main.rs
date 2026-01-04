@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_hanabi::prelude::*;
 use bevy_kira_audio::prelude::*;
+use clap::Parser;
 use donny_tango_survivor::{
     audio_plugin,
     combat_plugin,
@@ -9,12 +10,37 @@ use donny_tango_survivor::{
     inventory_plugin,
     pause_plugin,
     ui_plugin,
+    visual_test::{self, TestScene, ScreenshotState},
     states::GameState
 };
 
+#[derive(Parser, Debug)]
+#[command(name = "donny-tango-survivor")]
+#[command(about = "A survivor-style game built with Bevy")]
+struct Args {
+    /// Skip intro and start game immediately
+    #[arg(long)]
+    auto_start: bool,
+
+    /// Capture a screenshot of a visual test scene and exit.
+    /// Use 'list' to see available scenes.
+    #[arg(long)]
+    screenshot: Option<String>,
+}
+
 fn main() {
-    // Check for --auto-start flag
-    let auto_start = std::env::args().any(|arg| arg == "--auto-start");
+    let args = Args::parse();
+
+    // Handle --screenshot list
+    if let Some(ref scene_name) = args.screenshot {
+        if scene_name == "list" {
+            println!("Available visual test scenes:");
+            for scene in TestScene::all() {
+                println!("  {}", scene.name());
+            }
+            return;
+        }
+    }
 
     // Get the current directory and construct the assets path
     let current_dir = std::env::current_dir().expect("Failed to get current directory");
@@ -25,22 +51,62 @@ fn main() {
 
     let mut app = App::new();
 
-    app.add_plugins(DefaultPlugins.build()
-            .disable::<bevy::audio::AudioPlugin>()
-            .set(AssetPlugin {
-                file_path: assets_path.to_string_lossy().to_string(),
-                ..default()
-            }))
-        .add_plugins(AudioPlugin)
-        .add_plugins(HanabiPlugin)
-        .init_state::<GameState>()
-        .add_plugins((audio_plugin, combat_plugin, experience_plugin, game_plugin, inventory_plugin, pause_plugin, ui_plugin));
-
-    // If auto-start flag is set, add a system to skip to InGame state
-    if auto_start {
-        app.add_systems(Startup, |mut next_state: ResMut<NextState<GameState>>| {
-            next_state.set(GameState::InGame);
+    // Check if we're in screenshot mode
+    if let Some(ref scene_name) = args.screenshot {
+        // Parse the scene name
+        let scene: TestScene = scene_name.parse().unwrap_or_else(|e| {
+            eprintln!("{}", e);
+            std::process::exit(1);
         });
+
+        // Screenshot mode: minimal plugins + visual test plugin
+        // Use smaller window for faster rendering and smaller output files
+        app.add_plugins(DefaultPlugins.build()
+                .disable::<bevy::audio::AudioPlugin>()
+                .set(AssetPlugin {
+                    file_path: assets_path.to_string_lossy().to_string(),
+                    ..default()
+                })
+                .set(bevy::window::WindowPlugin {
+                    primary_window: Some(bevy::window::Window {
+                        resolution: bevy::window::WindowResolution::new(640, 480),
+                        title: "Visual Test".to_string(),
+                        visible: false,  // Run headless - no visible window
+                        ..default()
+                    }),
+                    ..default()
+                }))
+            .insert_resource(ScreenshotState {
+                scene,
+                frames_remaining: scene.frames_to_wait(),
+                screenshot_taken: false,
+                exit_frames: 0,
+                current_frame: 0,
+                total_frames: scene.total_frames(),
+                frames_between_captures: scene.frames_between_captures(),
+            })
+            // game_plugin registers material plugins and provides GameMeshes/GameMaterials
+            .add_plugins(game_plugin)
+            .add_plugins(visual_test::plugin);
+    } else {
+        // Normal game mode
+        app.add_plugins(DefaultPlugins.build()
+                .disable::<bevy::audio::AudioPlugin>()
+                .set(AssetPlugin {
+                    file_path: assets_path.to_string_lossy().to_string(),
+                    ..default()
+                }))
+            .add_plugins(AudioPlugin)
+            .add_plugins(HanabiPlugin)
+            .init_state::<GameState>()
+            .add_plugins((audio_plugin, combat_plugin, experience_plugin, game_plugin, inventory_plugin, pause_plugin, ui_plugin));
+
+        // If auto-start flag is set, add a system to skip to InGame state
+        if args.auto_start {
+            app.add_systems(Startup, |mut next_state: ResMut<NextState<GameState>>| {
+                next_state.set(GameState::InGame);
+            });
+        }
     }
 
     app.run();

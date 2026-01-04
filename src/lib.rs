@@ -19,6 +19,7 @@ pub mod spell;
 pub mod spells;
 pub mod states;
 pub mod ui;
+pub mod visual_test;
 pub mod whisper;
 
 pub use arena::plugin as arena_plugin;

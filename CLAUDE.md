@@ -28,6 +28,74 @@ Available make targets:
 - Fix any errors or warnings that you get as feedback from linting and tests
 - Write tests inline with code
 
+## Visual Testing (for Claude)
+
+When working on shaders or visual effects, you MUST verify your work visually using the screenshot tool.
+
+### Workflow
+
+1. **Create a test scene** for the effect you're working on in `src/visual_test/scenes.rs`
+2. **Run the screenshot capture**: `nix-shell --run "cargo run -- --screenshot <scene-name>"`
+3. **Read the screenshot**: Use Read tool on `tmp/screenshots/<scene-name>.png`
+4. **Inspect and iterate**: Fix issues, re-capture, repeat until it looks right
+
+### Creating a Test Scene
+
+Add to the `TestScene` enum in `src/visual_test/scenes.rs`:
+
+```rust
+pub enum TestScene {
+    FireballTrailEast,
+    MyNewEffect,  // Add your scene
+}
+
+impl TestScene {
+    pub fn name(&self) -> &'static str {
+        match self {
+            // ...
+            Self::MyNewEffect => "my-new-effect",
+        }
+    }
+
+    fn fireball_config(&self) -> (Vec3, Vec3) {
+        match self {
+            // Return (spawn_position, direction) for your effect
+            Self::MyNewEffect => (Vec3::new(0.0, 1.0, 0.0), Vec3::X),
+            // ...
+        }
+    }
+}
+
+impl FromStr for TestScene {
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            // ...
+            "my-new-effect" => Ok(TestScene::MyNewEffect),
+            // ...
+        }
+    }
+}
+```
+
+### Running Visual Tests
+
+```bash
+# List available test scenes
+nix-shell --run "cargo run -- --screenshot list"
+
+# Capture screenshot of a scene
+nix-shell --run "cargo run -- --screenshot fireball-trail-east"
+
+# Then read the screenshot file to inspect
+# tmp/screenshots/fireball-trail-east.png
+```
+
+### Requirements
+
+- Every shader change must have a corresponding test scene
+- Always inspect the screenshot before considering shader work complete
+- If something looks wrong, fix it - don't commit broken visuals
+
 ## File Structure and Code Organization
 
 This project follows a domain-driven, modular architecture to support the complex features planned for the survivor game (player classes, enemy AI, inventory, weapons, levels, etc.).
@@ -47,99 +115,137 @@ src/
 ├── main.rs             # Minimal app entry point using plugins
 ├── prelude.rs          # Common imports used across modules
 ├── states.rs           # Game state management (GameState enum)
-├── game/               # Core game logic
+│
+├── game/               # Core game logic and resources
 │   ├── mod.rs
-│   ├── components.rs   # Game entity components (Player, Enemy, etc.)
-│   ├── events.rs       # Game events (PlayerEnemyCollisionEvent, GameOverEvent, etc.)
+│   ├── components.rs   # World components (Arena, etc.)
+│   ├── events.rs       # Game events (CollisionEvent, GameOverEvent)
 │   ├── sets.rs         # SystemSet definitions (GameSet enum)
-│   ├── systems.rs      # Game systems (movement, combat, AI)
-│   ├── resources.rs    # Game resources (score, settings)
+│   ├── systems.rs      # Core game systems (spawning, physics)
+│   ├── resources.rs    # GameMeshes, GameMaterials resources
 │   └── plugin.rs       # Game plugin composition
+│
+├── spell/              # Spell system coordination
+│   ├── mod.rs
+│   ├── components.rs   # Spell base components
+│   ├── resources.rs    # Spell resources
+│   ├── systems.rs      # Spell casting system (iterates SpellList)
+│   └── plugin.rs       # Registers all spell plugins
+│
+├── spells/             # Individual spell implementations by element
+│   ├── mod.rs          # Re-exports all spell modules
+│   ├── fire/           # Fire element spells
+│   │   ├── mod.rs
+│   │   ├── fireball.rs # Components, constants, fire/update systems
+│   │   ├── materials.rs # FireballCoreMaterial, ExplosionFireMaterial, etc.
+│   │   └── inferno.rs
+│   ├── frost/          # Frost element spells
+│   ├── lightning/      # Lightning element spells
+│   ├── psychic/        # Psychic element spells
+│   └── light/          # Light element spells
+│
 ├── combat/             # Damage, health, and combat mechanics
 │   ├── mod.rs
-│   ├── components.rs   # Health, Damage, Hitbox, Invincibility
+│   ├── components.rs   # Health, Damage, Hitbox, Invincibility, CheckDeath
 │   ├── events.rs       # DamageEvent, DeathEvent
 │   ├── systems.rs      # apply_damage, check_death, handle_enemy_death
 │   └── plugin.rs       # Combat plugin composition
+│
 ├── movement/           # Reusable movement components and systems
 │   ├── mod.rs
-│   ├── components.rs   # Speed, Velocity, Knockback
+│   ├── components.rs   # Speed, Velocity, Knockback, from_xz()
 │   ├── systems.rs      # apply_velocity, player_movement, enemy_movement
 │   └── plugin.rs       # Movement plugin composition
-├── enemy_death/        # Enemy death handling and effects
-│   ├── mod.rs
-│   ├── systems.rs      # Enemy death effects (particles, sounds)
-│   └── plugin.rs       # Enemy death plugin composition
-├── ui/                 # User interface systems
-│   ├── mod.rs
-│   ├── components.rs   # UI components (buttons, menus, HUD)
-│   ├── systems.rs      # UI interaction systems
-│   └── plugin.rs       # UI plugin composition
-├── pistol/             # Pistol weapon behavior
-│   ├── mod.rs
-│   ├── components.rs   # Pistol-specific components and configuration
-│   └── systems.rs      # Pistol firing logic and systems
-├── weapon/             # Generic weapon management
-│   ├── mod.rs
-│   ├── components.rs   # Weapon components and types
-│   ├── resources.rs    # Weapon resources
-│   ├── systems.rs      # Weapon firing coordination
-│   └── plugin.rs       # Weapon plugin composition
-├── inventory/          # Player inventory management
-│   ├── mod.rs
-│   ├── components.rs   # Inventory components
-│   ├── resources.rs    # Inventory storage
-│   ├── systems.rs      # Inventory systems
-│   └── plugin.rs       # Inventory plugin composition
-├── bullets/            # Bullet entities and behavior
-│   ├── mod.rs
-│   ├── components.rs   # Bullet components
-│   └── systems.rs      # Bullet movement and collision
-├── laser/              # Laser weapon behavior
-│   ├── mod.rs
-│   ├── components.rs   # Laser components
-│   ├── systems.rs      # Laser systems
-│   └── plugin.rs       # Laser plugin composition
-├── rocket_launcher/    # Rocket launcher weapon behavior
-│   ├── mod.rs
-│   ├── components.rs   # Rocket components
-│   ├── systems.rs      # Rocket systems
-│   └── plugin.rs       # Rocket launcher plugin composition
-├── loot/               # Loot spawning and pickup
-│   ├── mod.rs
-│   ├── components.rs   # Loot components
-│   ├── systems.rs      # Loot systems
-│   └── plugin.rs       # Loot plugin composition
-├── enemies/            # Enemy entities and AI
-│   ├── mod.rs
-│   ├── components.rs   # Enemy components
-│   └── systems.rs      # Enemy AI and behavior
+│
 ├── player/             # Player entity and controls
 │   ├── mod.rs
-│   ├── components.rs   # Player components
+│   ├── components.rs   # Player component
 │   └── systems.rs      # Player systems
+│
+├── enemies/            # Enemy entities and AI
+│   ├── mod.rs
+│   ├── components.rs   # Enemy component, spawn patterns
+│   └── systems.rs      # Enemy AI, spawning, movement toward player
+│
+├── enemy_death/        # Enemy death handling and effects
+│   ├── mod.rs
+│   ├── systems.rs      # Enemy death particles, sounds, loot drops
+│   └── plugin.rs       # Enemy death plugin composition
+│
+├── inventory/          # Player inventory and spell management
+│   ├── mod.rs
+│   ├── components.rs   # Inventory components
+│   ├── resources.rs    # SpellList (5 spell slots)
+│   ├── systems.rs      # Inventory systems
+│   └── plugin.rs       # Inventory plugin composition
+│
+├── loot/               # Loot spawning and pickup
+│   ├── mod.rs
+│   ├── components.rs   # Loot components (XP orbs, items)
+│   ├── systems.rs      # Loot attraction, pickup, magnet range
+│   └── plugin.rs       # Loot plugin composition
+│
 ├── experience/         # Experience and leveling
 │   ├── mod.rs
 │   ├── components.rs   # Experience components
-│   ├── resources.rs    # Experience resources
-│   ├── systems.rs      # Experience systems
+│   ├── resources.rs    # PlayerLevel, XP thresholds
+│   ├── systems.rs      # Experience gain, level up
 │   └── plugin.rs       # Experience plugin composition
-├── score/              # Score tracking
+│
+├── powerup/            # Power-up selection on level up
 │   ├── mod.rs
-│   ├── components.rs   # Score components
-│   ├── resources.rs    # Score resources
-│   └── systems.rs      # Score systems
+│   ├── components.rs   # PowerUp types
+│   ├── systems.rs      # PowerUp UI, selection
+│   └── plugin.rs       # PowerUp plugin composition
+│
+├── ui/                 # User interface systems
+│   ├── mod.rs
+│   ├── components.rs   # UI components (HUD, menus)
+│   ├── materials.rs    # RadialCooldownMaterial (UiMaterial)
+│   ├── systems.rs      # UI update systems
+│   └── plugin.rs       # UI plugin composition
+│
+├── camera/             # Camera setup and control
+│   ├── mod.rs
+│   ├── systems.rs      # Camera spawn, follow player, HDR/Bloom config
+│   └── plugin.rs       # Camera plugin composition
+│
+├── arena/              # Arena/level setup
+│   ├── mod.rs
+│   ├── components.rs   # Arena boundaries
+│   ├── systems.rs      # Arena spawning
+│   └── plugin.rs       # Arena plugin composition
+│
+├── pause/              # Pause menu
+│   ├── mod.rs
+│   ├── components.rs   # Pause state
+│   ├── systems.rs      # Pause/resume toggle
+│   └── plugin.rs       # Pause plugin composition
+│
+├── whisper/            # Whisper attunement system
+│   ├── mod.rs
+│   ├── components.rs   # Whisper components
+│   ├── resources.rs    # WhisperAttunement, SpellOrigin
+│   ├── systems.rs      # Whisper mechanics
+│   └── plugin.rs       # Whisper plugin composition
+│
+├── element/            # Element types (Fire, Frost, etc.)
+│   └── mod.rs          # Element enum definition
+│
 ├── audio/              # Audio management
 │   ├── mod.rs
 │   ├── components.rs   # Audio components
 │   ├── systems.rs      # Audio systems
 │   └── plugin.rs       # Audio plugin composition
-└── game/               # Core game logic and resources
-    ├── mod.rs
-    ├── components.rs   # Game components
-    ├── resources.rs    # Game resources
-    ├── systems.rs      # Game systems
-    └── plugin.rs       # Game plugin composition
+│
+├── score/              # Score tracking
+│   ├── mod.rs
+│   ├── components.rs   # Score components
+│   ├── resources.rs    # Score resource
+│   └── systems.rs      # Score systems
+│
+└── visual_test/        # Visual testing utilities
+    └── mod.rs          # Debug visualization helpers
 ```
 
 ### Module Organization Patterns
@@ -266,6 +372,508 @@ As the game grows, plan for these additional modules:
 
 - **levels/**: Level progression and world management
 - **assets/**: Asset loading and management
+
+### Spells Module Structure
+
+The `src/spells/` directory organizes spells by element with shared materials:
+
+```
+src/spells/
+├── mod.rs              # Re-exports all spell modules
+├── fire/               # Fire element spells
+│   ├── mod.rs
+│   ├── fireball.rs     # Fireball projectile, charging, collision, explosion
+│   ├── fireball_effects.rs  # Particle effect resources
+│   ├── materials.rs    # All fire shader materials (core, charge, trail, explosion)
+│   └── inferno.rs      # Fire nova spell
+├── frost/              # Frost element spells
+│   ├── mod.rs
+│   ├── ice_shard.rs
+│   ├── glacial_pulse.rs
+│   └── materials.rs    # Frost shader materials
+├── lightning/          # Lightning element spells
+│   ├── mod.rs
+│   ├── thunder_strike.rs
+│   └── materials.rs
+├── psychic/            # Psychic element spells
+│   ├── mod.rs
+│   ├── echo_thought.rs
+│   └── mind_cage.rs
+└── light/              # Light element spells
+    ├── mod.rs
+    └── radiant_beam.rs
+```
+
+**Spell Module Pattern:**
+
+Each spell implementation follows this structure:
+1. **Components** - Projectile markers, effect trackers, timers
+2. **Constants** - Speed, damage ratios, durations, collision radii
+3. **Fire function** - `fire_<spell>()` to spawn the spell entity
+4. **Systems** - Movement, lifetime, collision detection, effect updates
+5. **Tests** - Inline tests for all behavior
+
+## Custom Shader Materials
+
+This project uses WGSL shaders for visual effects. Shaders live in `assets/shaders/` and are paired with Rust material definitions.
+
+> **Reference**: See [docs/bevy-017-material-bindings.md](docs/bevy-017-material-bindings.md) for detailed Bevy 0.17 shader binding patterns.
+
+### Shader Asset Structure
+
+```
+assets/shaders/
+├── noise.wgsl              # Shared noise functions (perlin, fbm, turbulence)
+├── fire_common.wgsl        # Shared fire color gradients (not yet used as import)
+├── fireball_core.wgsl      # Volumetric fire sphere with displacement
+├── fireball_charge.wgsl    # Swirling energy gathering effect
+├── fireball_trail.wgsl     # Comet tail trailing effect
+├── fireball_sparks.wgsl    # Flying ember particles
+├── explosion_core.wgsl     # White-hot flash burst
+├── explosion_fire.wgsl     # Main orange-red blast
+├── explosion_embers.wgsl   # Flying debris particles
+├── explosion_smoke.wgsl    # Rising smoke plume
+└── radial_cooldown.wgsl    # UI cooldown overlay (UiMaterial)
+```
+
+### Creating a Custom 3D Material
+
+#### 1. Define the Material Struct
+
+Materials use `AsBindGroup` to define GPU-accessible uniforms:
+
+```rust
+use bevy::prelude::*;
+use bevy::render::render_resource::AsBindGroup;
+use bevy::shader::ShaderRef;
+
+/// Shader asset path constant (relative to assets/)
+pub const MY_EFFECT_SHADER: &str = "shaders/my_effect.wgsl";
+
+/// Material for rendering my custom effect.
+///
+/// IMPORTANT: All uniforms must use Vec4 for 16-byte alignment (WebGL2 requirement).
+/// Store scalar values in the .x component.
+#[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
+pub struct MyEffectMaterial {
+    /// Current time for animation (seconds in .x component).
+    #[uniform(0)]
+    pub time: Vec4,
+
+    /// Effect progress from 0.0 to 1.0 (stored in .x).
+    #[uniform(0)]
+    pub progress: Vec4,
+
+    /// Emissive intensity for HDR bloom (stored in .x).
+    #[uniform(0)]
+    pub emissive_intensity: Vec4,
+}
+
+impl Default for MyEffectMaterial {
+    fn default() -> Self {
+        Self {
+            time: Vec4::ZERO,
+            progress: Vec4::ZERO,
+            emissive_intensity: Vec4::new(3.0, 0.0, 0.0, 0.0),
+        }
+    }
+}
+
+impl MyEffectMaterial {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Update time for animation.
+    pub fn set_time(&mut self, time: f32) {
+        self.time.x = time;
+    }
+
+    /// Set progress (clamped 0.0-1.0).
+    pub fn set_progress(&mut self, progress: f32) {
+        self.progress.x = progress.clamp(0.0, 1.0);
+    }
+}
+
+impl Material for MyEffectMaterial {
+    fn fragment_shader() -> ShaderRef {
+        MY_EFFECT_SHADER.into()
+    }
+
+    fn vertex_shader() -> ShaderRef {
+        MY_EFFECT_SHADER.into()
+    }
+
+    /// Use AlphaMode::Blend for transparency, AlphaMode::Add for glow effects.
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Blend
+    }
+}
+```
+
+#### 2. Register the Material Plugin
+
+In your plugin.rs:
+
+```rust
+use bevy::pbr::MaterialPlugin;
+
+pub fn plugin(app: &mut App) {
+    app.add_plugins(MaterialPlugin::<MyEffectMaterial>::default());
+
+    // Add time update system for animated materials
+    app.add_systems(Update, update_my_effect_material_time);
+}
+
+/// System to update time on all instances of the material.
+pub fn update_my_effect_material_time(
+    time: Res<Time>,
+    materials: Option<ResMut<Assets<MyEffectMaterial>>>,
+) {
+    let Some(mut materials) = materials else { return };
+    let current_time = time.elapsed_secs();
+    let ids: Vec<_> = materials.ids().collect();
+    for id in ids {
+        if let Some(material) = materials.get_mut(id) {
+            material.set_time(current_time);
+        }
+    }
+}
+```
+
+#### 3. Write the WGSL Shader
+
+Create `assets/shaders/my_effect.wgsl`:
+
+```wgsl
+// My Effect Shader
+// Description of what this shader does
+
+#import bevy_pbr::{
+    mesh_functions,
+    view_transformations::position_world_to_clip,
+    mesh_view_bindings::globals,
+}
+
+// Material uniform struct - must match Rust struct field order
+struct MyEffectMaterial {
+    time: vec4<f32>,
+    progress: vec4<f32>,
+    emissive_intensity: vec4<f32>,
+}
+
+// Use #{MATERIAL_BIND_GROUP} for forward compatibility (resolves to @group(3) in Bevy 0.17)
+@group(#{MATERIAL_BIND_GROUP}) @binding(0)
+var<uniform> material: MyEffectMaterial;
+
+// Vertex structures
+struct Vertex {
+    @builtin(instance_index) instance_index: u32,
+    @location(0) position: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) uv: vec2<f32>,
+}
+
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) world_position: vec3<f32>,
+    @location(1) world_normal: vec3<f32>,
+    @location(2) uv: vec2<f32>,
+    @location(3) local_position: vec3<f32>,
+}
+
+// Vertex shader
+@vertex
+fn vertex(vertex: Vertex) -> VertexOutput {
+    var out: VertexOutput;
+
+    let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
+    let world_position = mesh_functions::mesh_position_local_to_world(
+        world_from_local,
+        vec4<f32>(vertex.position, 1.0)
+    );
+
+    out.clip_position = position_world_to_clip(world_position.xyz);
+    out.world_position = world_position.xyz;
+    out.world_normal = mesh_functions::mesh_normal_local_to_world(vertex.normal, vertex.instance_index);
+    out.uv = vertex.uv;
+    out.local_position = vertex.position;
+
+    return out;
+}
+
+// Fragment shader
+@fragment
+fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    let t = globals.time;  // Use globals.time for animation
+    let progress = material.progress.x;
+    let emissive = material.emissive_intensity.x;
+
+    // Your effect logic here
+    let color = vec3<f32>(1.0, 0.5, 0.0);  // Orange
+
+    return vec4<f32>(color * emissive, 1.0);
+}
+```
+
+#### 4. Spawn Entities with the Material
+
+```rust
+pub fn spawn_effect(
+    commands: &mut Commands,
+    meshes: &GameMeshes,
+    materials: &mut Assets<MyEffectMaterial>,
+    position: Vec3,
+) {
+    let material = MyEffectMaterial::new();
+    let material_handle = materials.add(material);
+
+    commands.spawn((
+        Mesh3d(meshes.fireball.clone()),  // Use high-poly sphere for displacement
+        MeshMaterial3d(material_handle.clone()),
+        Transform::from_translation(position).with_scale(Vec3::splat(2.0)),
+        MyEffectComponent { material_handle },  // Store handle for updates
+    ));
+}
+```
+
+### Creating UI Materials (UiMaterial)
+
+For 2D UI effects like cooldown overlays:
+
+```rust
+use bevy::ui::UiMaterial;
+
+#[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
+pub struct RadialCooldownMaterial {
+    #[uniform(0)]
+    pub progress: Vec4,  // 0.0 = on cooldown, 1.0 = ready
+    #[uniform(0)]
+    pub overlay_color: Vec4,
+}
+
+impl UiMaterial for RadialCooldownMaterial {
+    fn fragment_shader() -> ShaderRef {
+        "shaders/radial_cooldown.wgsl".into()
+    }
+}
+```
+
+Register with `UiMaterialPlugin`:
+```rust
+app.add_plugins(UiMaterialPlugin::<RadialCooldownMaterial>::default());
+```
+
+### Effect Component Pattern
+
+For effects with lifetimes, create a component that tracks the material handle and timer:
+
+```rust
+/// Component for shader-based effect with lifetime tracking.
+#[derive(Component, Debug)]
+pub struct MyExplosionEffect {
+    /// Handle to update material progress
+    pub material_handle: Handle<MyEffectMaterial>,
+    /// Lifetime timer for progress and cleanup
+    pub lifetime: Timer,
+}
+
+impl MyExplosionEffect {
+    pub fn new(material_handle: Handle<MyEffectMaterial>) -> Self {
+        Self {
+            material_handle,
+            lifetime: Timer::from_seconds(0.6, TimerMode::Once),
+        }
+    }
+
+    pub fn progress(&self) -> f32 {
+        self.lifetime.fraction()
+    }
+
+    pub fn is_finished(&self) -> bool {
+        self.lifetime.is_finished()
+    }
+}
+
+/// System to update effect progress and cleanup expired effects.
+pub fn my_effect_update_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut MyExplosionEffect)>,
+    mut materials: Option<ResMut<Assets<MyEffectMaterial>>>,
+) {
+    let Some(materials) = materials.as_mut() else { return };
+
+    for (entity, mut effect) in query.iter_mut() {
+        effect.lifetime.tick(time.delta());
+        let progress = effect.progress();
+
+        // Update material progress
+        if let Some(material) = materials.get_mut(&effect.material_handle) {
+            material.set_progress(progress);
+        }
+
+        // Cleanup when finished
+        if effect.is_finished() {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+```
+
+### Shared Mesh Resources
+
+Meshes are created once and stored in `GameMeshes` resource:
+
+```rust
+/// Shared mesh handles to avoid recreating meshes per entity.
+#[derive(Resource)]
+pub struct GameMeshes {
+    pub player: Handle<Mesh>,
+    pub enemy: Handle<Mesh>,
+    /// High-poly sphere for vertex displacement effects (ico subdivision 5)
+    pub fireball: Handle<Mesh>,
+    pub explosion: Handle<Mesh>,
+    // ... other meshes
+}
+
+impl GameMeshes {
+    pub fn new(meshes: &mut Assets<Mesh>) -> Self {
+        Self {
+            player: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
+            // Use high subdivision for smooth displacement
+            fireball: meshes.add(Sphere::new(0.3).mesh().ico(5).unwrap()),
+            explosion: meshes.add(Sphere::new(1.0).mesh().ico(5).unwrap()),
+            // ...
+        }
+    }
+}
+```
+
+### HDR Bloom Camera Setup
+
+For emissive shader effects to glow, configure the camera with HDR and bloom:
+
+```rust
+commands.spawn((
+    Camera3d::default(),
+    Camera {
+        hdr: true,  // Required for bloom
+        ..default()
+    },
+    Bloom::NATURAL,  // Or Bloom::default() or custom BloomSettings
+    Transform::from_xyz(0.0, 20.0, 15.0).looking_at(Vec3::ZERO, Vec3::Y),
+));
+```
+
+**Emissive Values for Bloom:**
+- Subtle glow: `LinearRgba::rgb(1.0, 0.5, 0.0)` (values ~1.0)
+- Medium glow: `LinearRgba::rgb(3.0, 1.5, 0.0)` (values ~3.0)
+- Bright flash: `LinearRgba::rgb(10.0, 10.0, 8.0)` (values ~10+)
+
+### WGSL Shader Patterns
+
+#### Noise Functions
+
+Include noise in shaders for organic effects:
+
+```wgsl
+// Hash function for pseudo-random values
+fn hash13(p: vec3<f32>) -> f32 {
+    let p2 = fract(p * vec3<f32>(443.897, 441.423, 437.195));
+    let p3 = dot(p2, p2.zyx + 19.19);
+    return fract(sin(p3) * 43758.5453);
+}
+
+// 3D Perlin-style noise
+fn perlin3d(p: vec3<f32>) -> f32 {
+    // Implementation with quintic interpolation
+    // See assets/shaders/fireball_core.wgsl for full implementation
+}
+
+// Fractional Brownian Motion for layered detail
+fn fbm4(p: vec3<f32>) -> f32 {
+    var value = 0.0;
+    var amplitude = 0.5;
+    var frequency = 1.0;
+    for (var i = 0; i < 4; i = i + 1) {
+        value += amplitude * perlin3d(p * frequency);
+        frequency *= 2.0;
+        amplitude *= 0.5;
+    }
+    return value;
+}
+```
+
+#### Fire Color Gradient
+
+```wgsl
+fn fire_gradient(t: f32) -> vec3<f32> {
+    let x = clamp(t, 0.0, 1.0);
+    if x < 0.2 { return mix(vec3(0.0), vec3(0.5, 0.0, 0.0), x / 0.2); }
+    else if x < 0.4 { return mix(vec3(0.5, 0.0, 0.0), vec3(1.0, 0.2, 0.0), (x - 0.2) / 0.2); }
+    else if x < 0.6 { return mix(vec3(1.0, 0.2, 0.0), vec3(1.0, 0.5, 0.0), (x - 0.4) / 0.2); }
+    else if x < 0.8 { return mix(vec3(1.0, 0.5, 0.0), vec3(1.0, 0.9, 0.2), (x - 0.6) / 0.2); }
+    else { return mix(vec3(1.0, 0.9, 0.2), vec3(1.0, 1.0, 0.9), (x - 0.8) / 0.2); }
+}
+```
+
+#### Vertex Displacement
+
+For flame effects, displace vertices based on noise:
+
+```wgsl
+@vertex
+fn vertex(vertex: Vertex) -> VertexOutput {
+    let t = globals.time;
+    let pos = vertex.position;
+    let normal = vertex.normal;
+
+    // Sample noise for displacement
+    let noise_pos = pos * 2.0 + vec3<f32>(0.0, -t * 3.0, 0.0);  // Scroll upward
+    let displacement = perlin3d(noise_pos) * 0.3;
+
+    // Displace along normal
+    let displaced_pos = pos + normal * displacement;
+
+    // Transform to world/clip space
+    // ...
+}
+```
+
+### Testing Shader Materials
+
+Test material behavior without GPU:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn material_default_values() {
+        let material = MyEffectMaterial::default();
+        assert_eq!(material.time.x, 0.0);
+        assert_eq!(material.progress.x, 0.0);
+        assert_eq!(material.emissive_intensity.x, 3.0);
+    }
+
+    #[test]
+    fn set_progress_clamps_values() {
+        let mut material = MyEffectMaterial::new();
+        material.set_progress(1.5);
+        assert_eq!(material.progress.x, 1.0);
+        material.set_progress(-0.5);
+        assert_eq!(material.progress.x, 0.0);
+    }
+
+    #[test]
+    fn alpha_mode_is_blend() {
+        let material = MyEffectMaterial::new();
+        assert_eq!(material.alpha_mode(), AlphaMode::Blend);
+    }
+}
+```
 
 ## ECS Patterns
 
