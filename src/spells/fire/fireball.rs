@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 use bevy::prelude::*;
-use bevy_hanabi::prelude::*;
 use bevy_kira_audio::prelude::*;
 use crate::audio::plugin::*;
 use crate::combat::DamageEvent;
@@ -245,6 +244,64 @@ impl ExplosionFireEffect {
     }
 }
 
+/// Component for the shader-based explosion embers effect (flying debris)
+/// Stores the material handle and lifetime timer for progress updates
+#[derive(Component, Debug)]
+pub struct ExplosionEmbersEffect {
+    /// Handle to the explosion embers material for this entity
+    pub material_handle: Handle<super::materials::ExplosionEmbersMaterial>,
+    /// Lifetime timer (0.8s for flying embers)
+    pub lifetime: Timer,
+}
+
+impl ExplosionEmbersEffect {
+    pub fn new(material_handle: Handle<super::materials::ExplosionEmbersMaterial>) -> Self {
+        Self {
+            material_handle,
+            lifetime: Timer::from_seconds(0.8, TimerMode::Once),
+        }
+    }
+
+    /// Get progress (0.0 to 1.0) through the lifetime
+    pub fn progress(&self) -> f32 {
+        self.lifetime.fraction()
+    }
+
+    /// Check if the effect is finished
+    pub fn is_finished(&self) -> bool {
+        self.lifetime.is_finished()
+    }
+}
+
+/// Component for the shader-based explosion smoke effect (rising plume)
+/// Stores the material handle and lifetime timer for progress updates
+#[derive(Component, Debug)]
+pub struct ExplosionSmokeEffect {
+    /// Handle to the explosion smoke material for this entity
+    pub material_handle: Handle<super::materials::ExplosionSmokeMaterial>,
+    /// Lifetime timer (1.2s for rising smoke)
+    pub lifetime: Timer,
+}
+
+impl ExplosionSmokeEffect {
+    pub fn new(material_handle: Handle<super::materials::ExplosionSmokeMaterial>) -> Self {
+        Self {
+            material_handle,
+            lifetime: Timer::from_seconds(1.2, TimerMode::Once),
+        }
+    }
+
+    /// Get progress (0.0 to 1.0) through the lifetime
+    pub fn progress(&self) -> f32 {
+        self.lifetime.fraction()
+    }
+
+    /// Check if the effect is finished
+    pub fn is_finished(&self) -> bool {
+        self.lifetime.is_finished()
+    }
+}
+
 /// Explosion particles (self-despawns after cleanup timer)
 #[derive(Component, Debug)]
 pub struct FireballExplosionParticles {
@@ -294,8 +351,9 @@ pub fn fire_fireball(
     weapon_channel: Option<&mut ResMut<AudioChannel<WeaponSoundChannel>>>,
     sound_limiter: Option<&mut ResMut<SoundLimiter>>,
     game_meshes: Option<&GameMeshes>,
-    game_materials: Option<&GameMaterials>,
+    _game_materials: Option<&GameMaterials>,
     fireball_effects: Option<&FireballEffects>,
+    core_materials: Option<&mut Assets<super::materials::FireballCoreMaterial>>,
     charge_materials: Option<&mut Assets<super::materials::FireballChargeMaterial>>,
     trail_materials: Option<&mut Assets<super::materials::FireballTrailMaterial>>,
 ) {
@@ -309,8 +367,8 @@ pub fn fire_fireball(
         weapon_channel,
         sound_limiter,
         game_meshes,
-        game_materials,
         fireball_effects,
+        core_materials,
         charge_materials,
         trail_materials,
     );
@@ -335,8 +393,8 @@ pub fn fire_fireball_with_damage(
     weapon_channel: Option<&mut ResMut<AudioChannel<WeaponSoundChannel>>>,
     sound_limiter: Option<&mut ResMut<SoundLimiter>>,
     game_meshes: Option<&GameMeshes>,
-    game_materials: Option<&GameMaterials>,
-    fireball_effects: Option<&FireballEffects>,
+    _fireball_effects: Option<&FireballEffects>,
+    core_materials: Option<&mut Assets<super::materials::FireballCoreMaterial>>,
     charge_materials: Option<&mut Assets<super::materials::FireballChargeMaterial>>,
     _trail_materials: Option<&mut Assets<super::materials::FireballTrailMaterial>>,
 ) {
@@ -352,6 +410,16 @@ pub fn fire_fireball_with_damage(
     // Get projectile count based on spell level (1 at level 1-4, 2 at 5-9, 3 at 10)
     let projectile_count = spell.projectile_count();
     let spread_angle_rad = FIREBALL_SPREAD_ANGLE.to_radians();
+
+    // Pre-create core shader material handles for all projectiles (if available)
+    let core_material_handles: Vec<_> = if let Some(core_mats) = core_materials {
+        (0..projectile_count).map(|_| {
+            let core_material = super::materials::FireballCoreMaterial::new();
+            core_mats.add(core_material)
+        }).collect()
+    } else {
+        Vec::new()
+    };
 
     // Pre-create charge shader material handles for all projectiles (if available)
     let charge_material_handles: Vec<_> = if let Some(charge_mats) = charge_materials {
@@ -388,29 +456,37 @@ pub fn fire_fireball_with_damage(
         let initial_scale = charging.start_scale;
 
         // Spawn charging fireball above Whisper's position
-        if let (Some(meshes), Some(materials)) = (game_meshes, game_materials) {
+        if let Some(meshes) = game_meshes {
             let fireball_mesh = meshes.fireball.clone();
 
-            let mut entity_commands = commands.spawn((
-                Mesh3d(meshes.fireball.clone()),
-                MeshMaterial3d(materials.fireball.clone()),
-                Transform::from_translation(charge_position)
-                    .with_scale(Vec3::splat(initial_scale)),
-                charging,
-            ));
+            // Calculate rotation to face travel direction (for shader flame trailing)
+            // NEG_Z is "forward" in Bevy convention, so Z column = -direction = trail direction
+            let fireball_rotation = Quat::from_rotation_arc(Vec3::NEG_Z, direction);
 
-            // Add charge particle effect as child
-            if let Some(effects) = fireball_effects {
-                entity_commands.with_children(|parent| {
-                    parent.spawn((
-                        ParticleEffect::new(effects.charge_effect.clone()),
-                        Transform::default(),
-                        FireballChargeParticles,
-                    ));
-                });
-            }
+            // Use shader material if available, otherwise spawn without material
+            let mut entity_commands = if let Some(core_handle) = core_material_handles.get(i).cloned() {
+                commands.spawn((
+                    Mesh3d(meshes.fireball.clone()),
+                    MeshMaterial3d(core_handle.clone()),
+                    Transform::from_translation(charge_position)
+                        .with_rotation(fireball_rotation)
+                        .with_scale(Vec3::splat(initial_scale)),
+                    charging,
+                    FireballCoreEffect { material_handle: core_handle },
+                ))
+            } else {
+                // Fallback: spawn without material (tests)
+                commands.spawn((
+                    Mesh3d(meshes.fireball.clone()),
+                    Transform::from_translation(charge_position)
+                        .with_rotation(fireball_rotation)
+                        .with_scale(Vec3::splat(initial_scale)),
+                    charging,
+                ))
+            };
 
             // Add charge shader effect as child (swirling energy gathering)
+            // Note: Shader replaces particle effects for better visuals
             if let Some(material_handle) = charge_material_handles.get(i).cloned() {
                 entity_commands.with_children(|parent| {
                     parent.spawn((
@@ -423,8 +499,10 @@ pub fn fire_fireball_with_damage(
             }
         } else {
             // Fallback for tests without mesh resources
+            let fireball_rotation = Quat::from_rotation_arc(Vec3::NEG_Z, direction);
             commands.spawn((
                 Transform::from_translation(charge_position)
+                    .with_rotation(fireball_rotation)
                     .with_scale(Vec3::splat(initial_scale)),
                 charging,
             ));
@@ -543,6 +621,33 @@ pub fn fireball_collision_effects(
 // Enhanced Fireball Systems (Charge Phase, Particles, Explosion)
 // ============================================================================
 
+/// System that adds FireballCoreMaterial to newly spawned charging fireballs
+/// This is run separately to avoid parameter count limits in the spell casting system
+pub fn fireball_add_core_material_system(
+    mut commands: Commands,
+    query: Query<Entity, (With<ChargingFireball>, Without<FireballCoreEffect>)>,
+    game_meshes: Option<Res<GameMeshes>>,
+    mut core_materials: Option<ResMut<Assets<super::materials::FireballCoreMaterial>>>,
+) {
+    let Some(core_mats) = core_materials.as_mut() else {
+        return; // No material assets available (e.g., in tests)
+    };
+    let Some(_meshes) = game_meshes.as_ref() else {
+        return; // No meshes available
+    };
+
+    for entity in query.iter() {
+        // Create and add the core material
+        let core_material = super::materials::FireballCoreMaterial::new();
+        let core_handle = core_mats.add(core_material);
+
+        commands.entity(entity).insert((
+            MeshMaterial3d(core_handle.clone()),
+            FireballCoreEffect { material_handle: core_handle },
+        ));
+    }
+}
+
 /// System that updates charging fireballs - scales up and ticks timer
 pub fn fireball_charge_update_system(
     time: Res<Time>,
@@ -600,11 +705,37 @@ pub fn fireball_trail_effect_update_system(
     }
 }
 
+/// System that updates core effect shader materials with current velocity direction
+/// This makes flames trail behind the fireball based on its travel direction
+pub fn fireball_core_effect_update_system(
+    fireball_query: Query<(&FireballProjectile, &FireballCoreEffect)>,
+    charging_query: Query<(&ChargingFireball, &FireballCoreEffect)>,
+    mut materials: Option<ResMut<Assets<super::materials::FireballCoreMaterial>>>,
+) {
+    let Some(materials) = materials.as_mut() else {
+        return; // No material assets available (e.g., in tests without MaterialPlugin)
+    };
+
+    // Update active fireballs
+    for (fireball, core_effect) in fireball_query.iter() {
+        if let Some(material) = materials.get_mut(&core_effect.material_handle) {
+            material.set_velocity_direction(fireball.direction);
+        }
+    }
+
+    // Update charging fireballs (use target direction)
+    for (charging, core_effect) in charging_query.iter() {
+        if let Some(material) = materials.get_mut(&core_effect.material_handle) {
+            material.set_velocity_direction(charging.target_direction);
+        }
+    }
+}
+
 /// System that transitions charging fireballs to active flight phase
 pub fn fireball_charge_to_flight_system(
     mut commands: Commands,
     query: Query<(Entity, &ChargingFireball, &Transform, Option<&Children>)>,
-    fireball_effects: Option<Res<FireballEffects>>,
+    _fireball_effects: Option<Res<FireballEffects>>,
     charge_particles_query: Query<Entity, With<FireballChargeParticles>>,
     charge_effect_query: Query<Entity, With<FireballChargeEffect>>,
     game_meshes: Option<Res<GameMeshes>>,
@@ -655,81 +786,83 @@ pub fn fireball_charge_to_flight_system(
                 });
             }
 
-            // Add spark particles (keep particles for sparks)
-            if let Some(effects) = &fireball_effects {
-                commands.entity(entity).with_children(|parent| {
-                    // Spark particles
-                    parent.spawn((
-                        ParticleEffect::new(effects.spark_effect.clone()),
-                        Transform::default(),
-                        FireballSparkParticles,
-                    ));
-                });
-            }
+            // Note: Sparks are now handled by the trail shader effect
+            // The FireballSparksMaterial could be used for additional spark entities if desired
         }
     }
 }
 
-/// System that spawns explosion particles at collision point
-/// Spawns all four explosion layers for maximum impact, plus shader effects
+/// System that spawns explosion shader effects at collision point
+/// Spawns all four explosion layers for maximum impact using shader materials
 #[allow(clippy::too_many_arguments)]
 pub fn fireball_explosion_spawn_system(
     mut commands: Commands,
     mut collision_events: MessageReader<FireballEnemyCollisionEvent>,
     fireball_query: Query<&Transform, With<FireballProjectile>>,
-    fireball_effects: Option<Res<FireballEffects>>,
     game_meshes: Option<Res<GameMeshes>>,
     mut explosion_core_materials: Option<ResMut<Assets<super::materials::ExplosionCoreMaterial>>>,
     mut explosion_fire_materials: Option<ResMut<Assets<super::materials::ExplosionFireMaterial>>>,
+    mut explosion_embers_materials: Option<ResMut<Assets<super::materials::ExplosionEmbersMaterial>>>,
+    mut explosion_smoke_materials: Option<ResMut<Assets<super::materials::ExplosionSmokeMaterial>>>,
 ) {
+    let event_count = collision_events.len();
     for event in collision_events.read() {
-        if let Ok(transform) = fireball_query.get(event.fireball_entity) {
-            let pos = transform.translation;
+        let Ok(transform) = fireball_query.get(event.fireball_entity) else {
+            warn!("Could not find fireball transform for entity {:?}", event.fireball_entity);
+            continue;
+        };
+        let pos = transform.translation;
 
-            // Spawn particle effects (embers and smoke - keeping these as particles)
-            if let Some(effects) = &fireball_effects {
-                // Flying ember sparks - debris flying outward (particles work better for this)
-                commands.spawn((
-                    ParticleEffect::new(effects.explosion_embers_effect.clone()),
-                    Transform::from_translation(pos),
-                    FireballExplosionParticles::default(),
-                ));
+        // Spawn shader-based explosion core flash effect (white-hot burst)
+        if let (Some(meshes), Some(ref mut core_mats)) = (&game_meshes, &mut explosion_core_materials) {
+            let core_material = super::materials::ExplosionCoreMaterial::new();
+            let core_handle = core_mats.add(core_material);
 
-                // Rising smoke - aftermath plume (particles work better for this)
-                commands.spawn((
-                    ParticleEffect::new(effects.explosion_smoke_effect.clone()),
-                    Transform::from_translation(pos),
-                    FireballExplosionParticles {
-                        cleanup_timer: Timer::from_seconds(1.5, TimerMode::Once),
-                    },
-                ));
-            }
+            commands.spawn((
+                Mesh3d(meshes.fireball.clone()),
+                MeshMaterial3d(core_handle.clone()),
+                Transform::from_translation(pos).with_scale(Vec3::splat(2.5)),
+                ExplosionCoreEffect::new(core_handle),
+            ));
+        }
 
-            // Spawn shader-based explosion core flash effect
-            if let (Some(meshes), Some(ref mut core_mats)) = (&game_meshes, &mut explosion_core_materials) {
-                let core_material = super::materials::ExplosionCoreMaterial::new();
-                let core_handle = core_mats.add(core_material);
+        // Spawn shader-based explosion fire blast effect (main orange-red blast)
+        if let (Some(meshes), Some(ref mut fire_mats)) = (&game_meshes, &mut explosion_fire_materials) {
+            let fire_material = super::materials::ExplosionFireMaterial::new();
+            let fire_handle = fire_mats.add(fire_material);
 
-                commands.spawn((
-                    Mesh3d(meshes.fireball.clone()),
-                    MeshMaterial3d(core_handle.clone()),
-                    Transform::from_translation(pos).with_scale(Vec3::splat(2.5)), // Larger than fireball
-                    ExplosionCoreEffect::new(core_handle),
-                ));
-            }
+            commands.spawn((
+                Mesh3d(meshes.fireball.clone()),
+                MeshMaterial3d(fire_handle.clone()),
+                Transform::from_translation(pos).with_scale(Vec3::splat(3.5)),
+                ExplosionFireEffect::new(fire_handle),
+            ));
+        }
 
-            // Spawn shader-based explosion fire blast effect
-            if let (Some(meshes), Some(ref mut fire_mats)) = (&game_meshes, &mut explosion_fire_materials) {
-                let fire_material = super::materials::ExplosionFireMaterial::new();
-                let fire_handle = fire_mats.add(fire_material);
+        // Spawn shader-based explosion embers effect (flying debris)
+        if let (Some(meshes), Some(ref mut embers_mats)) = (&game_meshes, &mut explosion_embers_materials) {
+            let embers_material = super::materials::ExplosionEmbersMaterial::new();
+            let embers_handle = embers_mats.add(embers_material);
 
-                commands.spawn((
-                    Mesh3d(meshes.fireball.clone()),
-                    MeshMaterial3d(fire_handle.clone()),
-                    Transform::from_translation(pos).with_scale(Vec3::splat(3.5)), // Even larger for main blast
-                    ExplosionFireEffect::new(fire_handle),
-                ));
-            }
+            commands.spawn((
+                Mesh3d(meshes.fireball.clone()),
+                MeshMaterial3d(embers_handle.clone()),
+                Transform::from_translation(pos).with_scale(Vec3::splat(4.0)),
+                ExplosionEmbersEffect::new(embers_handle),
+            ));
+        }
+
+        // Spawn shader-based explosion smoke effect (rising plume)
+        if let (Some(meshes), Some(ref mut smoke_mats)) = (&game_meshes, &mut explosion_smoke_materials) {
+            let smoke_material = super::materials::ExplosionSmokeMaterial::new();
+            let smoke_handle = smoke_mats.add(smoke_material);
+
+            commands.spawn((
+                Mesh3d(meshes.fireball.clone()),
+                MeshMaterial3d(smoke_handle.clone()),
+                Transform::from_translation(pos).with_scale(Vec3::splat(3.0)),
+                ExplosionSmokeEffect::new(smoke_handle),
+            ));
         }
     }
 }
@@ -740,10 +873,11 @@ pub fn fireball_explosion_spawn_system(
 pub fn fireball_ground_collision_system(
     mut commands: Commands,
     fireball_query: Query<(Entity, &Transform), With<FireballProjectile>>,
-    fireball_effects: Option<Res<FireballEffects>>,
     game_meshes: Option<Res<GameMeshes>>,
     mut explosion_core_materials: Option<ResMut<Assets<super::materials::ExplosionCoreMaterial>>>,
     mut explosion_fire_materials: Option<ResMut<Assets<super::materials::ExplosionFireMaterial>>>,
+    mut explosion_embers_materials: Option<ResMut<Assets<super::materials::ExplosionEmbersMaterial>>>,
+    mut explosion_smoke_materials: Option<ResMut<Assets<super::materials::ExplosionSmokeMaterial>>>,
 ) {
     for (entity, transform) in fireball_query.iter() {
         // Check if fireball has hit the ground (accounting for fireball radius)
@@ -754,26 +888,7 @@ pub fn fireball_ground_collision_system(
                 transform.translation.z,
             );
 
-            // Spawn particle effects (embers and smoke - keeping these as particles)
-            if let Some(effects) = &fireball_effects {
-                // Flying embers
-                commands.spawn((
-                    ParticleEffect::new(effects.explosion_embers_effect.clone()),
-                    Transform::from_translation(pos),
-                    FireballExplosionParticles::default(),
-                ));
-
-                // Rising smoke
-                commands.spawn((
-                    ParticleEffect::new(effects.explosion_smoke_effect.clone()),
-                    Transform::from_translation(pos),
-                    FireballExplosionParticles {
-                        cleanup_timer: Timer::from_seconds(1.5, TimerMode::Once),
-                    },
-                ));
-            }
-
-            // Spawn shader-based explosion core flash effect
+            // Spawn shader-based explosion core flash effect (white-hot burst)
             if let (Some(meshes), Some(ref mut core_mats)) = (&game_meshes, &mut explosion_core_materials) {
                 let core_material = super::materials::ExplosionCoreMaterial::new();
                 let core_handle = core_mats.add(core_material);
@@ -786,7 +901,7 @@ pub fn fireball_ground_collision_system(
                 ));
             }
 
-            // Spawn shader-based explosion fire blast effect
+            // Spawn shader-based explosion fire blast effect (main orange-red blast)
             if let (Some(meshes), Some(ref mut fire_mats)) = (&game_meshes, &mut explosion_fire_materials) {
                 let fire_material = super::materials::ExplosionFireMaterial::new();
                 let fire_handle = fire_mats.add(fire_material);
@@ -799,7 +914,33 @@ pub fn fireball_ground_collision_system(
                 ));
             }
 
-            // Despawn the fireball and its children (particles)
+            // Spawn shader-based explosion embers effect (flying debris)
+            if let (Some(meshes), Some(ref mut embers_mats)) = (&game_meshes, &mut explosion_embers_materials) {
+                let embers_material = super::materials::ExplosionEmbersMaterial::new();
+                let embers_handle = embers_mats.add(embers_material);
+
+                commands.spawn((
+                    Mesh3d(meshes.fireball.clone()),
+                    MeshMaterial3d(embers_handle.clone()),
+                    Transform::from_translation(pos).with_scale(Vec3::splat(4.0)),
+                    ExplosionEmbersEffect::new(embers_handle),
+                ));
+            }
+
+            // Spawn shader-based explosion smoke effect (rising plume)
+            if let (Some(meshes), Some(ref mut smoke_mats)) = (&game_meshes, &mut explosion_smoke_materials) {
+                let smoke_material = super::materials::ExplosionSmokeMaterial::new();
+                let smoke_handle = smoke_mats.add(smoke_material);
+
+                commands.spawn((
+                    Mesh3d(meshes.fireball.clone()),
+                    MeshMaterial3d(smoke_handle.clone()),
+                    Transform::from_translation(pos).with_scale(Vec3::splat(3.0)),
+                    ExplosionSmokeEffect::new(smoke_handle),
+                ));
+            }
+
+            // Despawn the fireball
             commands.entity(entity).despawn();
         }
     }
@@ -852,6 +993,60 @@ pub fn explosion_fire_effect_update_system(
     time: Res<Time>,
     mut query: Query<(Entity, &mut ExplosionFireEffect)>,
     mut materials: Option<ResMut<Assets<super::materials::ExplosionFireMaterial>>>,
+) {
+    let Some(materials) = materials.as_mut() else {
+        return; // No material assets available (e.g., in tests without MaterialPlugin)
+    };
+
+    for (entity, mut effect) in query.iter_mut() {
+        effect.lifetime.tick(time.delta());
+        let progress = effect.progress();
+
+        // Update the material's progress
+        if let Some(material) = materials.get_mut(&effect.material_handle) {
+            material.set_progress(progress);
+        }
+
+        // Despawn when finished
+        if effect.is_finished() {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// System that updates explosion embers shader effects (progress and cleanup)
+pub fn explosion_embers_effect_update_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut ExplosionEmbersEffect)>,
+    mut materials: Option<ResMut<Assets<super::materials::ExplosionEmbersMaterial>>>,
+) {
+    let Some(materials) = materials.as_mut() else {
+        return; // No material assets available (e.g., in tests without MaterialPlugin)
+    };
+
+    for (entity, mut effect) in query.iter_mut() {
+        effect.lifetime.tick(time.delta());
+        let progress = effect.progress();
+
+        // Update the material's progress
+        if let Some(material) = materials.get_mut(&effect.material_handle) {
+            material.set_progress(progress);
+        }
+
+        // Despawn when finished
+        if effect.is_finished() {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// System that updates explosion smoke shader effects (progress and cleanup)
+pub fn explosion_smoke_effect_update_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut ExplosionSmokeEffect)>,
+    mut materials: Option<ResMut<Assets<super::materials::ExplosionSmokeMaterial>>>,
 ) {
     let Some(materials) = materials.as_mut() else {
         return; // No material assets available (e.g., in tests without MaterialPlugin)
@@ -1099,6 +1294,7 @@ mod tests {
                     None,
                     None,
                     None, // No particle effects in test
+                    None, // No core materials in test
                     None, // No charge materials in test
                     None, // No trail materials in test
                 );
@@ -1133,6 +1329,7 @@ mod tests {
                     None,
                     None,
                     None, // No particle effects in test
+                    None, // No core materials in test
                     None, // No charge materials in test
                     None, // No trail materials in test
                 );
@@ -1165,6 +1362,7 @@ mod tests {
                     None,
                     None,
                     None, // No particle effects in test
+                    None, // No core materials in test
                     None, // No charge materials in test
                     None, // No trail materials in test
                 );
@@ -1200,6 +1398,7 @@ mod tests {
                     None,
                     None,
                     None, // No particle effects in test
+                    None, // No core materials in test
                     None, // No charge materials in test
                     None, // No trail materials in test
                 );
