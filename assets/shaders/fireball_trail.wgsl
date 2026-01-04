@@ -116,11 +116,16 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     deformed_pos.y = deformed_pos.y * taper;
 
     // Edge waviness - only applies AFTER the head for organic flowing edges
-    // Head (trail_progress 0-0.2) is completely solid to connect seamlessly with fireball core
-    let edge_factor = smoothstep(0.15, 0.5, trail_progress);  // 0 at head, 1 at middle/tail
-    let edge_noise_pos = pos * 3.0 + vec3<f32>(t * 4.0, t * 3.0, -t * 10.0);
-    let edge_wave = (fbm(edge_noise_pos) - 0.5) * 0.15 * taper * edge_factor;
-    let edge_wave2 = (fbm(edge_noise_pos * 1.3 + vec3<f32>(77.0, 0.0, 0.0)) - 0.5) * 0.15 * taper * edge_factor;
+    // Head (trail_progress 0-15%) is completely solid to connect seamlessly with fireball core
+    // Remaining 85% has animated, flowing fire movement
+    let edge_factor = smoothstep(0.15, 0.3, trail_progress);  // 0 at head, 1 after 30%
+    // Fast noise scroll for dramatic flowing animation
+    let edge_noise_pos = pos * 2.0 + vec3<f32>(t * 12.0, t * 9.0, -t * 20.0);
+    // Use minimum taper of 0.5 so animation remains very visible even at thin tail
+    let edge_taper = max(taper, 0.5);
+    // Massive displacement (3.0) for very dramatic flowing fire effect
+    let edge_wave = (fbm(edge_noise_pos) - 0.5) * 3.0 * edge_taper * edge_factor;
+    let edge_wave2 = (fbm(edge_noise_pos * 1.3 + vec3<f32>(77.0, 0.0, 0.0)) - 0.5) * 3.0 * edge_taper * edge_factor;
     deformed_pos.x = deformed_pos.x + edge_wave;
     deformed_pos.y = deformed_pos.y + edge_wave2;
 
@@ -162,12 +167,15 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let noise_scroll = vec3<f32>(t * 15.0, t * 10.0, -t * 35.0);
     let noise_val = fbm(in.local_position * 3.0 + noise_scroll);
 
-    // Only break up the back 30% of the trail
-    let noise_zone = smoothstep(0.7, 0.95, trail_progress);
+    // Animation zone: starts at 15% (stable head), full animation after 30%
+    let animation_zone = smoothstep(0.15, 0.3, trail_progress);
+
+    // Breakup zone: only break up the back 30% of the trail
+    let breakup_zone = smoothstep(0.7, 0.95, trail_progress);
 
     // In the back 30%, use noise to randomly discard pixels for broken effect
-    if noise_zone > 0.1 {
-        let breakup = noise_val * noise_zone;
+    if breakup_zone > 0.1 {
+        let breakup = noise_val * breakup_zone;
         if breakup > 0.5 {
             discard;
         }
@@ -176,8 +184,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // Let the full tail render - geometry defines the end
     // No early cutoff
 
-    // Color gradient along trail
-    let color_var = (noise_val - 0.5) * 0.1 * noise_zone;
+    // Color gradient along trail - use animation_zone so color varies in 85% of trail
+    // Increased variation (0.15) for more visible fire flickering
+    let color_var = (noise_val - 0.5) * 0.15 * animation_zone;
     let fire_color = trail_gradient(trail_progress + color_var);
 
     // Brightness falloff along trail
