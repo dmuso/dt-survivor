@@ -34,29 +34,29 @@ pub const EXPLOSION_SMOKE_SHADER: &str = "shaders/explosion_smoke.wgsl";
 /// - Animated turbulence that scrolls with time
 /// - Emissive output for bloom compatibility
 /// - Sphere UV mapping that works with existing mesh
+/// - Velocity-based flame trailing (flames trail opposite to travel direction)
 #[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
 pub struct FireballCoreMaterial {
     /// Current time for animation (in seconds).
-    /// Packed as x component of Vec4 for 16-byte alignment.
     #[uniform(0)]
     pub time: Vec4,
 
     /// Animation speed multiplier.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(1)]
+    #[uniform(0)]
     pub animation_speed: Vec4,
 
     /// Noise scale for turbulence detail.
-    /// Higher values = more detailed/smaller flames.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(2)]
+    #[uniform(0)]
     pub noise_scale: Vec4,
 
     /// Emissive intensity for HDR bloom effect.
-    /// Values > 1.0 will bloom with HDR rendering.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(3)]
+    #[uniform(0)]
     pub emissive_intensity: Vec4,
+
+    /// Velocity direction of the fireball (normalized xyz, w unused).
+    /// Flames trail in the opposite direction.
+    #[uniform(0)]
+    pub velocity_dir: Vec4,
 }
 
 impl Default for FireballCoreMaterial {
@@ -66,6 +66,8 @@ impl Default for FireballCoreMaterial {
             animation_speed: Vec4::new(1.0, 0.0, 0.0, 0.0),
             noise_scale: Vec4::new(4.0, 0.0, 0.0, 0.0),
             emissive_intensity: Vec4::new(3.0, 0.0, 0.0, 0.0),
+            // Default: flames trail upward (as if moving down)
+            velocity_dir: Vec4::new(0.0, -1.0, 0.0, 0.0),
         }
     }
 }
@@ -95,6 +97,13 @@ impl FireballCoreMaterial {
     pub fn set_emissive_intensity(&mut self, intensity: f32) {
         self.emissive_intensity.x = intensity.max(0.0);
     }
+
+    /// Set the velocity direction (will be normalized).
+    /// Flames trail in the opposite direction of travel.
+    pub fn set_velocity_direction(&mut self, direction: Vec3) {
+        let normalized = direction.normalize_or_zero();
+        self.velocity_dir = Vec4::new(normalized.x, normalized.y, normalized.z, 0.0);
+    }
 }
 
 impl Material for FireballCoreMaterial {
@@ -118,11 +127,22 @@ pub struct FireballCoreMaterialHandle(pub Handle<FireballCoreMaterial>);
 /// System to update the time uniform on all fireball core materials.
 pub fn update_fireball_core_material_time(
     time: Res<Time>,
-    mut materials: ResMut<Assets<FireballCoreMaterial>>,
+    materials: Option<ResMut<Assets<FireballCoreMaterial>>>,
 ) {
+    let Some(mut materials) = materials else {
+        return;
+    };
     let current_time = time.elapsed_secs();
-    for (_, material) in materials.iter_mut() {
-        material.set_time(current_time);
+    // Collect IDs and current materials, then re-insert to force GPU upload
+    let updates: Vec<_> = materials.ids().map(|id| {
+        let mat = materials.get(id).cloned();
+        (id, mat)
+    }).collect();
+    for (id, mat_opt) in updates {
+        if let Some(mut mat) = mat_opt {
+            mat.set_time(current_time);
+            let _ = materials.insert(id, mat);
+        }
     }
 }
 
@@ -141,26 +161,19 @@ pub fn update_fireball_core_material_time(
 #[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
 pub struct FireballChargeMaterial {
     /// Current time for animation (in seconds).
-    /// Packed as x component of Vec4 for 16-byte alignment.
     #[uniform(0)]
     pub time: Vec4,
 
     /// Charge progress from 0.0 (start) to 1.0 (complete).
-    /// Controls inward energy gathering and color intensification.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(1)]
+    #[uniform(0)]
     pub charge_progress: Vec4,
 
     /// Outer radius of the swirl effect.
-    /// Energy gathers from this radius toward the center.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(2)]
+    #[uniform(0)]
     pub outer_radius: Vec4,
 
     /// Emissive intensity for HDR bloom effect.
-    /// Values > 1.0 will bloom with HDR rendering.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(3)]
+    #[uniform(0)]
     pub emissive_intensity: Vec4,
 }
 
@@ -225,11 +238,15 @@ pub struct FireballChargeMaterialHandle(pub Handle<FireballChargeMaterial>);
 /// Note: Charge progress must be updated per-entity by the fireball charge system.
 pub fn update_fireball_charge_material_time(
     time: Res<Time>,
-    mut materials: ResMut<Assets<FireballChargeMaterial>>,
+    materials: Option<ResMut<Assets<FireballChargeMaterial>>>,
 ) {
+    let Some(mut materials) = materials else { return };
     let current_time = time.elapsed_secs();
-    for (_, material) in materials.iter_mut() {
-        material.set_time(current_time);
+    let ids: Vec<_> = materials.ids().collect();
+    for id in ids {
+        if let Some(material) = materials.get_mut(id) {
+            material.set_time(current_time);
+        }
     }
 }
 
@@ -248,25 +265,19 @@ pub fn update_fireball_charge_material_time(
 #[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
 pub struct FireballTrailMaterial {
     /// Current time for animation (in seconds).
-    /// Packed as x component of Vec4 for 16-byte alignment.
     #[uniform(0)]
     pub time: Vec4,
 
     /// Velocity direction of the fireball (normalized).
-    /// xyz = direction, w unused.
-    #[uniform(1)]
+    #[uniform(0)]
     pub velocity_dir: Vec4,
 
     /// Trail length multiplier.
-    /// Controls how far the trail extends behind the fireball.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(2)]
+    #[uniform(0)]
     pub trail_length: Vec4,
 
     /// Emissive intensity for HDR bloom effect.
-    /// Values > 1.0 will bloom with HDR rendering.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(3)]
+    #[uniform(0)]
     pub emissive_intensity: Vec4,
 }
 
@@ -321,7 +332,7 @@ impl Material for FireballTrailMaterial {
     }
 
     fn alpha_mode(&self) -> AlphaMode {
-        AlphaMode::Blend
+        AlphaMode::Add
     }
 }
 
@@ -332,11 +343,15 @@ pub struct FireballTrailMaterialHandle(pub Handle<FireballTrailMaterial>);
 /// System to update time on all fireball trail materials.
 pub fn update_fireball_trail_material_time(
     time: Res<Time>,
-    mut materials: ResMut<Assets<FireballTrailMaterial>>,
+    materials: Option<ResMut<Assets<FireballTrailMaterial>>>,
 ) {
+    let Some(mut materials) = materials else { return };
     let current_time = time.elapsed_secs();
-    for (_, material) in materials.iter_mut() {
-        material.set_time(current_time);
+    let ids: Vec<_> = materials.ids().collect();
+    for id in ids {
+        if let Some(material) = materials.get_mut(id) {
+            material.set_time(current_time);
+        }
     }
 }
 
@@ -355,26 +370,19 @@ pub fn update_fireball_trail_material_time(
 #[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
 pub struct ExplosionCoreMaterial {
     /// Current time for animation (in seconds).
-    /// Used for noise animation. Packed as x component of Vec4 for 16-byte alignment.
     #[uniform(0)]
     pub time: Vec4,
 
     /// Lifetime progress from 0.0 (start) to 1.0 (end).
-    /// Controls the expansion and fade animation phases.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(1)]
+    #[uniform(0)]
     pub progress: Vec4,
 
     /// Emissive intensity for HDR bloom effect.
-    /// Very high values (10+) recommended for blinding flash.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(2)]
+    #[uniform(0)]
     pub emissive_intensity: Vec4,
 
     /// Expansion scale multiplier.
-    /// Controls the visual scale of the explosion.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(3)]
+    #[uniform(0)]
     pub expansion_scale: Vec4,
 }
 
@@ -440,11 +448,15 @@ pub struct ExplosionCoreMaterialHandle(pub Handle<ExplosionCoreMaterial>);
 /// System to update time on all explosion core materials.
 pub fn update_explosion_core_material_time(
     time: Res<Time>,
-    mut materials: ResMut<Assets<ExplosionCoreMaterial>>,
+    materials: Option<ResMut<Assets<ExplosionCoreMaterial>>>,
 ) {
+    let Some(mut materials) = materials else { return };
     let current_time = time.elapsed_secs();
-    for (_, material) in materials.iter_mut() {
-        material.set_time(current_time);
+    let ids: Vec<_> = materials.ids().collect();
+    for id in ids {
+        if let Some(material) = materials.get_mut(id) {
+            material.set_time(current_time);
+        }
     }
 }
 
@@ -464,26 +476,19 @@ pub fn update_explosion_core_material_time(
 #[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
 pub struct ExplosionFireMaterial {
     /// Current time for animation (in seconds).
-    /// Used for noise animation. Packed as x component of Vec4 for 16-byte alignment.
     #[uniform(0)]
     pub time: Vec4,
 
     /// Lifetime progress from 0.0 (start) to 1.0 (end).
-    /// Controls the expansion and fade animation phases.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(1)]
+    #[uniform(0)]
     pub progress: Vec4,
 
     /// Emissive intensity for HDR bloom effect.
-    /// Values 5-10 recommended for bright fire blast.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(2)]
+    #[uniform(0)]
     pub emissive_intensity: Vec4,
 
     /// Noise scale for turbulence detail.
-    /// Higher values = finer, more detailed flames.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(3)]
+    #[uniform(0)]
     pub noise_scale: Vec4,
 }
 
@@ -550,11 +555,15 @@ pub struct ExplosionFireMaterialHandle(pub Handle<ExplosionFireMaterial>);
 /// System to update time on all explosion fire materials.
 pub fn update_explosion_fire_material_time(
     time: Res<Time>,
-    mut materials: ResMut<Assets<ExplosionFireMaterial>>,
+    materials: Option<ResMut<Assets<ExplosionFireMaterial>>>,
 ) {
+    let Some(mut materials) = materials else { return };
     let current_time = time.elapsed_secs();
-    for (_, material) in materials.iter_mut() {
-        material.set_time(current_time);
+    let ids: Vec<_> = materials.ids().collect();
+    for id in ids {
+        if let Some(material) = materials.get_mut(id) {
+            material.set_time(current_time);
+        }
     }
 }
 
@@ -573,25 +582,19 @@ pub fn update_explosion_fire_material_time(
 #[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
 pub struct FireballSparksMaterial {
     /// Current time for animation (in seconds).
-    /// Packed as x component of Vec4 for 16-byte alignment.
     #[uniform(0)]
     pub time: Vec4,
 
     /// Velocity of the spark (xyz = direction, w = speed magnitude).
-    /// Used for motion blur streak effect.
-    #[uniform(1)]
+    #[uniform(0)]
     pub velocity: Vec4,
 
     /// Lifetime progress from 0.0 (new spark) to 1.0 (dying).
-    /// Controls the cooling color transition and fade out.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(2)]
+    #[uniform(0)]
     pub lifetime_progress: Vec4,
 
     /// Emissive intensity for HDR bloom effect.
-    /// Values > 1.0 will bloom with HDR rendering.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(3)]
+    #[uniform(0)]
     pub emissive_intensity: Vec4,
 }
 
@@ -658,11 +661,15 @@ pub struct FireballSparksMaterialHandle(pub Handle<FireballSparksMaterial>);
 /// System to update time on all fireball sparks materials.
 pub fn update_fireball_sparks_material_time(
     time: Res<Time>,
-    mut materials: ResMut<Assets<FireballSparksMaterial>>,
+    materials: Option<ResMut<Assets<FireballSparksMaterial>>>,
 ) {
+    let Some(mut materials) = materials else { return };
     let current_time = time.elapsed_secs();
-    for (_, material) in materials.iter_mut() {
-        material.set_time(current_time);
+    let ids: Vec<_> = materials.ids().collect();
+    for id in ids {
+        if let Some(material) = materials.get_mut(id) {
+            material.set_time(current_time);
+        }
     }
 }
 
@@ -682,25 +689,19 @@ pub fn update_fireball_sparks_material_time(
 #[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
 pub struct ExplosionEmbersMaterial {
     /// Current time for animation (in seconds).
-    /// Used for noise and flicker animation. Packed as x component of Vec4 for 16-byte alignment.
     #[uniform(0)]
     pub time: Vec4,
 
     /// Lifetime progress from 0.0 (start) to 1.0 (end).
-    /// Controls the cooling color transition and fade out.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(1)]
+    #[uniform(0)]
     pub progress: Vec4,
 
     /// Velocity of the ember (xyz = direction, w = speed magnitude).
-    /// Used for motion blur streak effect.
-    #[uniform(2)]
+    #[uniform(0)]
     pub velocity: Vec4,
 
     /// Emissive intensity for HDR bloom effect.
-    /// Values > 1.0 will bloom with HDR rendering.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(3)]
+    #[uniform(0)]
     pub emissive_intensity: Vec4,
 }
 
@@ -767,11 +768,15 @@ pub struct ExplosionEmbersMaterialHandle(pub Handle<ExplosionEmbersMaterial>);
 /// System to update time on all explosion embers materials.
 pub fn update_explosion_embers_material_time(
     time: Res<Time>,
-    mut materials: ResMut<Assets<ExplosionEmbersMaterial>>,
+    materials: Option<ResMut<Assets<ExplosionEmbersMaterial>>>,
 ) {
+    let Some(mut materials) = materials else { return };
     let current_time = time.elapsed_secs();
-    for (_, material) in materials.iter_mut() {
-        material.set_time(current_time);
+    let ids: Vec<_> = materials.ids().collect();
+    for id in ids {
+        if let Some(material) = materials.get_mut(id) {
+            material.set_time(current_time);
+        }
     }
 }
 
@@ -791,26 +796,19 @@ pub fn update_explosion_embers_material_time(
 #[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
 pub struct ExplosionSmokeMaterial {
     /// Current time for animation (in seconds).
-    /// Used for turbulent noise animation. Packed as x component of Vec4 for 16-byte alignment.
     #[uniform(0)]
     pub time: Vec4,
 
     /// Lifetime progress from 0.0 (start) to 1.0 (end).
-    /// Controls the rise, expansion, and fade animation.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(1)]
+    #[uniform(0)]
     pub progress: Vec4,
 
     /// Emissive intensity for subtle glow effect.
-    /// Lower values (0.5-1.5) recommended for smoke.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(2)]
+    #[uniform(0)]
     pub emissive_intensity: Vec4,
 
     /// Noise scale for turbulence detail.
-    /// Higher values = finer, more detailed smoke billows.
-    /// Packed as x component of Vec4 for 16-byte alignment.
-    #[uniform(3)]
+    #[uniform(0)]
     pub noise_scale: Vec4,
 }
 
@@ -877,11 +875,15 @@ pub struct ExplosionSmokeMaterialHandle(pub Handle<ExplosionSmokeMaterial>);
 /// System to update time on all explosion smoke materials.
 pub fn update_explosion_smoke_material_time(
     time: Res<Time>,
-    mut materials: ResMut<Assets<ExplosionSmokeMaterial>>,
+    materials: Option<ResMut<Assets<ExplosionSmokeMaterial>>>,
 ) {
+    let Some(mut materials) = materials else { return };
     let current_time = time.elapsed_secs();
-    for (_, material) in materials.iter_mut() {
-        material.set_time(current_time);
+    let ids: Vec<_> = materials.ids().collect();
+    for id in ids {
+        if let Some(material) = materials.get_mut(id) {
+            material.set_time(current_time);
+        }
     }
 }
 
@@ -899,6 +901,9 @@ mod tests {
             assert_eq!(material.animation_speed.x, 1.0);
             assert_eq!(material.noise_scale.x, 4.0);
             assert_eq!(material.emissive_intensity.x, 3.0);
+            assert_eq!(material.velocity_dir.x, 0.0);
+            assert_eq!(material.velocity_dir.y, -1.0);
+            assert_eq!(material.velocity_dir.z, 0.0);
         }
 
         #[test]
@@ -909,6 +914,7 @@ mod tests {
             assert_eq!(material.animation_speed, default.animation_speed);
             assert_eq!(material.noise_scale, default.noise_scale);
             assert_eq!(material.emissive_intensity, default.emissive_intensity);
+            assert_eq!(material.velocity_dir, default.velocity_dir);
         }
 
         #[test]
@@ -968,6 +974,46 @@ mod tests {
         fn alpha_mode_is_blend() {
             let material = FireballCoreMaterial::new();
             assert_eq!(material.alpha_mode(), AlphaMode::Blend);
+        }
+
+        #[test]
+        fn set_velocity_direction_normalizes_input() {
+            let mut material = FireballCoreMaterial::new();
+            material.set_velocity_direction(Vec3::new(3.0, 0.0, 4.0));
+            // Should be normalized to (0.6, 0.0, 0.8)
+            assert!((material.velocity_dir.x - 0.6).abs() < 0.001);
+            assert_eq!(material.velocity_dir.y, 0.0);
+            assert!((material.velocity_dir.z - 0.8).abs() < 0.001);
+        }
+
+        #[test]
+        fn set_velocity_direction_handles_zero_vector() {
+            let mut material = FireballCoreMaterial::new();
+            material.set_velocity_direction(Vec3::ZERO);
+            // normalize_or_zero returns zero for zero vector
+            assert_eq!(material.velocity_dir.x, 0.0);
+            assert_eq!(material.velocity_dir.y, 0.0);
+            assert_eq!(material.velocity_dir.z, 0.0);
+        }
+
+        #[test]
+        fn set_velocity_direction_unit_vectors() {
+            let mut material = FireballCoreMaterial::new();
+
+            material.set_velocity_direction(Vec3::X);
+            assert_eq!(material.velocity_dir.x, 1.0);
+            assert_eq!(material.velocity_dir.y, 0.0);
+            assert_eq!(material.velocity_dir.z, 0.0);
+
+            material.set_velocity_direction(Vec3::Y);
+            assert_eq!(material.velocity_dir.x, 0.0);
+            assert_eq!(material.velocity_dir.y, 1.0);
+            assert_eq!(material.velocity_dir.z, 0.0);
+
+            material.set_velocity_direction(Vec3::Z);
+            assert_eq!(material.velocity_dir.x, 0.0);
+            assert_eq!(material.velocity_dir.y, 0.0);
+            assert_eq!(material.velocity_dir.z, 1.0);
         }
     }
 
@@ -1172,9 +1218,9 @@ mod tests {
         }
 
         #[test]
-        fn alpha_mode_is_blend() {
+        fn alpha_mode_is_add() {
             let material = FireballTrailMaterial::new();
-            assert_eq!(material.alpha_mode(), AlphaMode::Blend);
+            assert_eq!(material.alpha_mode(), AlphaMode::Add);
         }
     }
 
