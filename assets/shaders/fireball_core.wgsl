@@ -5,24 +5,23 @@
 #import bevy_pbr::{
     mesh_functions,
     view_transformations::position_world_to_clip,
+    mesh_view_bindings::globals,
 }
 
 // ============================================================================
-// Uniforms
+// Material Data - Bevy 0.17 bindless storage buffer
 // ============================================================================
 
+// Material Data - Uniform buffer (matches Rust #[uniform(0)])
 struct FireballCoreMaterial {
-    // Current time for animation (packed in x component)
     time: vec4<f32>,
-    // Animation speed multiplier (packed in x component)
     animation_speed: vec4<f32>,
-    // Noise scale for turbulence detail (packed in x component)
     noise_scale: vec4<f32>,
-    // Emissive intensity for HDR bloom (packed in x component)
     emissive_intensity: vec4<f32>,
+    velocity_dir: vec4<f32>,
 }
 
-@group(2) @binding(0)
+@group(3) @binding(0)
 var<uniform> material: FireballCoreMaterial;
 
 // ============================================================================
@@ -42,6 +41,7 @@ struct VertexOutput {
     @location(1) world_normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
     @location(3) local_position: vec3<f32>,
+    @location(4) trail_dir: vec3<f32>,
 }
 
 // ============================================================================
@@ -50,18 +50,18 @@ struct VertexOutput {
 
 const PI: f32 = 3.14159265359;
 
-// Hash function for 2D input
+// Hash function for 2D input - improved version
 fn hash12(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
-    p3 = p3 + dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
+    let p3 = fract(p.xyx * vec3<f32>(443.897, 441.423, 437.195));
+    let p4 = dot(p3, p3.yzx + 19.19);
+    return fract(p4 * p4);
 }
 
-// Hash function for 3D input
+// Hash function for 3D input - improved version using sin
 fn hash13(p: vec3<f32>) -> f32 {
-    var p3 = fract(p * 0.1031);
-    p3 = p3 + dot(p3, p3.zyx + 31.32);
-    return fract((p3.x + p3.y) * p3.z);
+    let p2 = fract(p * vec3<f32>(443.897, 441.423, 437.195));
+    let p3 = dot(p2, p2.zyx + 19.19);
+    return fract(sin(p3) * 43758.5453);
 }
 
 // 3D gradient noise
@@ -179,72 +179,115 @@ fn fire_gradient(t: f32) -> vec3<f32> {
 }
 
 // ============================================================================
-// Vertex Shader
+// Vertex Shader - With Noise-Based Displacement for Flame Effect
 // ============================================================================
 
 @vertex
 fn vertex(vertex: Vertex) -> VertexOutput {
     var out: VertexOutput;
 
+    let t = globals.time;
+    let pos = vertex.position;
+    let normal = vertex.normal;
+
     let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
-    let world_position = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(vertex.position, 1.0));
+
+    // Extract trail direction from transform matrix (Z column)
+    // Rust: from_rotation_arc(NEG_Z, direction) makes local -Z point toward travel
+    // So local +Z (matrix Z column) points opposite to travel = trail direction
+    let trail_dir = normalize(vec3<f32>(world_from_local[2][0], world_from_local[2][1], world_from_local[2][2]));
+
+    // Sample noise at vertex position for displacement
+    // Noise scrolls in the trail direction for animated flames
+    let noise_pos = pos * 2.0 + trail_dir * t * 3.0;
+
+    // Two octaves of noise for flame variation
+    let noise1 = perlin3d(noise_pos);
+    let noise2 = perlin3d(noise_pos * 2.0 + vec3<f32>(7.3, 0.0, 13.7)) * 0.5;
+    let displacement = (noise1 + noise2) * 0.5 + 0.5; // Remap to 0-1
+
+    // Stronger displacement on the trailing side of the sphere
+    let trail_dot = dot(normal, trail_dir);
+    let trail_bias = smoothstep(-0.2, 0.9, trail_dot); // Trailing side
+
+    // Base stretch along trail direction (comet shape)
+    let trail_stretch = 1.2;
+    let stretch_amount = trail_bias * trail_stretch;
+
+    // Add noise displacement along normals for flame tongues (only on trailing half)
+    let flame_displacement = trail_bias * displacement * 0.4;
+
+    // Combine: stretch backward + noise outward
+    let displaced_pos = pos + trail_dir * stretch_amount + normal * flame_displacement;
+
+    let world_position = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(displaced_pos, 1.0));
 
     out.clip_position = position_world_to_clip(world_position.xyz);
     out.world_position = world_position.xyz;
     out.world_normal = mesh_functions::mesh_normal_local_to_world(vertex.normal, vertex.instance_index);
     out.uv = vertex.uv;
-    out.local_position = vertex.position;
+    out.local_position = pos; // Keep original for fragment shader calculations
+    out.trail_dir = trail_dir; // Pass to fragment shader
 
     return out;
 }
 
 // ============================================================================
-// Fragment Shader
+// Fragment Shader - With Alpha Cutoff for Flame Edges
 // ============================================================================
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let time = material.time.x;
-    let anim_speed = material.animation_speed.x;
-    let noise_scale = material.noise_scale.x;
-    let emissive = material.emissive_intensity.x;
-
-    // Use local position for sphere-based effects
+    let t = globals.time;
     let pos = in.local_position;
 
-    // Distance from center (0 at center, 1 at surface for unit sphere)
+    // Get trail direction from vertex shader (passed via VertexOutput)
+    let trail_dir = normalize(in.trail_dir + vec3<f32>(0.0001, 0.0001, 0.0001));
+
+    // Distance from center of sphere (0 at center, 1 at surface)
     let dist_from_center = length(pos);
 
-    // Animated noise position (scrolls upward for rising flame effect)
-    let anim_offset = vec3<f32>(0.0, -time * anim_speed * 0.5, 0.0);
-    let noise_pos = pos * noise_scale + anim_offset;
+    // Multiple noise layers at different scales and speeds
+    // Noise scrolls in trail direction to simulate flames being left behind
+    let noise1 = perlin3d(pos * 2.5 + trail_dir * t * 3.0);  // Large, fast
+    let noise2 = perlin3d(pos * 5.0 + trail_dir * t * 4.0 + vec3<f32>(t * 0.5, 0.0, t * 0.3));  // Medium detail
+    let noise3 = perlin3d(pos * 8.0 + trail_dir * t * 5.0 + vec3<f32>(-t * 0.3, 0.0, 0.0));  // Fine detail
 
-    // Layer multiple noise frequencies for detail
-    let noise1 = fbm4(noise_pos);
-    let noise2 = turbulence4(noise_pos * 2.0 + vec3<f32>(time * anim_speed * 0.3, 0.0, 0.0));
-    let combined_noise = noise1 * 0.6 + noise2 * 0.4;
+    // Combine noise with weights favoring larger features
+    let combined_noise = noise1 * 0.5 + noise2 * 0.35 + noise3 * 0.15;
 
-    // Map noise to fire intensity (0-1)
-    // Center is hottest (1.0), edges cooler with noise variation
-    let base_intensity = 1.0 - pow(dist_from_center, 1.5);
-    let noise_contribution = combined_noise * 0.5 + 0.5; // Remap to 0-1
-    let fire_intensity = clamp(base_intensity + (noise_contribution - 0.5) * 0.4, 0.0, 1.0);
+    // Trail gradient - flames are more intense on trailing side
+    let pos_normalized = normalize(pos + vec3<f32>(0.0001, 0.0001, 0.0001));
+    let trail_factor = smoothstep(-0.5, 0.8, dot(pos_normalized, trail_dir));
 
-    // Apply fire color gradient
-    let fire_color = fire_gradient(fire_intensity);
+    // Alpha calculation for edge cutoff
+    // Core is solid (alpha = 1), edges are cut based on noise
+    let edge_distance = 1.0 - dist_from_center; // 1 at center, 0 at edge
+    let edge_noise = combined_noise * 0.5 + 0.5; // Remap to 0-1
 
-    // Edge falloff for soft sphere boundary
-    let edge_falloff = smoothstep(1.0, 0.7, dist_from_center);
+    // Combine edge distance with noise for irregular flame edges
+    // Higher noise values push the edge inward (creating flame tongues where alpha survives)
+    let alpha_base = edge_distance * 1.5 + edge_noise * 0.6 - trail_factor * 0.2;
 
-    // Flicker effect
-    let flicker = sin(time * 15.0) * 0.03 + sin(time * 23.0) * 0.02 + sin(time * 37.0) * 0.01;
-    let flicker_intensity = 1.0 + flicker;
+    // Hard alpha cutoff for fire effect
+    let alpha_threshold = 0.3;
+    let alpha = step(alpha_threshold, alpha_base);
 
-    // Final color with emissive for HDR bloom
-    let final_color = fire_color * emissive * flicker_intensity;
+    // Discard fully transparent pixels
+    if alpha < 0.5 {
+        discard;
+    }
 
-    // Alpha based on intensity and edge falloff
-    let alpha = fire_intensity * edge_falloff;
+    // Color gradient based on depth into flame
+    // Core (high alpha_base) = white-hot, edge (low alpha_base) = red-orange
+    let color_t = clamp(alpha_base * 0.8 + 0.2, 0.0, 1.0);
+    let color = fire_gradient(color_t);
 
-    return vec4<f32>(final_color, alpha);
+    // Flicker effect for life
+    let flicker = 1.0 + sin(t * 17.0) * 0.15 + sin(t * 31.0) * 0.1 + sin(t * 47.0) * 0.05;
+
+    // HDR emissive boost - fire should glow
+    let emissive_boost = 5.0;
+
+    return vec4<f32>(color * emissive_boost * flicker, 1.0);
 }

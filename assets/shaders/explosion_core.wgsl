@@ -9,24 +9,21 @@
 #import bevy_pbr::{
     mesh_functions,
     view_transformations::position_world_to_clip,
+    mesh_view_bindings::globals,
 }
 
 // ============================================================================
-// Uniforms
+// Material Data - Storage buffer (Bevy 0.17 bindless default)
 // ============================================================================
 
 struct ExplosionCoreMaterial {
-    // Current time for animation (packed in x component)
     time: vec4<f32>,
-    // Lifetime progress 0.0 (start) to 1.0 (end), packed in x
     progress: vec4<f32>,
-    // Emissive intensity for HDR bloom (packed in x component)
     emissive_intensity: vec4<f32>,
-    // Expansion scale multiplier (packed in x component)
     expansion_scale: vec4<f32>,
 }
 
-@group(2) @binding(0)
+@group(3) @binding(0)
 var<uniform> material: ExplosionCoreMaterial;
 
 // ============================================================================
@@ -52,11 +49,11 @@ struct VertexOutput {
 // Noise Functions (inlined for shader compilation)
 // ============================================================================
 
-// Hash function for 3D input
+// Hash function for 3D input - improved version
 fn hash13(p: vec3<f32>) -> f32 {
-    var p3 = fract(p * 0.1031);
-    p3 = p3 + dot(p3, p3.zyx + 31.32);
-    return fract((p3.x + p3.y) * p3.z);
+    let p2 = fract(p * vec3<f32>(443.897, 441.423, 437.195));
+    let p3 = dot(p2, p2.zyx + 19.19);
+    return fract(sin(p3) * 43758.5453);
 }
 
 // Simple value noise for subtle variation
@@ -140,64 +137,57 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let time = material.time.x;
-    let progress = material.progress.x;
+    let t = globals.time;
+    let prog = material.progress.x;
     let emissive = material.emissive_intensity.x;
-    let expansion = material.expansion_scale.x;
 
-    // Progress phases for the 0.25s flash:
-    // 0.0 - 0.15: Rapid expansion (flash peak)
-    // 0.15 - 0.4: Peak brightness
-    // 0.4 - 1.0: Fade out
-
-    // Calculate intensity based on progress
-    var intensity: f32;
-    if progress < 0.15 {
-        // Rapid rise to peak
-        intensity = smoothstep(0.0, 0.15, progress);
-    } else if progress < 0.4 {
-        // Hold at peak
-        intensity = 1.0;
-    } else {
-        // Fade out (cubic falloff for more dramatic fade)
-        let fade_progress = (progress - 0.4) / 0.6;
-        intensity = 1.0 - fade_progress * fade_progress * fade_progress;
-    }
-
-    // Use local position for sphere-based effects
     let pos = in.local_position;
 
-    // Distance from center (0 at center, 1 at surface for unit sphere)
-    let dist_from_center = length(pos);
+    // Flash intensity - very bright at start, fades quickly with non-linear falloff
+    // Use exponential falloff for sharp flash effect
+    let intensity = pow(1.0 - prog, 2.0);
 
-    // Core brightness: much brighter in center, sharp falloff at edges
-    // Use power function for sharp edge
-    let radial_falloff = 1.0 - pow(dist_from_center, 3.0);
-    let core_brightness = clamp(radial_falloff, 0.0, 1.0);
+    // Noise for variation and edge distortion
+    let noise = value_noise3d(pos * 5.0 + vec3<f32>(t * 15.0, t * 10.0, t * 8.0));
 
-    // Add subtle noise for organic edge variation
-    let noise_pos = pos * 8.0 + vec3<f32>(time * 2.0, time * 1.5, time);
-    let edge_noise = value_noise3d(noise_pos) * 0.15;
+    // Distance from center for edge effects
+    let dist = length(pos);
 
-    // Color based on distance from center
-    // Center is white-hot, edges are yellow-orange
-    let color_t = dist_from_center + edge_noise;
-    let flash_color = flash_gradient(color_t);
+    // Edge glow - core is brightest, edge fades
+    let edge_factor = 1.0 - smoothstep(0.0, 0.4, dist);
 
-    // Final intensity combines:
-    // - Overall animation intensity (fades over lifetime)
-    // - Core brightness (center is brightest)
-    // - Edge noise variation
-    let final_intensity = intensity * (core_brightness + edge_noise * 0.5);
+    // Color: white-hot at start, shifts to pale yellow/orange as it fades
+    let white = vec3<f32>(1.0, 1.0, 1.0);
+    let pale_yellow = vec3<f32>(1.0, 0.95, 0.7);
+    let warm_orange = vec3<f32>(1.0, 0.8, 0.4);
 
-    // Apply emissive multiplier for HDR bloom
-    // Use very high values for blinding flash effect
-    let emissive_color = flash_color * emissive * final_intensity;
+    // Color shifts from white -> pale yellow -> warm as progress increases
+    var color: vec3<f32>;
+    if prog < 0.5 {
+        color = mix(white, pale_yellow, prog * 2.0);
+    } else {
+        color = mix(pale_yellow, warm_orange, (prog - 0.5) * 2.0);
+    }
 
-    // Alpha based on intensity for transparency blending
-    // Sharp falloff at edges for clean sphere boundary
-    let edge_alpha = smoothstep(1.0, 0.85, dist_from_center);
-    let alpha = final_intensity * edge_alpha;
+    // Add noise variation
+    color = color + vec3<f32>(noise * 0.1, noise * 0.05, 0.0);
 
-    return vec4<f32>(emissive_color, alpha);
+    // Fast flicker for flash effect
+    let flicker = 1.0 + sin(t * 50.0) * 0.1 + sin(t * 73.0) * 0.05;
+
+    // Combine intensity, edge, and noise
+    let combined_intensity = intensity * (0.3 + edge_factor * 0.7);
+
+    // Output: very bright flash with proper fading
+    let final_color = color * emissive * combined_intensity * flicker;
+
+    // Alpha for additive blending - decreases with progress
+    let alpha = intensity * (0.5 + edge_factor * 0.5);
+
+    // Discard if too dim
+    if alpha < 0.01 {
+        discard;
+    }
+
+    return vec4<f32>(final_color, alpha);
 }

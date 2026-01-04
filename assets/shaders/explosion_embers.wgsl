@@ -10,24 +10,21 @@
 #import bevy_pbr::{
     mesh_functions,
     view_transformations::position_world_to_clip,
+    mesh_view_bindings::globals,
 }
 
 // ============================================================================
-// Uniforms
+// Material Data - Uniform buffer (matches Rust #[uniform(0)])
 // ============================================================================
 
 struct ExplosionEmbersMaterial {
-    // Current time for animation (packed in x component)
     time: vec4<f32>,
-    // Lifetime progress 0.0 (start) to 1.0 (end), packed in x
     progress: vec4<f32>,
-    // Velocity direction for motion blur (xyz = direction, w = speed magnitude)
     velocity: vec4<f32>,
-    // Emissive intensity for HDR bloom (packed in x component)
     emissive_intensity: vec4<f32>,
 }
 
-@group(2) @binding(0)
+@group(3) @binding(0)
 var<uniform> material: ExplosionEmbersMaterial;
 
 // ============================================================================
@@ -60,17 +57,18 @@ const TAU: f32 = 6.28318530718;
 // Noise Functions
 // ============================================================================
 
-// Hash function for pseudo-random values
+// Hash function for 2D input - improved version
 fn hash12(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
-    p3 = p3 + dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
+    let p3 = fract(p.xyx * vec3<f32>(443.897, 441.423, 437.195));
+    let p4 = dot(p3, p3.yzx + 19.19);
+    return fract(sin(p4) * 43758.5453);
 }
 
+// Hash function for 3D input - improved version
 fn hash13(p: vec3<f32>) -> f32 {
-    var p3 = fract(p * 0.1031);
-    p3 = p3 + dot(p3, p3.zyx + 31.32);
-    return fract((p3.x + p3.y) * p3.z);
+    let p2 = fract(p * vec3<f32>(443.897, 441.423, 437.195));
+    let p3 = dot(p2, p2.zyx + 19.19);
+    return fract(sin(p3) * 43758.5453);
 }
 
 // ============================================================================
@@ -129,115 +127,50 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let time = material.time.x;
-    let progress = material.progress.x;
-    let velocity_dir = normalize(material.velocity.xyz);
-    let speed = material.velocity.w;
+    let t = globals.time;
+    // Use material progress (0.0 = just exploded, 1.0 = cooled and faded)
+    let prog = material.progress.x;
     let emissive = material.emissive_intensity.x;
 
-    // Center UV for radial calculations
-    let centered_uv = in.uv - vec2<f32>(0.5, 0.5);
+    // Ember lifecycle based on progress
+    // Embers start bright and gradually cool/fade
+    // At prog=0, full intensity; at prog=1, faded completely
+    var intensity: f32;
+    if prog < 0.5 {
+        // Full intensity for first half
+        intensity = 1.0 - prog * 0.2;  // Slight dimming
+    } else {
+        // Faster fade in second half
+        intensity = 0.9 * (1.0 - pow((prog - 0.5) / 0.5, 1.5));
+    }
 
-    // ========================================================================
-    // Motion Streak Effect
-    // ========================================================================
-    // Project UV onto velocity direction for elongation
-    // This creates the motion blur/streak effect for fast-moving embers
-    let velocity_2d = normalize(vec2<f32>(velocity_dir.x, velocity_dir.z));
-    let along_velocity = dot(centered_uv, velocity_2d);
-    let perp_velocity = length(centered_uv - velocity_2d * along_velocity);
+    let pos = in.local_position;
+    let dist = length(pos.xz);
 
-    // Streak factor based on speed - faster embers appear more elongated
-    // Explosion embers are FAST (speed ~15), so significant streaking
-    let streak_amount = clamp(speed * 0.15, 0.0, 3.0);
-    let streak_length = 1.0 + streak_amount;
-
-    // Create elongated ember shape (ellipse stretched along velocity)
-    let stretched_along = along_velocity / streak_length;
-    let radial_dist = sqrt(stretched_along * stretched_along + perp_velocity * perp_velocity);
-
-    // ========================================================================
-    // Ember Core Shape
-    // ========================================================================
-    // Hot core with halo
-    let core_radius = 0.12;
-    let halo_radius = 0.35;
-
-    // Bright inner core
-    let core = 1.0 - smoothstep(0.0, core_radius, radial_dist);
+    // Core shrinks as ember cools
+    let core_size = 0.15 * (1.0 - prog * 0.3);
+    let core = 1.0 - smoothstep(0.0, core_size, dist);
     let core_intensity = pow(core, 2.5);
 
-    // Cooler halo around core
-    let halo = 1.0 - smoothstep(core_radius, halo_radius, radial_dist);
-    let halo_intensity = pow(halo, 1.8) * (1.0 - core_intensity);
+    // Halo also diminishes
+    let halo_size = 0.4 * (1.0 - prog * 0.2);
+    let halo = 1.0 - smoothstep(core_size * 0.7, halo_size, dist);
+    let halo_intensity = pow(halo, 1.8) * (1.0 - core_intensity * 0.5);
 
-    // ========================================================================
-    // Animation and Flicker
-    // ========================================================================
-    // Animated flicker for lifelike ember behavior
-    let flicker_freq = 30.0;
-    let flicker_seed = hash12(in.world_position.xz * 100.0);
-    let flicker = 0.75 + 0.25 * sin(time * flicker_freq + flicker_seed * TAU);
+    // Flicker gets more erratic as ember cools
+    let flicker_seed = hash12(pos.xz * 80.0);
+    let flicker_speed = 30.0 + prog * 15.0;
+    let flicker = 0.7 + 0.3 * sin(t * flicker_speed + flicker_seed * TAU);
 
-    // Random brightness variation per ember
-    let brightness_var = 0.6 + 0.4 * hash13(in.world_position);
-
-    // ========================================================================
-    // Lifetime-Based Effects
-    // ========================================================================
-    // Progress phases for the 0.8s ember flight:
-    // 0.0 - 0.1: Initial burst (bright start)
-    // 0.1 - 0.7: Flying phase (gradual cooling)
-    // 0.7 - 1.0: Final fade (dying ember)
-
-    var intensity: f32;
-    if progress < 0.1 {
-        // Rapid rise to peak brightness
-        intensity = smoothstep(0.0, 0.1, progress);
-    } else if progress < 0.7 {
-        // Gradual decay during flight
-        let decay_progress = (progress - 0.1) / 0.6;
-        intensity = 1.0 - decay_progress * 0.3; // Lose 30% brightness during flight
-    } else {
-        // Rapid fade at end
-        let fade_progress = (progress - 0.7) / 0.3;
-        intensity = 0.7 * (1.0 - fade_progress * fade_progress);
-    }
-
-    // ========================================================================
-    // Gravity Arc Visualization
-    // ========================================================================
-    // Simulate gravity pulling ember downward over time
-    // This affects the color (lower = cooler as it falls) and brightness
-    let gravity_factor = progress * progress * 0.5; // Quadratic for realistic arc
-    let cooling_from_gravity = gravity_factor * 0.2; // Extra cooling as it falls
-
-    // ========================================================================
-    // Color Calculation
-    // ========================================================================
-    // Core is white-hot, halo shows the cooling gradient
-    let cooling_amount = progress + cooling_from_gravity;
-    let core_color = vec3<f32>(1.0, 1.0, 0.9); // White-hot
-    let halo_color = ember_cooling_gradient(cooling_amount);
+    // Core color cools with progress
+    let core_color = ember_cooling_gradient(prog * 0.5);  // Core cools slowly
+    let halo_color = ember_cooling_gradient(prog);  // Halo cools faster
 
     let combined_color = core_color * core_intensity + halo_color * halo_intensity;
+    let total_intensity = (core_intensity + halo_intensity * 0.5) * flicker * intensity;
 
-    // ========================================================================
-    // Final Output
-    // ========================================================================
-    // Apply all intensity modifiers
-    let total_intensity = (core_intensity + halo_intensity * 0.5) * flicker * brightness_var * intensity;
-
-    // Final emissive color for HDR bloom
-    let final_color = combined_color * emissive * total_intensity;
-
-    // Alpha: strong in center, fading at edges and with age
     let alpha = (core_intensity + halo_intensity * 0.4) * intensity;
+    if alpha < 0.01 { discard; }
 
-    // Discard nearly transparent fragments for performance
-    if alpha < 0.01 {
-        discard;
-    }
-
-    return vec4<f32>(final_color, alpha);
+    return vec4<f32>(combined_color * emissive * total_intensity, alpha);
 }

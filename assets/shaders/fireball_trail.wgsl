@@ -5,29 +5,26 @@
 // - Noise-animated flame edges for organic movement
 // - Color gradient: bright orange at head -> red -> dark smoke at tail
 // - Fade out over distance from fireball
-// - Global space simulation (trail stays in world position)
+// - Proper velocity-based trail direction from transform matrix
 
 #import bevy_pbr::{
     mesh_functions,
     view_transformations::position_world_to_clip,
+    mesh_view_bindings::globals,
 }
 
 // ============================================================================
-// Uniforms
+// Material Data - Uniform buffer (matches Rust #[uniform(0)])
 // ============================================================================
 
 struct FireballTrailMaterial {
-    // Current time for animation (packed in x component)
     time: vec4<f32>,
-    // Velocity direction of the fireball (xyz = normalized direction)
     velocity_dir: vec4<f32>,
-    // Trail length multiplier (packed in x component)
     trail_length: vec4<f32>,
-    // Emissive intensity for HDR bloom (packed in x component)
     emissive_intensity: vec4<f32>,
 }
 
-@group(2) @binding(0)
+@group(3) @binding(0)
 var<uniform> material: FireballTrailMaterial;
 
 // ============================================================================
@@ -47,6 +44,8 @@ struct VertexOutput {
     @location(1) world_normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
     @location(3) local_position: vec3<f32>,
+    @location(4) trail_dir: vec3<f32>,
+    @location(5) trail_progress: f32,
 }
 
 // ============================================================================
@@ -60,18 +59,18 @@ const TAU: f32 = 6.28318530718;
 // Noise Functions (inlined for shader compilation)
 // ============================================================================
 
-// Hash function for 2D input
+// Hash function for 2D input - improved version
 fn hash12(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
-    p3 = p3 + dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
+    let p3 = fract(p.xyx * vec3<f32>(443.897, 441.423, 437.195));
+    let p4 = dot(p3, p3.yzx + 19.19);
+    return fract(sin(p4) * 43758.5453);
 }
 
-// Hash function for 3D input
+// Hash function for 3D input - improved version
 fn hash13(p: vec3<f32>) -> f32 {
-    var p3 = fract(p * 0.1031);
-    p3 = p3 + dot(p3, p3.zyx + 31.32);
-    return fract((p3.x + p3.y) * p3.z);
+    let p2 = fract(p * vec3<f32>(443.897, 441.423, 437.195));
+    let p3 = dot(p2, p2.zyx + 19.19);
+    return fract(sin(p3) * 43758.5453);
 }
 
 // 2D gradient for noise
@@ -148,30 +147,31 @@ fn turbulence3(p: vec2<f32>) -> f32 {
 // Fire Color Functions
 // ============================================================================
 
-// Trail gradient: bright orange at head -> red -> dark smoke at tail
+// Trail gradient: vivid orange at head -> red -> dark smoke at tail
+// Designed for HDR/bloom environments - avoid pure white to preserve color
 fn trail_gradient(t: f32) -> vec3<f32> {
     let x = clamp(t, 0.0, 1.0);
 
-    if x < 0.15 {
-        // Bright orange-yellow at head (hottest)
-        return mix(vec3<f32>(1.0, 0.9, 0.4), vec3<f32>(1.0, 0.6, 0.1), x / 0.15);
-    } else if x < 0.35 {
+    if x < 0.2 {
+        // Bright orange at head (hottest part of trail, but cooler than core)
+        return mix(vec3<f32>(1.0, 0.6, 0.1), vec3<f32>(1.0, 0.4, 0.0), x / 0.2);
+    } else if x < 0.4 {
         // Orange to orange-red
-        return mix(vec3<f32>(1.0, 0.6, 0.1), vec3<f32>(1.0, 0.35, 0.0), (x - 0.15) / 0.2);
-    } else if x < 0.55 {
+        return mix(vec3<f32>(1.0, 0.4, 0.0), vec3<f32>(0.95, 0.25, 0.0), (x - 0.2) / 0.2);
+    } else if x < 0.6 {
         // Orange-red to deep red
-        return mix(vec3<f32>(1.0, 0.35, 0.0), vec3<f32>(0.8, 0.15, 0.0), (x - 0.35) / 0.2);
-    } else if x < 0.75 {
+        return mix(vec3<f32>(0.95, 0.25, 0.0), vec3<f32>(0.7, 0.1, 0.0), (x - 0.4) / 0.2);
+    } else if x < 0.8 {
         // Deep red to dark crimson
-        return mix(vec3<f32>(0.8, 0.15, 0.0), vec3<f32>(0.4, 0.05, 0.0), (x - 0.55) / 0.2);
+        return mix(vec3<f32>(0.7, 0.1, 0.0), vec3<f32>(0.35, 0.05, 0.02), (x - 0.6) / 0.2);
     } else {
         // Dark crimson to smoke (dark gray with ember tint)
-        return mix(vec3<f32>(0.4, 0.05, 0.0), vec3<f32>(0.15, 0.1, 0.08), (x - 0.75) / 0.25);
+        return mix(vec3<f32>(0.35, 0.05, 0.02), vec3<f32>(0.12, 0.08, 0.06), (x - 0.8) / 0.2);
     }
 }
 
 // ============================================================================
-// Vertex Shader
+// Vertex Shader - With trail direction extraction and stretching
 // ============================================================================
 
 @vertex
@@ -179,88 +179,105 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     var out: VertexOutput;
 
     let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
-    let world_position = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(vertex.position, 1.0));
+
+    // Extract trail direction from transform matrix (Z column)
+    // The fireball rotation aligns local -Z with travel direction,
+    // so local +Z (matrix Z column) points in the trail direction
+    let trail_dir = normalize(vec3<f32>(world_from_local[2][0], world_from_local[2][1], world_from_local[2][2]));
+
+    let pos = vertex.position;
+    let normal = vertex.normal;
+
+    // Project vertex position onto trail direction to get "how far along trail"
+    // local +Z is trail direction after rotation
+    let local_trail_dir = vec3<f32>(0.0, 0.0, 1.0);
+    let trail_dot = dot(pos, local_trail_dir);
+
+    // trail_progress: 0 at head (fireball center), 1 at tail end
+    // Sphere has radius 0.3, so vertices range from -0.3 to +0.3
+    // We want the back half (+Z) to stretch into a trail
+    let trail_progress = clamp((trail_dot + 0.15) / 0.45, 0.0, 1.0);
+
+    // Stretch the mesh along the trail direction - use material trail_length
+    let trail_length = material.trail_length.x * 2.5; // Longer trail for visibility
+    let stretch = pow(trail_progress, 0.7) * trail_length; // Non-linear stretch for smoother shape
+
+    // Move vertex along local +Z (trail direction)
+    let stretched_pos = pos + local_trail_dir * stretch;
+
+    // Taper the trail - narrower at the tail
+    // Use squared falloff for more gradual taper
+    let taper = 1.0 - trail_progress * trail_progress * 0.85;
+    let tapered_pos = vec3<f32>(stretched_pos.x * taper, stretched_pos.y * taper, stretched_pos.z);
+
+    let world_position = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(tapered_pos, 1.0));
 
     out.clip_position = position_world_to_clip(world_position.xyz);
     out.world_position = world_position.xyz;
     out.world_normal = mesh_functions::mesh_normal_local_to_world(vertex.normal, vertex.instance_index);
     out.uv = vertex.uv;
-    out.local_position = vertex.position;
+    out.local_position = pos;
+    out.trail_dir = trail_dir;
+    out.trail_progress = trail_progress;
 
     return out;
 }
 
 // ============================================================================
-// Fragment Shader
+// Fragment Shader - Uses trail_progress from vertex shader for correct direction
 // ============================================================================
 
 @fragment
-fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let time = material.time.x;
-    let velocity_dir = normalize(material.velocity_dir.xyz);
-    let trail_len = material.trail_length.x;
+fn fragment(in: VertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
+    let t = globals.time;
     let emissive = material.emissive_intensity.x;
 
-    // Use local position for trail calculations
     let pos = in.local_position;
+    let trail_progress = in.trail_progress;
 
-    // Project position onto velocity direction to get distance along trail
-    // Positive = ahead of center, Negative = behind (in the trail)
-    let along_trail = dot(pos, velocity_dir);
+    // Multiple noise layers for animated fire
+    // Scroll noise to create flickering flame effect
+    let noise1 = perlin2d(pos.xz * 4.0 + vec2<f32>(t * 0.5, -t * 4.0));
+    let noise2 = perlin2d(pos.xz * 7.0 + vec2<f32>(-t * 0.3, -t * 5.0));
+    let noise3 = perlin2d(pos.xz * 2.5 + vec2<f32>(t * 0.2, -t * 3.0));
+    let combined = noise1 * 0.5 + noise2 * 0.3 + noise3 * 0.2;
 
-    // Distance perpendicular to the trail direction (radial distance)
-    let trail_axis_point = velocity_dir * along_trail;
-    let perp_dist = length(pos - trail_axis_point);
+    // Color based on trail_progress
+    // Add noise variation for organic look
+    let gradient_t = clamp(trail_progress * 0.85 + combined * 0.2, 0.0, 1.0);
 
-    // Normalize along-trail distance: 0 = at fireball, 1 = end of trail
-    // Trail extends behind the fireball (negative along_trail values)
-    let trail_pos = clamp(-along_trail / trail_len, 0.0, 1.0);
+    // Use trail gradient for color based on position along trail
+    let base_color = trail_gradient(gradient_t);
 
-    // Trail width tapers toward the end (comet shape)
-    // Wider at head (trail_pos = 0), narrower at tail (trail_pos = 1)
-    let base_width = 0.4; // Width at the head
-    let taper = 1.0 - trail_pos * 0.7; // Taper to 30% at tail
-    let trail_width = base_width * taper;
+    // Intensity falls off along trail - brighter at head, dimmer at tail
+    // Use smooth falloff for better visual
+    let intensity = 1.0 - pow(trail_progress, 1.5) * 0.7;
 
-    // Flame edge distortion using noise
-    let noise_scale = 4.0;
-    let noise_speed = 2.0;
-    let noise_pos = vec2<f32>(trail_pos * 8.0, time * noise_speed);
-    let edge_noise = fbm3(noise_pos) * 0.15;
-    let turbulent_width = trail_width + edge_noise;
+    // Flicker effect
+    let flicker = 1.0 + sin(t * 17.0) * 0.12 + sin(t * 29.0) * 0.08;
 
-    // Calculate if we're inside the trail shape
-    let in_trail = smoothstep(turbulent_width, turbulent_width * 0.6, perp_dist);
+    // Edge fade based on radial distance from center axis
+    // Account for taper: the actual radius decreases along the trail
+    let taper = 1.0 - trail_progress * trail_progress * 0.85;
+    let effective_radius = 0.35 * taper;
+    let radial_dist = length(pos.xy);
 
-    // Only show trail behind the fireball (not in front)
-    let behind_fireball = smoothstep(0.1, -0.05, along_trail);
+    // Soft edge fade with noise for flame-like appearance
+    let noise_edge = combined * 0.1;
+    let edge = 1.0 - smoothstep(effective_radius * 0.3, effective_radius + noise_edge, radial_dist);
 
-    // Combine trail shape
-    let trail_mask = in_trail * behind_fireball;
+    // Combined glow strength
+    let glow_strength = edge * intensity;
 
-    // Add animated internal fire detail
-    let internal_noise_pos = vec2<f32>(trail_pos * 6.0 + time * 1.5, perp_dist * 4.0 + time * 0.5);
-    let internal_noise = turbulence3(internal_noise_pos);
-    let fire_detail = 0.7 + internal_noise * 0.5;
-
-    // Intensity decreases along the trail (cooler toward tail)
-    let base_intensity = 1.0 - trail_pos * 0.6;
-    let intensity = base_intensity * fire_detail * trail_mask;
-
-    // Get color from gradient based on position along trail
-    let color = trail_gradient(trail_pos);
-
-    // Apply emissive for HDR bloom (stronger at head)
-    let emission_falloff = 1.0 - trail_pos * 0.5;
-    let final_color = color * emissive * intensity * emission_falloff;
-
-    // Alpha: strong at head, fading toward tail
-    let alpha = trail_mask * (1.0 - trail_pos * 0.7);
-
-    // Discard nearly transparent fragments for performance
-    if alpha < 0.01 {
+    // Discard very dim pixels
+    if glow_strength < 0.03 {
         discard;
     }
 
-    return vec4<f32>(final_color, alpha);
+    // Emissive output for HDR bloom
+    // Higher emissive at head, lower at tail
+    let trail_emissive = emissive * (1.0 - trail_progress * 0.5);
+    let final_color = base_color * trail_emissive * glow_strength * flicker;
+
+    return vec4<f32>(final_color, 1.0);
 }

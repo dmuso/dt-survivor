@@ -10,24 +10,21 @@
 #import bevy_pbr::{
     mesh_functions,
     view_transformations::position_world_to_clip,
+    mesh_view_bindings::globals,
 }
 
 // ============================================================================
-// Uniforms
+// Material Data - Storage buffer (Bevy 0.17 bindless default)
 // ============================================================================
 
 struct ExplosionFireMaterial {
-    // Current time for animation (packed in x component)
     time: vec4<f32>,
-    // Lifetime progress 0.0 (start) to 1.0 (end), packed in x
     progress: vec4<f32>,
-    // Emissive intensity for HDR bloom (packed in x component)
     emissive_intensity: vec4<f32>,
-    // Noise scale for turbulence detail (packed in x component)
     noise_scale: vec4<f32>,
 }
 
-@group(2) @binding(0)
+@group(3) @binding(0)
 var<uniform> material: ExplosionFireMaterial;
 
 // ============================================================================
@@ -53,11 +50,11 @@ struct VertexOutput {
 // Noise Functions (inlined for shader compilation)
 // ============================================================================
 
-// Hash function for 3D input
+// Hash function for 3D input - improved version
 fn hash13(p: vec3<f32>) -> f32 {
-    var p3 = fract(p * 0.1031);
-    p3 = p3 + dot(p3, p3.zyx + 31.32);
-    return fract((p3.x + p3.y) * p3.z);
+    let p2 = fract(p * vec3<f32>(443.897, 441.423, 437.195));
+    let p3 = dot(p2, p2.zyx + 19.19);
+    return fract(sin(p3) * 43758.5453);
 }
 
 // 3D gradient function
@@ -214,81 +211,43 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let time = material.time.x;
-    let progress = material.progress.x;
+    let t = globals.time;
+    let prog = material.progress.x;
     let emissive = material.emissive_intensity.x;
-    let noise_scale = material.noise_scale.x;
 
-    // Progress phases for the 0.6s fire blast:
-    // 0.0 - 0.2: Rapid expansion (peak fire)
-    // 0.2 - 0.5: Sustained burn with turbulence
-    // 0.5 - 1.0: Fade out and dissipate
+    let pos = in.local_position;
+    let anim = t * 5.0;
 
-    // Calculate intensity based on progress
-    var intensity: f32;
-    if progress < 0.2 {
-        // Rapid rise to peak
-        intensity = smoothstep(0.0, 0.2, progress);
-    } else if progress < 0.5 {
-        // Sustained at high intensity with slight variation
-        let variance = sin(progress * 20.0) * 0.05;
-        intensity = 0.95 + variance;
+    // Animated noise for fire movement - scrolls upward
+    let noise1 = perlin3d(pos * 3.0 + vec3<f32>(0.0, -anim, 0.0));
+    let noise2 = perlin3d(pos * 6.0 + vec3<f32>(anim * 0.2, -anim * 1.2, 0.0));
+    let noise = noise1 * 0.6 + noise2 * 0.4;
+
+    // Heat based on noise - varies across surface
+    let heat = clamp(0.5 + noise * 0.5, 0.0, 1.0);
+
+    // Fire color gradient: hot (yellow-white) to cool (red-orange)
+    var color: vec3<f32>;
+    if heat > 0.7 {
+        // Hot: bright yellow-white
+        color = mix(vec3<f32>(1.0, 0.8, 0.3), vec3<f32>(1.0, 1.0, 0.8), (heat - 0.7) / 0.3);
+    } else if heat > 0.4 {
+        // Medium: orange
+        color = mix(vec3<f32>(1.0, 0.4, 0.0), vec3<f32>(1.0, 0.8, 0.3), (heat - 0.4) / 0.3);
     } else {
-        // Fade out (quadratic for natural dissipation)
-        let fade_progress = (progress - 0.5) / 0.5;
-        intensity = 1.0 - fade_progress * fade_progress;
+        // Cool: red-orange
+        color = mix(vec3<f32>(0.6, 0.1, 0.0), vec3<f32>(1.0, 0.4, 0.0), heat / 0.4);
     }
 
-    // Use local position for sphere-based effects
-    let pos = in.local_position;
+    // Progress fades and reddens the fire
+    let fade = 1.0 - prog * 0.9;  // Fade to 10% at end
+    color = mix(color, color * vec3<f32>(0.8, 0.3, 0.1), prog * 0.6);  // Shift red
 
-    // Distance from center (0 at center, 1 at surface for unit sphere)
-    let dist_from_center = length(pos);
+    // Flicker
+    let flicker = 1.0 + sin(anim * 7.0) * 0.1;
 
-    // Rising heat effect - bias noise upward
-    let heat_rise = vec3<f32>(0.0, time * 1.5, 0.0);
+    // Final output with HDR emissive
+    let final_color = color * emissive * fade * flicker;
 
-    // Animated noise position with rising effect
-    let noise_pos = pos * noise_scale + heat_rise + vec3<f32>(time * 0.3, 0.0, time * 0.2);
-
-    // Layer multiple noise for volumetric fire look
-    let noise1 = fbm4(noise_pos);
-    let noise2 = turbulence4(noise_pos * 1.5 + vec3<f32>(0.0, time * 0.5, 0.0));
-    let noise3 = fbm4(noise_pos * 0.5 - vec3<f32>(time * 0.2, 0.0, 0.0));
-
-    // Combine noise layers for complex fire pattern
-    let combined_noise = noise1 * 0.4 + noise2 * 0.4 + noise3 * 0.2;
-
-    // Fire intensity based on position and noise
-    // Center is hottest, edges have noise-driven turbulence
-    let radial_falloff = 1.0 - pow(dist_from_center, 1.3);
-    let noise_contribution = combined_noise * 0.5 + 0.5; // Remap to 0-1
-
-    // Create billowing, turbulent edge effect
-    let edge_turbulence = noise_contribution * (1.0 - radial_falloff * 0.5);
-    let fire_intensity = clamp(radial_falloff + edge_turbulence * 0.3, 0.0, 1.0);
-
-    // Color based on fire intensity and progress
-    // Higher intensity = hotter colors (yellow-white)
-    // Lower intensity = cooler colors (red-crimson)
-    let color_t = 1.0 - fire_intensity + combined_noise * 0.2;
-    let fire_color = explosion_fire_gradient(color_t, progress);
-
-    // Apply overall intensity animation
-    let final_intensity = intensity * fire_intensity;
-
-    // Flicker effect for fire realism
-    let flicker = sin(time * 18.0) * 0.04 + sin(time * 31.0) * 0.03 + sin(time * 47.0) * 0.02;
-    let flicker_intensity = 1.0 + flicker;
-
-    // Apply emissive multiplier for HDR bloom
-    let emissive_color = fire_color * emissive * final_intensity * flicker_intensity;
-
-    // Alpha based on intensity and edge falloff
-    // Creates soft, billowing edges
-    let edge_softness = smoothstep(1.0, 0.7, dist_from_center);
-    let noise_alpha = noise_contribution * 0.3 + 0.7;
-    let alpha = final_intensity * edge_softness * noise_alpha;
-
-    return vec4<f32>(emissive_color, alpha);
+    return vec4<f32>(final_color, 1.0);
 }

@@ -10,24 +10,21 @@
 #import bevy_pbr::{
     mesh_functions,
     view_transformations::position_world_to_clip,
+    mesh_view_bindings::globals,
 }
 
 // ============================================================================
-// Uniforms
+// Material Data - Uniform buffer (matches Rust #[uniform(0)])
 // ============================================================================
 
 struct FireballSparksMaterial {
-    // Current time for animation (packed in x component)
     time: vec4<f32>,
-    // Velocity direction for motion blur (xyz = direction, w = speed magnitude)
     velocity: vec4<f32>,
-    // Spark lifetime progress 0.0 (new) to 1.0 (dying) (packed in x component)
     lifetime_progress: vec4<f32>,
-    // Emissive intensity for HDR bloom (packed in x component)
     emissive_intensity: vec4<f32>,
 }
 
-@group(2) @binding(0)
+@group(3) @binding(0)
 var<uniform> material: FireballSparksMaterial;
 
 // ============================================================================
@@ -60,17 +57,18 @@ const TAU: f32 = 6.28318530718;
 // Noise Functions
 // ============================================================================
 
-// Hash function for pseudo-random values
+// Hash function for 2D input - improved version
 fn hash12(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
-    p3 = p3 + dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
+    let p3 = fract(p.xyx * vec3<f32>(443.897, 441.423, 437.195));
+    let p4 = dot(p3, p3.yzx + 19.19);
+    return fract(sin(p4) * 43758.5453);
 }
 
+// Hash function for 3D input - improved version
 fn hash13(p: vec3<f32>) -> f32 {
-    var p3 = fract(p * 0.1031);
-    p3 = p3 + dot(p3, p3.zyx + 31.32);
-    return fract((p3.x + p3.y) * p3.z);
+    let p2 = fract(p * vec3<f32>(443.897, 441.423, 437.195));
+    let p3 = dot(p2, p2.zyx + 19.19);
+    return fract(sin(p3) * 43758.5453);
 }
 
 // 2D gradient noise
@@ -178,68 +176,45 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let time = material.time.x;
-    let velocity_dir = normalize(material.velocity.xyz);
-    let speed = material.velocity.w;
-    let lifetime = material.lifetime_progress.x;
+    let t = globals.time;
+    // Use material uniforms for lifetime and emissive
+    let lifetime = material.lifetime_progress.x;  // 0.0 = new spark, 1.0 = expired
     let emissive = material.emissive_intensity.x;
 
-    // Center UV for radial calculations
-    let centered_uv = in.uv - vec2<f32>(0.5, 0.5);
+    let pos = in.local_position;
 
-    // Create motion blur streak based on velocity
-    // Project UV onto velocity direction for elongation
-    let velocity_2d = normalize(vec2<f32>(velocity_dir.x, velocity_dir.z));
-    let along_velocity = dot(centered_uv, velocity_2d);
-    let perp_velocity = length(centered_uv - velocity_2d * along_velocity);
+    // Distance from center for spark shape
+    let dist = length(pos.xz);
 
-    // Streak factor based on speed - faster sparks appear more elongated
-    let streak_amount = clamp(speed * 0.3, 0.0, 2.0);
-    let streak_length = 1.0 + streak_amount;
-
-    // Create elongated spark shape (ellipse stretched along velocity)
-    let stretched_along = along_velocity / streak_length;
-    let radial_dist = sqrt(stretched_along * stretched_along + perp_velocity * perp_velocity);
-
-    // Core spark shape with sharp bright center
-    let core_radius = 0.15;
-    let halo_radius = 0.4;
-
-    // White-hot inner core
-    let core = 1.0 - smoothstep(0.0, core_radius, radial_dist);
+    // Core spark - bright center that shrinks as lifetime increases
+    let core_size = 0.2 * (1.0 - lifetime * 0.5);  // Core shrinks over time
+    let core = 1.0 - smoothstep(0.0, core_size, dist);
     let core_intensity = pow(core, 2.0);
 
-    // Orange halo around core
-    let halo = 1.0 - smoothstep(core_radius, halo_radius, radial_dist);
-    let halo_intensity = pow(halo, 1.5) * (1.0 - core_intensity);
+    // Halo around core - also diminishes with lifetime
+    let halo_size = 0.5 * (1.0 - lifetime * 0.3);
+    let halo = 1.0 - smoothstep(core_size * 0.5, halo_size, dist);
+    let halo_intensity = pow(halo, 1.5) * (1.0 - core_intensity * 0.5);
 
-    // Animated flicker for lifelike behavior
-    let flicker_freq = 25.0;
-    let flicker_seed = hash12(in.world_position.xz * 100.0);
-    let flicker = 0.8 + 0.2 * sin(time * flicker_freq + flicker_seed * TAU);
+    // Animated flicker - more erratic as spark dies
+    let flicker_seed = hash12(pos.xz * 50.0);
+    let flicker_speed = 25.0 + lifetime * 20.0;  // Faster flicker near death
+    let flicker = 0.7 + 0.3 * sin(t * flicker_speed + flicker_seed * TAU);
 
-    // Random brightness variation per spark
-    let brightness_var = 0.7 + 0.3 * hash13(in.world_position);
-
-    // Intensity decreases as spark ages (lifetime 0->1)
-    let age_falloff = pow(1.0 - lifetime, 0.5); // Quick at first, slows down
-
-    // Combine core and halo colors
-    let core_color = vec3<f32>(1.0, 1.0, 0.95); // White-hot
-    let halo_color = cooling_gradient(lifetime); // Cools with age
+    // Colors - core stays white-hot, halo cools with lifetime
+    let core_color = cooling_gradient(lifetime * 0.3);  // Core cools slowly
+    let halo_color = cooling_gradient(lifetime);  // Halo cools faster
 
     let combined_color = core_color * core_intensity + halo_color * halo_intensity;
 
-    // Apply all intensity modifiers
-    let total_intensity = (core_intensity + halo_intensity * 0.6) * flicker * brightness_var * age_falloff;
+    // Overall fade based on lifetime - spark dies out
+    // At lifetime=0, full intensity; at lifetime=1, faded completely
+    let lifetime_fade = 1.0 - pow(lifetime, 1.5);  // Gradual fade
+    let total_intensity = (core_intensity + halo_intensity * 0.5) * flicker * lifetime_fade;
 
-    // Final emissive color for HDR bloom
     let final_color = combined_color * emissive * total_intensity;
+    let alpha = (core_intensity + halo_intensity * 0.4) * lifetime_fade;
 
-    // Alpha: strong in center, fading at edges and with age
-    let alpha = (core_intensity + halo_intensity * 0.5) * age_falloff;
-
-    // Discard nearly transparent fragments for performance
     if alpha < 0.01 {
         discard;
     }

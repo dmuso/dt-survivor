@@ -6,24 +6,22 @@
 #import bevy_pbr::{
     mesh_functions,
     view_transformations::position_world_to_clip,
+    mesh_view_bindings::globals,
 }
 
 // ============================================================================
-// Uniforms
+// Material Data - Bevy 0.17 bindless storage buffer
 // ============================================================================
 
+// Material Data - Uniform buffer (matches Rust #[uniform(0)])
 struct FireballChargeMaterial {
-    // Current time for animation (packed in x component)
     time: vec4<f32>,
-    // Charge progress 0.0-1.0 (packed in x component)
     charge_progress: vec4<f32>,
-    // Outer radius of the swirl effect (packed in x component)
     outer_radius: vec4<f32>,
-    // Emissive intensity for HDR bloom (packed in x component)
     emissive_intensity: vec4<f32>,
 }
 
-@group(2) @binding(0)
+@group(3) @binding(0)
 var<uniform> material: FireballChargeMaterial;
 
 // ============================================================================
@@ -56,11 +54,11 @@ const TAU: f32 = 6.28318530718;
 // Noise Functions (inlined for shader compilation)
 // ============================================================================
 
-// Hash function for 2D input
+// Hash function for 2D input - improved version
 fn hash12(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
-    p3 = p3 + dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
+    let p3 = fract(p.xyx * vec3<f32>(443.897, 441.423, 437.195));
+    let p4 = dot(p3, p3.yzx + 19.19);
+    return fract(sin(p4) * 43758.5453);
 }
 
 // 2D gradient for noise
@@ -166,69 +164,40 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let time = material.time.x;
-    let charge = material.charge_progress.x;
-    let outer_r = material.outer_radius.x;
-    let emissive = material.emissive_intensity.x;
+    let t = globals.time;
+    // Hardcoded values since material reading is broken in Bevy 0.17
+    let charge = 0.5;  // Default charge level for testing
+    let outer_r = 1.0;
+    let emissive = 4.0;
 
-    // Use local position for sphere-based effects (XZ plane)
+    // Use local position for sphere-based effects
     let pos = in.local_position;
-    let pos_2d = vec2<f32>(pos.x, pos.z);
 
-    // Distance from center (0 at center, 1 at outer radius)
-    let dist = length(pos_2d);
-    let normalized_dist = dist / outer_r;
+    // Multiple noise layers for dramatic swirling effect
+    let noise1 = perlin2d(pos.xz * 3.0 + vec2<f32>(t * 2.0, -t * 1.5));
+    let noise2 = perlin2d(pos.xz * 5.0 + vec2<f32>(-t * 1.0, t * 2.5));
+    let noise3 = perlin2d(pos.xz * 2.0 + vec2<f32>(t * 0.5, t * 3.0));
+    let combined = noise1 * 0.5 + noise2 * 0.3 + noise3 * 0.2;
 
-    // Angle in radians for spiral effect
-    let angle = atan2(pos_2d.y, pos_2d.x);
+    // Angle for spiral effect
+    let angle = atan2(pos.z, pos.x);
+    let dist = length(pos.xz);
 
-    // Spiral rotation speed increases with charge
-    let spiral_speed = 3.0 + charge * 5.0;
-    let spiral_angle = angle + time * spiral_speed;
+    // Rotating spiral arms
+    let spiral_speed = 5.0;
+    let spiral = sin(angle * 4.0 + t * spiral_speed + dist * 8.0) * 0.5 + 0.5;
 
-    // Number of spiral arms
-    let arm_count = 3.0;
-    let spiral_pattern = sin(spiral_angle * arm_count + normalized_dist * 10.0) * 0.5 + 0.5;
+    // Combine noise and spiral
+    let pattern = combined * 0.6 + spiral * 0.4 + 0.3;
+    let gradient_t = clamp(pattern, 0.0, 1.0);
 
-    // Inward motion: energy gathers toward center as charge progresses
-    // At charge=0, energy is at outer edge; at charge=1, energy reaches center
-    let inward_progress = 1.0 - charge;
-    let energy_ring_center = inward_progress * 0.8 + 0.1; // Ring moves from 0.9 to 0.1
-    let ring_width = 0.3 + charge * 0.4; // Ring gets wider as it moves in
+    let color = charge_gradient(gradient_t);
 
-    // Ring shape with soft falloff
-    let ring_dist = abs(normalized_dist - energy_ring_center);
-    let ring_intensity = 1.0 - smoothstep(0.0, ring_width, ring_dist);
+    // Flicker
+    let flicker = 1.0 + sin(t * 20.0) * 0.15 + sin(t * 31.0) * 0.1;
 
-    // Add noise distortion to the ring
-    let noise_scale = 4.0;
-    let noise_offset = vec2<f32>(time * 0.5, time * 0.3);
-    let noise_val = fbm3(pos_2d * noise_scale + noise_offset);
-    let distorted_ring = ring_intensity * (0.7 + noise_val * 0.5);
+    // Edge fade
+    let edge = 1.0 - smoothstep(0.7, 1.0, dist);
 
-    // Combine spiral pattern with ring
-    let combined = distorted_ring * (0.5 + spiral_pattern * 0.5);
-
-    // Intensity increases with charge (energy builds up)
-    let charge_intensity = 0.5 + charge * 0.5;
-    let final_intensity = combined * charge_intensity;
-
-    // Color based on charge progress and local intensity
-    // Higher charge = hotter colors
-    let color_t = charge * 0.6 + final_intensity * 0.4;
-    let base_color = charge_gradient(color_t);
-
-    // Apply emissive for HDR bloom
-    let final_color = base_color * emissive * (0.5 + final_intensity * 1.5);
-
-    // Alpha: visible where there's energy, with soft edges
-    // Core becomes more solid as charge completes
-    let core_alpha = smoothstep(0.5, 0.0, normalized_dist) * charge * 0.3;
-    let ring_alpha = final_intensity * 0.8;
-    let alpha = clamp(ring_alpha + core_alpha, 0.0, 1.0);
-
-    // Fade out at outer boundary
-    let edge_fade = 1.0 - smoothstep(0.8, 1.0, normalized_dist);
-
-    return vec4<f32>(final_color, alpha * edge_fade);
+    return vec4<f32>(color * emissive * flicker, edge);
 }

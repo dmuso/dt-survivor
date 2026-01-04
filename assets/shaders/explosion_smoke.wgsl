@@ -10,24 +10,21 @@
 #import bevy_pbr::{
     mesh_functions,
     view_transformations::position_world_to_clip,
+    mesh_view_bindings::globals,
 }
 
 // ============================================================================
-// Uniforms
+// Material Data - Uniform buffer (matches Rust #[uniform(0)])
 // ============================================================================
 
 struct ExplosionSmokeMaterial {
-    // Current time for animation (packed in x component)
     time: vec4<f32>,
-    // Lifetime progress 0.0 (start) to 1.0 (end), packed in x
     progress: vec4<f32>,
-    // Emissive intensity for subtle glow (packed in x component)
     emissive_intensity: vec4<f32>,
-    // Noise scale for turbulence detail (packed in x component)
     noise_scale: vec4<f32>,
 }
 
-@group(2) @binding(0)
+@group(3) @binding(0)
 var<uniform> material: ExplosionSmokeMaterial;
 
 // ============================================================================
@@ -60,11 +57,11 @@ const TAU: f32 = 6.28318530718;
 // Noise Functions (inlined for shader compilation)
 // ============================================================================
 
-// Hash function for 3D input
+// Hash function for 3D input - improved version
 fn hash13(p: vec3<f32>) -> f32 {
-    var p3 = fract(p * 0.1031);
-    p3 = p3 + dot(p3, p3.zyx + 31.32);
-    return fract((p3.x + p3.y) * p3.z);
+    let p2 = fract(p * vec3<f32>(443.897, 441.423, 437.195));
+    let p3 = dot(p2, p2.zyx + 19.19);
+    return fract(sin(p3) * 43758.5453);
 }
 
 // 3D gradient function
@@ -200,7 +197,7 @@ fn smoke_color_gradient(t: f32, progress: f32) -> vec3<f32> {
 }
 
 // ============================================================================
-// Vertex Shader
+// Vertex Shader - Simple pass-through (displacement in fragment for stability)
 // ============================================================================
 
 @vertex
@@ -225,96 +222,42 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let time = material.time.x;
-    let progress = material.progress.x;
-    let emissive = material.emissive_intensity.x;
-    let noise_scale = material.noise_scale.x;
+    let t = globals.time;
+    let prog = material.progress.x;
 
-    // Progress phases for the 1.2s smoke duration:
-    // 0.0 - 0.15: Fade in (smoke appears as fire fades)
-    // 0.15 - 0.7: Rise and expand (main smoke phase)
-    // 0.7 - 1.0: Dissipate and fade out
-
-    // Calculate base intensity based on progress
-    var intensity: f32;
-    if progress < 0.15 {
-        // Fade in - smoke appears gradually
-        intensity = smoothstep(0.0, 0.15, progress);
-    } else if progress < 0.7 {
-        // Sustained with subtle variation
-        let variance = sin(progress * 8.0) * 0.05;
-        intensity = 0.85 + variance;
-    } else {
-        // Fade out - dissipate into air
-        let fade_progress = (progress - 0.7) / 0.3;
-        intensity = 0.85 * (1.0 - fade_progress * fade_progress);
-    }
-
-    // Use local position for sphere-based effects
     let pos = in.local_position;
+    let anim = t * 1.5;
 
-    // Distance from center
-    let dist_from_center = length(pos);
+    // Billowing smoke noise at multiple scales
+    let noise1 = perlin3d(pos * 2.5 + vec3<f32>(0.0, -anim * 0.4, 0.0));
+    let noise2 = perlin3d(pos * 4.0 + vec3<f32>(anim * 0.1, -anim * 0.6, 0.0));
+    let combined_noise = noise1 * 0.6 + noise2 * 0.4;
 
-    // Rising smoke effect - strong upward motion
-    // Smoke rises faster as it heats up, slows as it cools
-    let rise_speed = mix(2.5, 1.0, progress); // Faster early, slower late
-    let heat_rise = vec3<f32>(0.0, time * rise_speed, 0.0);
+    // Distance from center for density falloff
+    // Note: explosion mesh has radius 1.0
+    let dist = length(pos);
 
-    // Animated noise position with rising and turbulent motion
-    let noise_pos = pos * noise_scale + heat_rise + vec3<f32>(
-        sin(time * 0.3) * 0.5,
-        0.0,
-        cos(time * 0.4) * 0.5
+    // Smoke color - brighter gray with warm undertone early
+    let warmth = (1.0 - prog) * 0.15;
+    let base_gray = 0.55 - prog * 0.1;  // Brighter base color
+    let color = vec3<f32>(
+        base_gray + warmth + combined_noise * 0.08,
+        base_gray + warmth * 0.4 + combined_noise * 0.06,
+        base_gray + combined_noise * 0.05
     );
 
-    // Layer multiple noise for volumetric billowing smoke
-    let noise1 = fbm4(noise_pos);
-    let noise2 = turbulence4(noise_pos * 1.3 + vec3<f32>(0.0, time * 0.8, 0.0));
-    let noise3 = fbm4(noise_pos * 0.7 - vec3<f32>(time * 0.15, 0.0, time * 0.1));
+    // Soft sphere edge with noise for billowy appearance
+    // Mesh radius is 1.0, so use appropriate thresholds
+    let edge_noise = combined_noise * 0.25;
+    let edge = 1.0 - smoothstep(0.3, 1.05 + edge_noise, dist);
 
-    // Combine noise layers - more turbulence than fire
-    let combined_noise = noise1 * 0.35 + noise2 * 0.45 + noise3 * 0.2;
+    // Fade with progress - slower fade
+    let fade = 1.0 - prog * 0.35;
 
-    // Smoke density based on position and noise
-    // Center is denser, edges have noise-driven billowing
-    let radial_falloff = 1.0 - pow(dist_from_center, 1.1);
-    let noise_contribution = combined_noise * 0.5 + 0.5; // Remap to 0-1
+    // Final alpha - high for good visibility
+    let alpha = edge * fade * 0.85;
 
-    // Create billowing, turbulent edge effect for smoke
-    let edge_turbulence = noise_contribution * (1.0 - radial_falloff * 0.3);
-    let smoke_density = clamp(radial_falloff * 0.8 + edge_turbulence * 0.4, 0.0, 1.0);
+    if alpha < 0.02 { discard; }
 
-    // Color based on smoke density and progress
-    // Denser = darker core, Sparser = lighter edges
-    let color_t = 1.0 - smoke_density + combined_noise * 0.25;
-    let smoke_color = smoke_color_gradient(color_t, progress);
-
-    // Apply overall intensity animation
-    let final_intensity = intensity * smoke_density;
-
-    // Subtle flicker for organic motion (less than fire)
-    let flicker = sin(time * 6.0) * 0.02 + sin(time * 11.0) * 0.015;
-    let flicker_intensity = 1.0 + flicker;
-
-    // Apply emissive multiplier (subtle for smoke, mainly for ember glow)
-    let ember_glow_factor = (1.0 - progress) * 0.5; // More glow early on
-    let final_emissive = emissive * (0.5 + ember_glow_factor);
-    let emissive_color = smoke_color * final_emissive * final_intensity * flicker_intensity;
-
-    // Alpha based on density and edge softness
-    // Smoke is semi-transparent with soft billowing edges
-    let edge_softness = smoothstep(1.0, 0.6, dist_from_center);
-    let noise_alpha = noise_contribution * 0.35 + 0.65;
-    let base_alpha = final_intensity * edge_softness * noise_alpha;
-
-    // Smoke alpha should be lower than fire - semi-transparent
-    let alpha = base_alpha * 0.7;
-
-    // Discard nearly transparent fragments for performance
-    if alpha < 0.02 {
-        discard;
-    }
-
-    return vec4<f32>(emissive_color, alpha);
+    return vec4<f32>(color, alpha);
 }
