@@ -22,6 +22,7 @@ pub fn plugin(app: &mut App) {
         .init_resource::<DebugHudVisible>()
         .init_resource::<SelectedBagSlot>()
         .init_resource::<DragState>()
+        .init_resource::<SpellCooldownsVisible>()
         .add_systems(Startup, configure_gizmos)
         .add_systems(OnEnter(GameState::Intro), setup_intro)
         .add_systems(Update, button_interactions.run_if(in_state(GameState::Intro)))

@@ -297,8 +297,8 @@ pub fn execute_echo_spells_system(
                         None,
                         None,
                         game_meshes.as_deref(),
-                        game_materials.as_deref(),
                         None, // No particle effects for echoed spell
+                        None, // No core shader for echoed spell
                         None, // No charge shader for echoed spell
                         None, // No trail shader for echoed spell
                     );

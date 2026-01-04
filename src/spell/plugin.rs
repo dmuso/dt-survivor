@@ -8,11 +8,19 @@ use crate::spell::systems::*;
 use crate::spells::fire::fireball::{
     burn_damage_system, fireball_collision_detection, fireball_collision_effects,
     fireball_lifetime_system, fireball_movement_system,
-    fireball_charge_update_system, fireball_charge_to_flight_system,
+    fireball_add_core_material_system, fireball_charge_update_system, fireball_charge_to_flight_system,
+    fireball_core_effect_update_system,
     fireball_charge_effect_update_system, fireball_trail_effect_update_system,
     fireball_explosion_spawn_system, fireball_explosion_cleanup_system,
     fireball_ground_collision_system,
     explosion_core_effect_update_system, explosion_fire_effect_update_system,
+    explosion_embers_effect_update_system, explosion_smoke_effect_update_system,
+};
+use crate::spells::fire::materials::{
+    update_fireball_core_material_time, update_fireball_charge_material_time,
+    update_fireball_trail_material_time, update_explosion_core_material_time,
+    update_explosion_fire_material_time, update_explosion_embers_material_time,
+    update_explosion_smoke_material_time,
 };
 use crate::spells::light::radiance::{
     radiance_pulse_system, radiance_pulse_visual_system,
@@ -265,14 +273,16 @@ pub fn plugin(app: &mut App) {
             PostUpdate,
             spell_casting_system.run_if(in_state(GameState::InGame)),
         )
-        // Fireball charge phase systems (update scale, shader effect, transition to flight)
+        // Fireball charge phase systems (add material, update scale, shader effect, transition to flight)
         .add_systems(
             Update,
             (
+                fireball_add_core_material_system,
                 fireball_charge_update_system,
                 fireball_charge_effect_update_system,
                 fireball_charge_to_flight_system,
                 fireball_trail_effect_update_system,
+                fireball_core_effect_update_system,
             )
                 .chain()
                 .in_set(GameSet::Movement)
@@ -314,12 +324,29 @@ pub fn plugin(app: &mut App) {
                 .in_set(GameSet::Combat)
                 .run_if(in_state(GameState::InGame)),
         )
+        // Shader material time updates (must run before effect updates to animate shaders)
+        .add_systems(
+            Update,
+            (
+                update_fireball_core_material_time,
+                update_fireball_charge_material_time,
+                update_fireball_trail_material_time,
+                update_explosion_core_material_time,
+                update_explosion_fire_material_time,
+                update_explosion_embers_material_time,
+                update_explosion_smoke_material_time,
+            )
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
         // Explosion shader effect updates (progress animation)
         .add_systems(
             Update,
             (
                 explosion_core_effect_update_system,
                 explosion_fire_effect_update_system,
+                explosion_embers_effect_update_system,
+                explosion_smoke_effect_update_system,
             )
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),

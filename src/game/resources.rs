@@ -194,10 +194,12 @@ impl GameMeshes {
             player: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
             enemy: meshes.add(Cuboid::new(0.75, 1.5, 0.75)),
             bullet: meshes.add(Cuboid::new(0.3, 0.3, 0.3)),
-            fireball: meshes.add(Sphere::new(0.3)),
+            // High-poly sphere for vertex displacement in fire shader
+            fireball: meshes.add(Sphere::new(0.3).mesh().ico(5).unwrap()),
             laser: meshes.add(Cuboid::new(0.1, 0.1, 1.0)),
             rocket: meshes.add(Cuboid::new(0.25, 0.25, 0.6)),
-            explosion: meshes.add(Sphere::new(1.0)),
+            // High-poly sphere for vertex displacement in explosion shaders
+            explosion: meshes.add(Sphere::new(1.0).mesh().ico(5).unwrap()),
             target_marker: meshes.add(Cuboid::new(0.3, 0.05, 0.3)),
             loot_small: meshes.add(Cuboid::new(0.4, 0.4, 0.4)),
             loot_medium: meshes.add(Cuboid::new(0.5, 0.5, 0.5)),

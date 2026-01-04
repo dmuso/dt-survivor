@@ -2324,8 +2324,8 @@ pub fn spell_casting_system(
                     weapon_channel.as_mut(),
                     sound_limiter.as_mut(),
                     game_meshes.as_deref(),
-                    game_materials.as_deref(),
                     fireball_effects.as_deref(),
+                    None, // Core materials added by separate system
                     fireball_charge_materials.as_deref_mut(),
                     None, // Trail materials handled by charge_to_flight system
                 );
