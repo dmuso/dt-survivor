@@ -780,7 +780,7 @@ pub fn fireball_charge_to_flight_system(
                     parent.spawn((
                         Mesh3d(meshes.fireball.clone()),
                         MeshMaterial3d(trail_handle.clone()),
-                        Transform::from_scale(Vec3::splat(2.0)), // Larger than fireball
+                        Transform::default(), // Same scale as core; length from shader
                         FireballTrailEffect { material_handle: trail_handle },
                     ));
                 });

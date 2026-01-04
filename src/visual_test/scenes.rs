@@ -92,8 +92,8 @@ impl TestScene {
             | TestScene::ExplosionEmbersTest
             | TestScene::ExplosionSmokeTest
             | TestScene::ExplosionSequence => Vec3::new(0.0, 5.0, 8.0),
-            // Default overhead-ish view for trail tests
-            _ => Vec3::new(0.0, 8.0, 12.0),
+            // Zoomed out view to see full fireball trail
+            _ => Vec3::new(0.0, 15.0, 25.0),
         }
     }
 
@@ -269,7 +269,7 @@ fn spawn_test_fireball(
         parent.spawn((
             Mesh3d(meshes.fireball.clone()),
             MeshMaterial3d(trail_handle.clone()),
-            Transform::from_scale(Vec3::splat(2.0)),
+            Transform::default(),  // Scale 1.0 to match core; length comes from shader stretch
             FireballTrailEffect { material_handle: trail_handle },
         ));
     });
