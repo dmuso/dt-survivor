@@ -65,7 +65,8 @@ impl Default for FireballCoreMaterial {
             time: Vec4::ZERO,
             animation_speed: Vec4::new(1.0, 0.0, 0.0, 0.0),
             noise_scale: Vec4::new(4.0, 0.0, 0.0, 0.0),
-            emissive_intensity: Vec4::new(3.0, 0.0, 0.0, 0.0),
+            // VERY bright core - shader multiplies this further
+            emissive_intensity: Vec4::new(10.0, 0.0, 0.0, 0.0),
             // Default: flames trail upward (as if moving down)
             velocity_dir: Vec4::new(0.0, -1.0, 0.0, 0.0),
         }
@@ -116,7 +117,8 @@ impl Material for FireballCoreMaterial {
     }
 
     fn alpha_mode(&self) -> AlphaMode {
-        AlphaMode::Blend
+        // Use additive blending so core glows through the trail
+        AlphaMode::Add
     }
 }
 
@@ -332,6 +334,7 @@ impl Material for FireballTrailMaterial {
     }
 
     fn alpha_mode(&self) -> AlphaMode {
+        // Use Add to avoid alpha blending artifacts
         AlphaMode::Add
     }
 }
@@ -900,7 +903,7 @@ mod tests {
             assert_eq!(material.time.x, 0.0);
             assert_eq!(material.animation_speed.x, 1.0);
             assert_eq!(material.noise_scale.x, 4.0);
-            assert_eq!(material.emissive_intensity.x, 3.0);
+            assert_eq!(material.emissive_intensity.x, 10.0);
             assert_eq!(material.velocity_dir.x, 0.0);
             assert_eq!(material.velocity_dir.y, -1.0);
             assert_eq!(material.velocity_dir.z, 0.0);
@@ -971,9 +974,9 @@ mod tests {
         }
 
         #[test]
-        fn alpha_mode_is_blend() {
+        fn alpha_mode_is_add() {
             let material = FireballCoreMaterial::new();
-            assert_eq!(material.alpha_mode(), AlphaMode::Blend);
+            assert_eq!(material.alpha_mode(), AlphaMode::Add);
         }
 
         #[test]
