@@ -24,6 +24,11 @@ pub const BURN_DAMAGE_RATIO: f32 = 0.25; // 25% of direct damage per tick
 /// Ground level for collision detection
 pub const GROUND_LEVEL: f32 = 0.0;
 
+/// Maximum trail length in shader units (before 4.0x multiplier in shader)
+pub const FIREBALL_MAX_TRAIL_LENGTH: f32 = 1.5;
+/// Trail grows to max length over this distance traveled (in world units)
+pub const FIREBALL_TRAIL_GROW_DISTANCE: f32 = 6.0;
+
 /// Marker component for fireball projectiles
 #[derive(Component, Debug, Clone)]
 pub struct FireballProjectile {
@@ -37,10 +42,25 @@ pub struct FireballProjectile {
     pub damage: f32,
     /// Burn damage per tick when applied
     pub burn_tick_damage: f32,
+    /// Position where the fireball transitioned to flight phase
+    pub spawn_position: Vec3,
 }
 
 impl FireballProjectile {
+    /// Create a new fireball projectile with default spawn position at origin.
     pub fn new(direction: Vec3, speed: f32, lifetime_secs: f32, damage: f32) -> Self {
+        Self::new_with_spawn(direction, speed, lifetime_secs, damage, Vec3::ZERO)
+    }
+
+    /// Create a new fireball projectile with explicit spawn position.
+    /// The spawn position is used to calculate travel distance for trail growth.
+    pub fn new_with_spawn(
+        direction: Vec3,
+        speed: f32,
+        lifetime_secs: f32,
+        damage: f32,
+        spawn_position: Vec3,
+    ) -> Self {
         let burn_tick_damage = damage * BURN_DAMAGE_RATIO;
         Self {
             direction: direction.normalize(),
@@ -48,11 +68,17 @@ impl FireballProjectile {
             lifetime: Timer::from_seconds(lifetime_secs, TimerMode::Once),
             damage,
             burn_tick_damage,
+            spawn_position,
         }
     }
 
     pub fn from_spell(direction: Vec3, spell: &Spell) -> Self {
         Self::new(direction, FIREBALL_SPEED, FIREBALL_LIFETIME, spell.damage())
+    }
+
+    /// Calculate how far the fireball has traveled from its spawn position.
+    pub fn travel_distance(&self, current_position: Vec3) -> f32 {
+        current_position.distance(self.spawn_position)
     }
 }
 
@@ -684,9 +710,10 @@ pub fn fireball_charge_effect_update_system(
     }
 }
 
-/// System that updates trail effect shader materials with current velocity direction
+/// System that updates trail effect shader materials with velocity direction and trail length.
+/// Trail length grows dynamically based on how far the fireball has traveled from spawn.
 pub fn fireball_trail_effect_update_system(
-    parent_query: Query<&FireballProjectile>,
+    parent_query: Query<(&Transform, &FireballProjectile)>,
     child_query: Query<(&ChildOf, &FireballTrailEffect)>,
     mut materials: Option<ResMut<Assets<super::materials::FireballTrailMaterial>>>,
 ) {
@@ -695,11 +722,17 @@ pub fn fireball_trail_effect_update_system(
     };
 
     for (child_of, trail_effect) in child_query.iter() {
-        // Get the parent's velocity direction
-        if let Ok(fireball) = parent_query.get(child_of.parent()) {
-            // Update the material's velocity direction
+        // Get the parent's transform and fireball data
+        if let Ok((transform, fireball)) = parent_query.get(child_of.parent()) {
             if let Some(material) = materials.get_mut(&trail_effect.material_handle) {
+                // Update velocity direction
                 material.set_velocity_direction(fireball.direction);
+
+                // Update trail length based on travel distance
+                let travel_distance = fireball.travel_distance(transform.translation);
+                let trail_progress = (travel_distance / FIREBALL_TRAIL_GROW_DISTANCE).clamp(0.0, 1.0);
+                let trail_length = trail_progress * FIREBALL_MAX_TRAIL_LENGTH;
+                material.set_trail_length(trail_length);
             }
         }
     }
@@ -741,7 +774,7 @@ pub fn fireball_charge_to_flight_system(
     game_meshes: Option<Res<GameMeshes>>,
     mut trail_materials: Option<ResMut<Assets<super::materials::FireballTrailMaterial>>>,
 ) {
-    for (entity, charging, _transform, children) in query.iter() {
+    for (entity, charging, transform, children) in query.iter() {
         if charging.is_finished() {
             // Remove charge particles and charge effect shader
             if let Some(children) = children {
@@ -756,12 +789,14 @@ pub fn fireball_charge_to_flight_system(
             }
 
             // Create FireballProjectile from ChargingFireball
+            // Store the current position as spawn_position for trail length calculation
             let fireball = FireballProjectile {
                 direction: charging.target_direction,
                 speed: FIREBALL_SPEED,
                 lifetime: Timer::from_seconds(FIREBALL_LIFETIME, TimerMode::Once),
                 damage: charging.damage,
                 burn_tick_damage: charging.burn_tick_damage,
+                spawn_position: transform.translation,
             };
 
             // Update the entity: remove ChargingFireball, add FireballProjectile
@@ -770,10 +805,11 @@ pub fn fireball_charge_to_flight_system(
                 .insert(fireball);
 
             // Add shader-based trail effect (comet tail)
+            // Trail starts at zero length and grows as fireball travels
             if let (Some(meshes), Some(ref mut trail_mats)) = (&game_meshes, &mut trail_materials) {
                 let mut trail_material = super::materials::FireballTrailMaterial::new();
                 trail_material.set_velocity_direction(charging.target_direction);
-                trail_material.set_trail_length(1.5);
+                trail_material.set_trail_length(0.0); // Start at zero; grows via update system
                 let trail_handle = trail_mats.add(trail_material);
 
                 commands.entity(entity).with_children(|parent| {
@@ -1111,6 +1147,40 @@ mod tests {
             let color = fireball_color();
             assert_eq!(color, Element::Fire.color());
             assert_eq!(color, Color::srgb_u8(255, 128, 0));
+        }
+
+        #[test]
+        fn test_fireball_projectile_tracks_spawn_position() {
+            let spawn_pos = Vec3::new(5.0, 2.0, 3.0);
+            let fireball = FireballProjectile::new_with_spawn(
+                Vec3::X, 20.0, 5.0, 15.0, spawn_pos
+            );
+            assert_eq!(fireball.spawn_position, spawn_pos);
+        }
+
+        #[test]
+        fn test_fireball_travel_distance_calculation() {
+            let spawn_pos = Vec3::new(0.0, 1.0, 0.0);
+            let current_pos = Vec3::new(3.0, 1.0, 4.0);  // 5.0 units away
+            let fireball = FireballProjectile::new_with_spawn(
+                Vec3::X, 20.0, 5.0, 15.0, spawn_pos
+            );
+            assert!((fireball.travel_distance(current_pos) - 5.0).abs() < 0.001);
+        }
+
+        #[test]
+        fn test_fireball_travel_distance_is_zero_at_spawn() {
+            let spawn_pos = Vec3::new(3.0, 2.0, 1.0);
+            let fireball = FireballProjectile::new_with_spawn(
+                Vec3::X, 20.0, 5.0, 15.0, spawn_pos
+            );
+            assert!((fireball.travel_distance(spawn_pos) - 0.0).abs() < 0.001);
+        }
+
+        #[test]
+        fn test_fireball_new_defaults_spawn_position_to_zero() {
+            let fireball = FireballProjectile::new(Vec3::X, 20.0, 5.0, 15.0);
+            assert_eq!(fireball.spawn_position, Vec3::ZERO);
         }
     }
 
