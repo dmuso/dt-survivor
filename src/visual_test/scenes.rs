@@ -26,6 +26,18 @@ pub enum TestScene {
     /// Animated trail noise deformation - captures 5 frames
     TrailNoiseAnimation,
 
+    // === Trail Growth Tests (transition continuity) ===
+    /// Fireball at spawn - trail should be zero/minimal length
+    TrailGrowthSpawn,
+    /// Fireball at 25% travel distance - trail ~25% max length
+    TrailGrowthQuarter,
+    /// Fireball at 50% travel distance - trail ~50% max length
+    TrailGrowthHalf,
+    /// Fireball at full travel distance - trail at max length
+    TrailGrowthFull,
+    /// Multi-frame trail growth animation - captures 6 frames showing growth
+    TrailGrowthSequence,
+
     // === Explosion Shader Tests ===
     /// Explosion core (white-hot flash) at different progress stages
     ExplosionCoreTest,
@@ -54,6 +66,12 @@ impl TestScene {
             TestScene::FireballTrailSouth,
             // Trail animation test
             TestScene::TrailNoiseAnimation,
+            // Trail growth tests (transition continuity)
+            TestScene::TrailGrowthSpawn,
+            TestScene::TrailGrowthQuarter,
+            TestScene::TrailGrowthHalf,
+            TestScene::TrailGrowthFull,
+            TestScene::TrailGrowthSequence,
             // Explosion component tests
             TestScene::ExplosionCoreTest,
             TestScene::ExplosionFireTest,
@@ -73,6 +91,11 @@ impl TestScene {
             TestScene::FireballTrailNorth => "fireball-trail-north",
             TestScene::FireballTrailSouth => "fireball-trail-south",
             TestScene::TrailNoiseAnimation => "trail-noise-animation",
+            TestScene::TrailGrowthSpawn => "trail-growth-spawn",
+            TestScene::TrailGrowthQuarter => "trail-growth-quarter",
+            TestScene::TrailGrowthHalf => "trail-growth-half",
+            TestScene::TrailGrowthFull => "trail-growth-full",
+            TestScene::TrailGrowthSequence => "trail-growth-sequence",
             TestScene::ExplosionCoreTest => "explosion-core",
             TestScene::ExplosionFireTest => "explosion-fire",
             TestScene::ExplosionSparksTest => "explosion-sparks",
@@ -92,6 +115,12 @@ impl TestScene {
             | TestScene::ExplosionEmbersTest
             | TestScene::ExplosionSmokeTest
             | TestScene::ExplosionSequence => Vec3::new(0.0, 5.0, 8.0),
+            // Medium camera for trail growth tests to see trail clearly
+            TestScene::TrailGrowthSpawn
+            | TestScene::TrailGrowthQuarter
+            | TestScene::TrailGrowthHalf
+            | TestScene::TrailGrowthFull
+            | TestScene::TrailGrowthSequence => Vec3::new(0.0, 8.0, 12.0),
             // Zoomed out view to see full fireball trail
             _ => Vec3::new(0.0, 15.0, 25.0),
         }
@@ -116,6 +145,7 @@ impl TestScene {
     pub fn total_frames(&self) -> u32 {
         match self {
             TestScene::TrailNoiseAnimation => 5,
+            TestScene::TrailGrowthSequence => 6,
             TestScene::ExplosionSequence => 8,
             _ => 1,
         }
@@ -125,6 +155,7 @@ impl TestScene {
     pub fn frames_between_captures(&self) -> u32 {
         match self {
             TestScene::TrailNoiseAnimation => 12,  // ~200ms at 60fps
+            TestScene::TrailGrowthSequence => 10,  // ~166ms at 60fps for smooth growth
             TestScene::ExplosionSequence => 8,     // ~133ms at 60fps
             _ => 0,
         }
@@ -138,6 +169,25 @@ impl TestScene {
             TestScene::FireballTrailNorth => Some((Vec3::new(0.0, 1.0, 3.0), Vec3::NEG_Z)),
             TestScene::FireballTrailSouth => Some((Vec3::new(0.0, 1.0, -3.0), Vec3::Z)),
             TestScene::TrailNoiseAnimation => Some((Vec3::new(-2.0, 1.0, 0.0), Vec3::X)),
+            _ => None,
+        }
+    }
+
+    /// Get trail growth test config: (position, direction, simulated_travel_distance)
+    /// The spawn_position is computed to make travel_distance work correctly.
+    fn trail_growth_config(&self) -> Option<(Vec3, Vec3, f32)> {
+        use crate::spells::fire::fireball::FIREBALL_TRAIL_GROW_DISTANCE;
+        match self {
+            // Spawn: 0 distance traveled
+            TestScene::TrailGrowthSpawn => Some((Vec3::new(0.0, 1.0, 0.0), Vec3::X, 0.0)),
+            // Quarter: 25% of max distance
+            TestScene::TrailGrowthQuarter => Some((Vec3::new(0.0, 1.0, 0.0), Vec3::X, FIREBALL_TRAIL_GROW_DISTANCE * 0.25)),
+            // Half: 50% of max distance
+            TestScene::TrailGrowthHalf => Some((Vec3::new(0.0, 1.0, 0.0), Vec3::X, FIREBALL_TRAIL_GROW_DISTANCE * 0.5)),
+            // Full: 100% of max distance
+            TestScene::TrailGrowthFull => Some((Vec3::new(0.0, 1.0, 0.0), Vec3::X, FIREBALL_TRAIL_GROW_DISTANCE)),
+            // Sequence: starts at 0 and animates (fireball moves during test)
+            TestScene::TrailGrowthSequence => Some((Vec3::new(-4.0, 1.0, 0.0), Vec3::X, 0.0)),
             _ => None,
         }
     }
@@ -171,6 +221,25 @@ impl TestScene {
                         commands,
                         position,
                         direction,
+                        meshes,
+                        core_materials,
+                        trail_materials,
+                    );
+                }
+            }
+
+            // Trail growth tests (transition continuity)
+            TestScene::TrailGrowthSpawn
+            | TestScene::TrailGrowthQuarter
+            | TestScene::TrailGrowthHalf
+            | TestScene::TrailGrowthFull
+            | TestScene::TrailGrowthSequence => {
+                if let Some((position, direction, travel_distance)) = self.trail_growth_config() {
+                    spawn_test_fireball_with_travel(
+                        commands,
+                        position,
+                        direction,
+                        travel_distance,
                         meshes,
                         core_materials,
                         trail_materials,
@@ -270,6 +339,64 @@ fn spawn_test_fireball(
             Mesh3d(meshes.fireball.clone()),
             MeshMaterial3d(trail_handle.clone()),
             Transform::default(),  // Scale 1.0 to match core; length comes from shader stretch
+            FireballTrailEffect { material_handle: trail_handle },
+        ));
+    });
+}
+
+/// Spawn a fireball with simulated travel distance for trail growth testing.
+/// The spawn_position is set behind the current position to simulate having traveled.
+#[allow(clippy::too_many_arguments)]
+fn spawn_test_fireball_with_travel(
+    commands: &mut Commands,
+    position: Vec3,
+    direction: Vec3,
+    travel_distance: f32,
+    meshes: &GameMeshes,
+    core_materials: &mut Assets<FireballCoreMaterial>,
+    trail_materials: &mut Assets<FireballTrailMaterial>,
+) {
+    use crate::spells::fire::fireball::{FIREBALL_MAX_TRAIL_LENGTH, FIREBALL_TRAIL_GROW_DISTANCE};
+
+    let direction = direction.normalize();
+
+    // Compute spawn_position behind current position to simulate having traveled
+    let spawn_position = position - direction * travel_distance;
+
+    // Create fireball projectile with explicit spawn position
+    let fireball = FireballProjectile::new_with_spawn(direction, 20.0, 10.0, 25.0, spawn_position);
+
+    // Calculate rotation to face travel direction
+    let rotation = Quat::from_rotation_arc(Vec3::NEG_Z, direction);
+
+    // Create core material with velocity direction
+    let mut core_material = FireballCoreMaterial::new();
+    core_material.set_velocity_direction(direction);
+    let core_handle = core_materials.add(core_material);
+
+    // Create trail material with velocity direction and computed trail length
+    let trail_progress = (travel_distance / FIREBALL_TRAIL_GROW_DISTANCE).clamp(0.0, 1.0);
+    let trail_length = trail_progress * FIREBALL_MAX_TRAIL_LENGTH;
+
+    let mut trail_material = FireballTrailMaterial::new();
+    trail_material.set_velocity_direction(direction);
+    trail_material.set_trail_length(trail_length);
+    let trail_handle = trail_materials.add(trail_material);
+
+    // Spawn the fireball entity with core effect
+    commands.spawn((
+        Mesh3d(meshes.fireball.clone()),
+        MeshMaterial3d(core_handle.clone()),
+        Transform::from_translation(position)
+            .with_rotation(rotation),
+        fireball,
+        FireballCoreEffect { material_handle: core_handle },
+    )).with_children(|parent| {
+        // Add trail effect as child
+        parent.spawn((
+            Mesh3d(meshes.fireball.clone()),
+            MeshMaterial3d(trail_handle.clone()),
+            Transform::default(),
             FireballTrailEffect { material_handle: trail_handle },
         ));
     });
@@ -485,6 +612,11 @@ impl FromStr for TestScene {
             "fireball-trail-north" => Ok(TestScene::FireballTrailNorth),
             "fireball-trail-south" => Ok(TestScene::FireballTrailSouth),
             "trail-noise-animation" => Ok(TestScene::TrailNoiseAnimation),
+            "trail-growth-spawn" => Ok(TestScene::TrailGrowthSpawn),
+            "trail-growth-quarter" => Ok(TestScene::TrailGrowthQuarter),
+            "trail-growth-half" => Ok(TestScene::TrailGrowthHalf),
+            "trail-growth-full" => Ok(TestScene::TrailGrowthFull),
+            "trail-growth-sequence" => Ok(TestScene::TrailGrowthSequence),
             "explosion-core" => Ok(TestScene::ExplosionCoreTest),
             "explosion-fire" => Ok(TestScene::ExplosionFireTest),
             "explosion-sparks" => Ok(TestScene::ExplosionSparksTest),
