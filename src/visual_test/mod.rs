@@ -10,10 +10,12 @@ pub use scenes::TestScene;
 
 use crate::game::resources::GameMeshes;
 use crate::game::systems::setup_game_assets;
+use crate::spells::fire::fireball::{smoke_puff_spawner_system, smoke_puff_effect_update_system};
 use crate::spells::fire::materials::{
     FireballCoreMaterial, FireballTrailMaterial,
     ExplosionCoreMaterial, ExplosionFireMaterial,
     FireballSparksMaterial, ExplosionEmbersMaterial, ExplosionSmokeMaterial,
+    update_explosion_smoke_material_time,
 };
 
 /// Resource to track screenshot state
@@ -36,6 +38,13 @@ pub fn plugin(app: &mut App) {
     // Run game asset setup first, then visual test scene setup
     app.add_systems(Startup, (setup_game_assets, setup_visual_test_scene).chain());
     app.add_systems(Update, take_screenshot_and_exit);
+
+    // Add smoke puff systems for testing multi-puff smoke effects
+    app.add_systems(Update, (
+        update_explosion_smoke_material_time,
+        smoke_puff_spawner_system,
+        smoke_puff_effect_update_system,
+    ).chain());
 }
 
 /// All material assets needed for visual tests

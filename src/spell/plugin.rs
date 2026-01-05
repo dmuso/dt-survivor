@@ -15,6 +15,7 @@ use crate::spells::fire::fireball::{
     fireball_ground_collision_system,
     explosion_core_effect_update_system, explosion_fire_effect_update_system,
     explosion_embers_effect_update_system, explosion_smoke_effect_update_system,
+    smoke_puff_spawner_system, smoke_puff_effect_update_system,
 };
 use crate::spells::fire::materials::{
     update_fireball_core_material_time, update_fireball_charge_material_time,
@@ -348,6 +349,17 @@ pub fn plugin(app: &mut App) {
                 explosion_embers_effect_update_system,
                 explosion_smoke_effect_update_system,
             )
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Multi-puff smoke systems (spawner creates puffs over time, update animates them)
+        .add_systems(
+            Update,
+            (
+                smoke_puff_spawner_system,
+                smoke_puff_effect_update_system,
+            )
+                .chain()
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         )

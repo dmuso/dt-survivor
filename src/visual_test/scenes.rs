@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use std::str::FromStr;
 
 use crate::game::resources::GameMeshes;
-use crate::spells::fire::fireball::{FireballProjectile, FireballCoreEffect, FireballTrailEffect};
+use crate::spells::fire::fireball::{FireballProjectile, FireballCoreEffect, FireballTrailEffect, SmokePuffSpawner};
 use crate::spells::fire::materials::{
     FireballCoreMaterial, FireballTrailMaterial,
     ExplosionCoreMaterial, ExplosionFireMaterial,
@@ -156,7 +156,7 @@ impl TestScene {
         match self {
             TestScene::TrailNoiseAnimation => 12,  // ~200ms at 60fps
             TestScene::TrailGrowthSequence => 10,  // ~166ms at 60fps for smooth growth
-            TestScene::ExplosionSequence => 8,     // ~133ms at 60fps
+            TestScene::ExplosionSequence => 18,    // ~300ms at 60fps - longer to show smoke rising
             _ => 0,
         }
     }
@@ -549,7 +549,7 @@ fn spawn_explosion_sequence(
     explosion_core_materials: &mut Assets<ExplosionCoreMaterial>,
     explosion_fire_materials: &mut Assets<ExplosionFireMaterial>,
     embers_materials: &mut Assets<ExplosionEmbersMaterial>,
-    smoke_materials: &mut Assets<ExplosionSmokeMaterial>,
+    _smoke_materials: &mut Assets<ExplosionSmokeMaterial>,  // Unused - SmokePuffSpawner creates materials
 ) {
     let position = Vec3::new(0.0, 1.0, 0.0);
 
@@ -591,15 +591,9 @@ fn spawn_explosion_sequence(
         ));
     }
 
-    // Smoke rising above
-    let mut smoke_material = ExplosionSmokeMaterial::new();
-    smoke_material.set_progress(0.0);
-    let smoke_handle = smoke_materials.add(smoke_material);
-    commands.spawn((
-        Mesh3d(meshes.explosion.clone()),
-        MeshMaterial3d(smoke_handle),
-        Transform::from_translation(position + Vec3::Y * 0.5).with_scale(Vec3::splat(0.8)),
-    ));
+    // Smoke puff spawner - creates multiple puffs over time
+    commands.spawn(SmokePuffSpawner::new(position));
+
 }
 
 impl FromStr for TestScene {
