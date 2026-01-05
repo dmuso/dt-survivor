@@ -6,6 +6,8 @@ use bevy_hanabi::prelude::*;
 use crate::spells::fire::fireball::{
     FireballProjectile, FireballCoreEffect, FireballTrailEffect, SmokePuffSpawner,
     ChargingFireball, FireballChargeEffect, FireballChargeParticles,
+    ExplosionCoreEffect, ExplosionDarkImpactEffect, ExplosionEmbersEffect,
+    BillowingFireSpawner,
 };
 use crate::spells::fire::fireball_effects::FireballEffects;
 use crate::spells::fire::materials::{
@@ -83,6 +85,12 @@ pub enum TestScene {
     /// Smoke dissipation test - 5 spheres at progress [0.7, 0.8, 0.85, 0.9, 0.95] showing rising mask
     ExplosionSmokeDissipationTest,
 
+    // === Full Explosion Integration Test ===
+    /// Comprehensive 7-stage explosion sequence test - captures 12 frames (~2s animation)
+    /// Tests all stages: star-burst, dark impact, billowing fire, dark projectiles, ash floats,
+    /// fire-to-smoke transition, and smoke dissipation
+    ExplosionFullSequenceNew,
+
     // === Fireball Charge Phase Tests ===
     /// Charging fireball with inward particle effects
     FireballChargeParticles,
@@ -125,6 +133,8 @@ impl TestScene {
             TestScene::ExplosionFireToSmokeTest,
             // Smoke dissipation test
             TestScene::ExplosionSmokeDissipationTest,
+            // Full explosion integration test
+            TestScene::ExplosionFullSequenceNew,
             // Charge phase tests
             TestScene::FireballChargeParticles,
         ]
@@ -156,6 +166,7 @@ impl TestScene {
             TestScene::ExplosionAshFloatTest => "explosion-ash-float",
             TestScene::ExplosionFireToSmokeTest => "explosion-fire-to-smoke",
             TestScene::ExplosionSmokeDissipationTest => "explosion-smoke-dissipation",
+            TestScene::ExplosionFullSequenceNew => "explosion-full-sequence-new",
             TestScene::FireballChargeParticles => "fireball-charge-particles",
         }
     }
@@ -182,6 +193,8 @@ impl TestScene {
             TestScene::ExplosionFireToSmokeTest => Vec3::new(0.0, 5.0, 10.0),
             // Medium camera for smoke dissipation to see mask effect clearly
             TestScene::ExplosionSmokeDissipationTest => Vec3::new(0.0, 5.0, 10.0),
+            // Wider camera for full explosion sequence to capture all stages
+            TestScene::ExplosionFullSequenceNew => Vec3::new(0.0, 8.0, 14.0),
             // Medium camera for trail growth tests to see trail clearly
             TestScene::TrailGrowthSpawn
             | TestScene::TrailGrowthQuarter
@@ -205,6 +218,8 @@ impl TestScene {
         match self {
             // Animation tests need time for shaders to compile
             TestScene::TrailNoiseAnimation | TestScene::ExplosionSequence => 60,
+            // Full sequence: wait 2 frames for entities to spawn and render, then capture
+            TestScene::ExplosionFullSequenceNew => 2,
             // Billowing fire: only wait for shaders to compile, capture quickly (0.8s lifetime)
             TestScene::ExplosionBillowingFireTest => 10,
             // Ash float: wait for projectiles to slow down into ash float phase
@@ -222,6 +237,8 @@ impl TestScene {
             TestScene::TrailNoiseAnimation => 5,
             TestScene::TrailGrowthSequence => 6,
             TestScene::ExplosionSequence => 8,
+            // Full sequence: 12 frames to capture ~2s animation lifecycle
+            TestScene::ExplosionFullSequenceNew => 12,
             TestScene::ExplosionDarkProjectilesTest => 5, // Capture projectile flight and deceleration
             TestScene::ExplosionBillowingFireTest => 6, // Capture expansion animation
             TestScene::ExplosionAshFloatTest => 6, // Capture ash drift animation
@@ -236,6 +253,9 @@ impl TestScene {
             TestScene::TrailNoiseAnimation => 12,  // ~200ms at 60fps
             TestScene::TrailGrowthSequence => 10,  // ~166ms at 60fps for smooth growth
             TestScene::ExplosionSequence => 18,    // ~300ms at 60fps - longer to show smoke rising
+            // Full sequence: ~83ms between captures (5 frames) to show all 7 stages over ~1s
+            // This faster rate captures more of the early star-burst phase
+            TestScene::ExplosionFullSequenceNew => 5,
             TestScene::ExplosionDarkProjectilesTest => 6, // ~100ms at 60fps to show deceleration
             TestScene::ExplosionBillowingFireTest => 8, // ~133ms at 60fps to show sphere expansion
             TestScene::ExplosionAshFloatTest => 8, // ~133ms at 60fps to show ash drift
@@ -384,6 +404,17 @@ impl TestScene {
 
             TestScene::ExplosionSmokeDissipationTest => {
                 spawn_smoke_dissipation_test(commands, meshes, explosion_fire_materials);
+            }
+
+            TestScene::ExplosionFullSequenceNew => {
+                spawn_explosion_full_sequence_new(
+                    commands,
+                    meshes,
+                    explosion_core_materials,
+                    explosion_dark_impact_materials,
+                    explosion_fire_materials,
+                    embers_materials,
+                );
             }
 
             TestScene::FireballChargeParticles => {
@@ -993,6 +1024,115 @@ fn spawn_ash_float_test(
     }
 }
 
+/// Spawn comprehensive 7-stage explosion sequence for full integration visual testing.
+/// This replicates the actual explosion spawning from fireball_explosion_spawn_system
+/// to verify all stages work together correctly.
+///
+/// Stage timing (based on component lifetimes):
+/// - t=0.00s: Star-burst (ExplosionCoreEffect, 0.25s) + Dark impact (0.4s) + Billowing fire (0.8s)
+/// - t=0.00s: Dark projectiles spawn (ExplosionEmbersEffect, 0.6s)
+/// - t=0.00s: Smoke puff spawner starts (SmokePuffSpawner, creates puffs over time)
+/// - t=0.25s: Star-burst shrinks and completes
+/// - t=0.40s: Dark impact completes
+/// - t=0.60s: Dark projectiles complete (now ash floats)
+/// - t=0.80s: Billowing fire spheres complete (fire-to-smoke transition happens during)
+/// - t=1.20s: Smoke puffs complete (with bottom-up dissipation)
+#[allow(clippy::too_many_arguments)]
+fn spawn_explosion_full_sequence_new(
+    commands: &mut Commands,
+    meshes: &GameMeshes,
+    core_materials: &mut Assets<ExplosionCoreMaterial>,
+    dark_impact_materials: &mut Assets<ExplosionDarkImpactMaterial>,
+    _fire_materials: &mut Assets<ExplosionFireMaterial>, // BillowingFireSpawner creates its own
+    embers_materials: &mut Assets<ExplosionEmbersMaterial>,
+) {
+    use crate::spells::fire::fireball::{
+        DARK_PROJECTILE_COUNT, DARK_PROJECTILE_MIN_SPEED, DARK_PROJECTILE_MAX_SPEED,
+        DARK_PROJECTILE_SCALE,
+    };
+    use std::f32::consts::TAU;
+
+    let position = Vec3::new(0.0, 1.0, 0.0);
+
+    // === Stage 1: Star-burst initial impact (ExplosionCoreEffect) ===
+    // Bright white-hot flash that grows and shrinks quickly
+    let core_material = ExplosionCoreMaterial::new();
+    let core_handle = core_materials.add(core_material);
+    commands.spawn((
+        Mesh3d(meshes.fireball.clone()),
+        MeshMaterial3d(core_handle.clone()),
+        Transform::from_translation(position).with_scale(Vec3::splat(2.5)),
+        ExplosionCoreEffect::new(core_handle),
+    ));
+
+    // === Stage 2: Dark impact spikes (ExplosionDarkImpactEffect) ===
+    // Dark silhouette spikes that grow outward behind the star-burst
+    let dark_impact_material = ExplosionDarkImpactMaterial::new();
+    let dark_handle = dark_impact_materials.add(dark_impact_material);
+    commands.spawn((
+        Mesh3d(meshes.explosion.clone()),
+        MeshMaterial3d(dark_handle.clone()),
+        // Spawn slightly behind the star-burst (negative Z toward camera)
+        Transform::from_translation(position + Vec3::new(0.0, 0.0, -0.1))
+            .with_scale(Vec3::splat(2.0)),
+        ExplosionDarkImpactEffect::new(dark_handle),
+    ));
+
+    // === Stage 3: Billowing fire spawner (BillowingFireSpawner) ===
+    // Creates 8 fire spheres that expand outward with billowing displacement
+    // These handle stages 3 + 6 (billowing fire + fire-to-smoke transition)
+    commands.spawn(BillowingFireSpawner::new(position));
+
+    // === Stages 4+5: Dark projectiles (ExplosionEmbersEffect) ===
+    // 14 projectiles that fly outward, decelerate, and become ash floats
+    // Uses irrational numbers for pseudo-random variation
+    const GOLDEN_RATIO: f32 = 1.618_034;
+    const SQRT_5: f32 = 2.236_068;
+    const SQRT_3: f32 = 1.732_051;
+
+    for i in 0..DARK_PROJECTILE_COUNT {
+        // Create varied angles around a circle with some vertical variation
+        let angle = (i as f32 / DARK_PROJECTILE_COUNT as f32) * TAU;
+        let jitter = ((i as f32 * GOLDEN_RATIO).fract() - 0.5) * 0.5;
+        let final_angle = angle + jitter;
+
+        // Vertical variation: some go slightly up, some level, some slightly down
+        let elevation = ((i as f32 * SQRT_5).fract() - 0.5) * 0.6;
+
+        let direction = Vec3::new(
+            final_angle.cos(),
+            elevation,
+            final_angle.sin(),
+        ).normalize();
+
+        // Random speed between min and max using simple variation
+        let speed_factor = (i as f32 * SQRT_3).fract();
+        let speed = DARK_PROJECTILE_MIN_SPEED
+            + speed_factor * (DARK_PROJECTILE_MAX_SPEED - DARK_PROJECTILE_MIN_SPEED);
+
+        // Create material with initial velocity
+        let mut material = ExplosionEmbersMaterial::new();
+        material.set_velocity(direction, speed);
+        let handle = embers_materials.add(material);
+
+        // Small offset from center so projectiles don't all start at same point
+        let offset = direction * 0.2;
+
+        commands.spawn((
+            Mesh3d(meshes.fireball.clone()),
+            MeshMaterial3d(handle.clone()),
+            Transform::from_translation(position + offset)
+                .with_scale(Vec3::splat(DARK_PROJECTILE_SCALE)),
+            ExplosionEmbersEffect::new(handle, direction, speed),
+        ));
+    }
+
+    // === Stages 6+7: Smoke puff spawner (SmokePuffSpawner) ===
+    // Creates multiple smoke puffs over time that rise and dissipate from bottom up
+    // The fire spheres from billowing fire handle the fire-to-smoke color transition
+    commands.spawn(SmokePuffSpawner::new(position));
+}
+
 /// Spawn a charging fireball with Hanabi particles for visual testing
 fn spawn_charging_fireball_test(
     commands: &mut Commands,
@@ -1077,6 +1217,7 @@ impl FromStr for TestScene {
             "explosion-ash-float" => Ok(TestScene::ExplosionAshFloatTest),
             "explosion-fire-to-smoke" => Ok(TestScene::ExplosionFireToSmokeTest),
             "explosion-smoke-dissipation" => Ok(TestScene::ExplosionSmokeDissipationTest),
+            "explosion-full-sequence-new" => Ok(TestScene::ExplosionFullSequenceNew),
             "fireball-charge-particles" => Ok(TestScene::FireballChargeParticles),
             "list" => Err("list".to_string()), // Special case handled in main
             _ => Err(format!("Unknown scene: '{}'. Use --screenshot list to see available scenes.", s)),
