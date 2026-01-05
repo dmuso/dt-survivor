@@ -71,6 +71,10 @@ pub enum TestScene {
     /// Billowing fire spheres test - 8 spheres expanding outward at different stages
     ExplosionBillowingFireTest,
 
+    // === Ash Float Tests ===
+    /// Ash float behavior test - projectiles at slow speeds showing circular shape and drift
+    ExplosionAshFloatTest,
+
     // === Fireball Charge Phase Tests ===
     /// Charging fireball with inward particle effects
     FireballChargeParticles,
@@ -107,6 +111,8 @@ impl TestScene {
             TestScene::ExplosionDarkProjectilesTest,
             // Billowing fire test
             TestScene::ExplosionBillowingFireTest,
+            // Ash float test
+            TestScene::ExplosionAshFloatTest,
             // Charge phase tests
             TestScene::FireballChargeParticles,
         ]
@@ -135,6 +141,7 @@ impl TestScene {
             TestScene::ExplosionSequence => "explosion-sequence",
             TestScene::ExplosionDarkProjectilesTest => "explosion-dark-projectiles",
             TestScene::ExplosionBillowingFireTest => "explosion-billowing-fire",
+            TestScene::ExplosionAshFloatTest => "explosion-ash-float",
             TestScene::FireballChargeParticles => "fireball-charge-particles",
         }
     }
@@ -155,6 +162,8 @@ impl TestScene {
             TestScene::ExplosionDarkProjectilesTest => Vec3::new(0.0, 6.0, 10.0),
             // Wider camera for billowing fire to capture all 8 spheres expanding outward
             TestScene::ExplosionBillowingFireTest => Vec3::new(0.0, 8.0, 12.0),
+            // Medium camera for ash float to see drift and circular shape
+            TestScene::ExplosionAshFloatTest => Vec3::new(0.0, 6.0, 10.0),
             // Medium camera for trail growth tests to see trail clearly
             TestScene::TrailGrowthSpawn
             | TestScene::TrailGrowthQuarter
@@ -180,6 +189,8 @@ impl TestScene {
             TestScene::TrailNoiseAnimation | TestScene::ExplosionSequence => 60,
             // Billowing fire: only wait for shaders to compile, capture quickly (0.8s lifetime)
             TestScene::ExplosionBillowingFireTest => 10,
+            // Ash float: wait for projectiles to slow down into ash float phase
+            TestScene::ExplosionAshFloatTest => 30,
             // Hanabi particles need more warmup time
             TestScene::FireballChargeParticles => 120,
             // Single frame tests
@@ -195,6 +206,7 @@ impl TestScene {
             TestScene::ExplosionSequence => 8,
             TestScene::ExplosionDarkProjectilesTest => 5, // Capture projectile flight and deceleration
             TestScene::ExplosionBillowingFireTest => 6, // Capture expansion animation
+            TestScene::ExplosionAshFloatTest => 6, // Capture ash drift animation
             TestScene::FireballChargeParticles => 8, // Capture particle flow animation
             _ => 1,
         }
@@ -208,6 +220,7 @@ impl TestScene {
             TestScene::ExplosionSequence => 18,    // ~300ms at 60fps - longer to show smoke rising
             TestScene::ExplosionDarkProjectilesTest => 6, // ~100ms at 60fps to show deceleration
             TestScene::ExplosionBillowingFireTest => 8, // ~133ms at 60fps to show sphere expansion
+            TestScene::ExplosionAshFloatTest => 8, // ~133ms at 60fps to show ash drift
             TestScene::FireballChargeParticles => 10, // ~166ms at 60fps to show particle flow
             _ => 0,
         }
@@ -341,6 +354,10 @@ impl TestScene {
 
             TestScene::ExplosionBillowingFireTest => {
                 spawn_billowing_fire_test(commands, meshes, explosion_fire_materials);
+            }
+
+            TestScene::ExplosionAshFloatTest => {
+                spawn_ash_float_test(commands, meshes, embers_materials);
             }
 
             TestScene::FireballChargeParticles => {
@@ -835,6 +852,57 @@ fn spawn_billowing_fire_test(
     }
 }
 
+/// Spawn ash float test - projectiles at slow speeds (progress 0.4-1.0) showing circular shape and drift
+/// Shows the transition from fast projectile to floating ash particles
+fn spawn_ash_float_test(
+    commands: &mut Commands,
+    meshes: &GameMeshes,
+    materials: &mut Assets<ExplosionEmbersMaterial>,
+) {
+    use crate::spells::fire::fireball::{ExplosionEmbersEffect, DARK_PROJECTILE_SCALE};
+    // ASH_FLOAT_SPEED_THRESHOLD is 2.0 m/s, used to design the speed array
+
+    let position = Vec3::new(0.0, 1.0, 0.0);
+
+    // Spawn 10 projectiles at various slow speeds to show ash float behavior
+    // Speeds range from just above threshold down to nearly stopped
+    let speeds = [
+        3.0,  // Above threshold - still somewhat elongated
+        2.0,  // At threshold - transitioning
+        1.5,  // Below threshold - mostly circular
+        1.0,  // Well below - circular with drift
+        0.8,  // Slow - visible drift
+        0.6,  // Very slow - strong drift, starting to fade
+        0.5,  // Nearly stopped - fading
+        0.4,  // Almost stopped
+        0.35, // Very slow
+        0.3,  // Minimum before fully faded
+    ];
+
+    for (i, &speed) in speeds.iter().enumerate() {
+        // Spread projectiles in a circle for visibility
+        let angle = (i as f32 / speeds.len() as f32) * std::f32::consts::TAU;
+        let direction = Vec3::new(angle.cos(), 0.1, angle.sin()).normalize();
+        let spawn_offset = direction * (1.5 + i as f32 * 0.3);
+
+        // Create material with initial velocity
+        let mut material = ExplosionEmbersMaterial::new();
+        material.set_velocity(direction, speed);
+        // Set progress based on how slow the particle is (slower = more progressed)
+        let progress = 0.4 + (1.0 - speed / 3.0).clamp(0.0, 0.5);
+        material.set_progress(progress);
+        let handle = materials.add(material);
+
+        commands.spawn((
+            Mesh3d(meshes.fireball.clone()),
+            MeshMaterial3d(handle.clone()),
+            Transform::from_translation(position + spawn_offset)
+                .with_scale(Vec3::splat(DARK_PROJECTILE_SCALE)),
+            ExplosionEmbersEffect::new(handle, direction, speed),
+        ));
+    }
+}
+
 /// Spawn a charging fireball with Hanabi particles for visual testing
 fn spawn_charging_fireball_test(
     commands: &mut Commands,
@@ -916,6 +984,7 @@ impl FromStr for TestScene {
             "explosion-sequence" => Ok(TestScene::ExplosionSequence),
             "explosion-dark-projectiles" => Ok(TestScene::ExplosionDarkProjectilesTest),
             "explosion-billowing-fire" => Ok(TestScene::ExplosionBillowingFireTest),
+            "explosion-ash-float" => Ok(TestScene::ExplosionAshFloatTest),
             "fireball-charge-particles" => Ok(TestScene::FireballChargeParticles),
             "list" => Err("list".to_string()), // Special case handled in main
             _ => Err(format!("Unknown scene: '{}'. Use --screenshot list to see available scenes.", s)),

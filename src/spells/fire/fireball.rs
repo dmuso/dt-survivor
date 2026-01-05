@@ -297,6 +297,11 @@ pub const DARK_PROJECTILE_MAX_SPEED: f32 = 18.0;
 pub const DARK_PROJECTILE_DECELERATION: f32 = 17.5; // m/s^2 (rapid slowdown)
 pub const DARK_PROJECTILE_SCALE: f32 = 0.5; // Size of each projectile
 
+/// Ash float constants - behavior when dark projectiles slow down
+pub const ASH_FLOAT_SPEED_THRESHOLD: f32 = 2.0; // Speed below which ash float behavior activates
+pub const ASH_FLOAT_DRIFT_STRENGTH: f32 = 0.3; // Horizontal drift amplitude
+pub const ASH_FLOAT_RISE_SPEED: f32 = 0.2; // Gentle upward motion (heat rising)
+
 /// Component for the shader-based dark projectile effect (velocity-elongated debris)
 /// Stores the material handle, lifetime timer, velocity, and deceleration for progress updates
 #[derive(Component, Debug)]
@@ -1347,6 +1352,7 @@ pub fn explosion_fire_effect_update_system(
 }
 
 /// System that updates dark projectile shader effects (progress, velocity, deceleration, movement, and cleanup)
+/// Includes ash float behavior: when speed drops below threshold, particles drift gently and rise
 pub fn explosion_embers_effect_update_system(
     mut commands: Commands,
     time: Res<Time>,
@@ -1358,6 +1364,7 @@ pub fn explosion_embers_effect_update_system(
     };
 
     let delta = time.delta_secs();
+    let elapsed = time.elapsed_secs();
 
     for (entity, mut effect, mut transform) in query.iter_mut() {
         effect.lifetime.tick(time.delta());
@@ -1368,6 +1375,23 @@ pub fn explosion_embers_effect_update_system(
 
         // Move the projectile based on current velocity
         transform.translation += effect.direction * effect.speed * delta;
+
+        // Apply ash float behavior when speed drops below threshold
+        if effect.speed < ASH_FLOAT_SPEED_THRESHOLD {
+            // Calculate ash float factor (0.0 at threshold, 1.0 when nearly stopped)
+            let ash_factor = 1.0 - (effect.speed / ASH_FLOAT_SPEED_THRESHOLD);
+
+            // Gentle upward motion (heat rising)
+            transform.translation.y += ASH_FLOAT_RISE_SPEED * ash_factor * delta;
+
+            // Sinusoidal horizontal drift for floating effect
+            // Use entity position hash for per-particle phase variation
+            let phase = (transform.translation.x * 7.13 + transform.translation.z * 11.37).sin();
+            let drift_x = (elapsed * 2.0 + phase).sin() * ASH_FLOAT_DRIFT_STRENGTH * ash_factor * delta;
+            let drift_z = (elapsed * 1.7 + phase * 1.3).cos() * ASH_FLOAT_DRIFT_STRENGTH * ash_factor * delta;
+            transform.translation.x += drift_x;
+            transform.translation.z += drift_z;
+        }
 
         // Update the material's progress and velocity
         if let Some(material) = materials.get_mut(&effect.material_handle) {

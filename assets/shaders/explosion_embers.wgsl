@@ -1,5 +1,6 @@
-// Explosion Dark Projectiles Shader - Velocity-Stretched Debris
-// Creates elongated dark projectiles that stretch along their velocity direction.
+// Explosion Dark Projectiles Shader - Velocity-Stretched Debris with Ash Float
+// Creates elongated dark projectiles that stretch along their velocity direction,
+// transitioning to gently floating ash particles as they slow down.
 // Features:
 // - Vertex stretching along velocity axis based on speed
 // - Dark charcoal color with slight noise variation
@@ -7,6 +8,8 @@
 // - Stretch factor: 1.0 at rest to ~4x at max speed
 // - Duration ~0.6s with rapid deceleration
 // - Progress-based animation (0.0 = start, 1.0 = end)
+// - Ash float behavior: when speed < 2 m/s, particles become circular
+// - Gentle vertical oscillation and fade out as particles slow to a stop
 
 #import bevy_pbr::{
     mesh_functions,
@@ -64,6 +67,13 @@ const DARK_EDGE: vec3<f32> = vec3<f32>(0.18, 0.15, 0.12);
 const MAX_SPEED: f32 = 18.0;  // Speed at which we hit max stretch
 const MAX_STRETCH: f32 = 4.0;  // Maximum stretch multiplier (4x length at max speed)
 
+// Ash float parameters - transition from fast projectile to floating ash
+const ASH_FLOAT_SPEED_THRESHOLD: f32 = 2.0;  // Speed below which ash float behavior kicks in
+const ASH_FADE_SPEED_MIN: f32 = 0.3;  // Speed at which ash is fully faded out
+const ASH_FADE_SPEED_MAX: f32 = 1.5;  // Speed at which ash starts fading
+const ASH_FLOAT_AMPLITUDE: f32 = 0.08;  // Vertical oscillation amplitude
+const ASH_FLOAT_FREQUENCY: f32 = 3.0;  // Vertical oscillation frequency
+
 // ============================================================================
 // Noise Functions
 // ============================================================================
@@ -97,7 +107,7 @@ fn noise3d(p: vec3<f32>) -> f32 {
 }
 
 // ============================================================================
-// Vertex Shader - Velocity-based stretching
+// Vertex Shader - Velocity-based stretching with ash float behavior
 // ============================================================================
 
 @vertex
@@ -107,10 +117,17 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     // Get velocity direction and speed from material
     let velocity_dir = material.velocity.xyz;
     let speed = material.velocity.w;
+    let t = globals.time;
+
+    // Calculate ash float factor (0.0 = fast projectile, 1.0 = floating ash)
+    let ash_float_factor = smoothstep(ASH_FLOAT_SPEED_THRESHOLD, ASH_FADE_SPEED_MIN, speed);
 
     // Calculate stretch factor based on speed (1.0 at rest, MAX_STRETCH at max speed)
+    // As speed decreases below threshold, stretch smoothly transitions to 1.0 (circular)
     let speed_ratio = clamp(speed / MAX_SPEED, 0.0, 1.0);
-    let stretch_factor = 1.0 + speed_ratio * (MAX_STRETCH - 1.0);
+    let base_stretch = 1.0 + speed_ratio * (MAX_STRETCH - 1.0);
+    // Blend toward circular (1.0) as ash_float_factor increases
+    let stretch_factor = mix(base_stretch, 1.0, ash_float_factor);
 
     // Stretch vertex position along velocity axis
     var stretched_pos = vertex.position;
@@ -127,8 +144,15 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         stretched_pos = vertex.position + vel_normalized * along_vel * (stretch_factor - 1.0);
     }
 
-    // Transform to world space
+    // Add gentle vertical oscillation for ash float (heat rising effect)
+    // Use world position hash for per-particle phase variation
     let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
+    let base_world_pos = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(vec3<f32>(0.0), 1.0));
+    let particle_phase = hash13(base_world_pos.xyz * 7.13) * TAU;
+    let float_offset = sin(t * ASH_FLOAT_FREQUENCY + particle_phase) * ASH_FLOAT_AMPLITUDE * ash_float_factor;
+    stretched_pos.y += float_offset;
+
+    // Transform to world space
     let world_position = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(stretched_pos, 1.0));
 
     out.clip_position = position_world_to_clip(world_position.xyz);
@@ -142,7 +166,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 }
 
 // ============================================================================
-// Fragment Shader - Dark charcoal coloring
+// Fragment Shader - Dark charcoal coloring with ash fade
 // ============================================================================
 
 @fragment
@@ -150,6 +174,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let t = globals.time;
     let prog = material.progress.x;
     let emissive = material.emissive_intensity.x;
+    let speed = material.velocity.w;
 
     let pos = in.local_position;
 
@@ -170,13 +195,17 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Fade out as progress increases (projectile cools and fades)
     let fade_start = 0.5;
-    let fade_factor = 1.0 - smoothstep(fade_start, 1.0, prog);
+    let progress_fade = 1.0 - smoothstep(fade_start, 1.0, prog);
+
+    // Ash fade: additional fade as speed drops very low (ash disappears)
+    // Speed range: ASH_FADE_SPEED_MAX (1.5) -> ASH_FADE_SPEED_MIN (0.3) maps to 1.0 -> 0.0
+    let ash_speed_fade = smoothstep(ASH_FADE_SPEED_MIN, ASH_FADE_SPEED_MAX, speed);
 
     // Edge softness for smooth falloff
     let edge_softness = 1.0 - smoothstep(0.35, 0.5, dist);
 
-    // Final alpha combines edge softness and progress fade
-    let alpha = edge_softness * fade_factor;
+    // Final alpha combines edge softness, progress fade, and ash speed fade
+    let alpha = edge_softness * progress_fade * ash_speed_fade;
 
     // Discard fully transparent fragments
     if alpha < 0.01 {
