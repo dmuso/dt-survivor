@@ -329,8 +329,43 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let flicker_strength = mix(0.1, 0.03, transition_t);
     let flicker = 1.0 + sin(anim * 7.0) * flicker_strength;
 
-    // Final output with HDR emissive
+    // Base alpha (fully opaque by default)
+    var alpha = 1.0;
+
+    // ========================================================================
+    // Smoke Dissipation Mask (Stage 7)
+    // During smoke phase (prog > 0.7), a rising sphere mask "eats" the smoke
+    // from below, creating a dissolve effect
+    // ========================================================================
+    if prog > 0.7 {
+        // Dissipation progress: 0.0 at prog=0.7, 1.0 at prog=1.0
+        let dissipation_prog = smoothstep(0.7, 1.0, prog);
+
+        // Mask center rises from below the sphere (-1.0) to above it (+1.5)
+        let mask_center_y = -1.0 + dissipation_prog * 2.5;
+
+        // Mask radius grows as it rises (starts small, ends large)
+        let mask_radius = dissipation_prog * 1.2;
+
+        // Calculate distance from fragment to mask center (in local space)
+        let mask_center = vec3<f32>(0.0, mask_center_y, 0.0);
+        let dist_to_mask = distance(pos, mask_center);
+
+        // Soft edge mask: fragments inside the mask sphere become transparent
+        // smoothstep creates a soft transition at the mask boundary
+        let sphere_mask = smoothstep(mask_radius - 0.15, mask_radius + 0.05, dist_to_mask);
+
+        // Apply mask to alpha
+        alpha = sphere_mask;
+
+        // Discard nearly-transparent fragments for performance
+        if alpha < 0.02 {
+            discard;
+        }
+    }
+
+    // Final output with HDR emissive and alpha
     let final_color = color * emissive * fire_fade * flicker;
 
-    return vec4<f32>(final_color, 1.0);
+    return vec4<f32>(final_color, alpha);
 }

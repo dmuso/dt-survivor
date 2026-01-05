@@ -79,6 +79,10 @@ pub enum TestScene {
     /// Fire to smoke color transition test - 5 spheres showing progress 0.2 to 0.8
     ExplosionFireToSmokeTest,
 
+    // === Smoke Dissipation Tests ===
+    /// Smoke dissipation test - 5 spheres at progress [0.7, 0.8, 0.85, 0.9, 0.95] showing rising mask
+    ExplosionSmokeDissipationTest,
+
     // === Fireball Charge Phase Tests ===
     /// Charging fireball with inward particle effects
     FireballChargeParticles,
@@ -119,6 +123,8 @@ impl TestScene {
             TestScene::ExplosionAshFloatTest,
             // Fire to smoke transition test
             TestScene::ExplosionFireToSmokeTest,
+            // Smoke dissipation test
+            TestScene::ExplosionSmokeDissipationTest,
             // Charge phase tests
             TestScene::FireballChargeParticles,
         ]
@@ -149,6 +155,7 @@ impl TestScene {
             TestScene::ExplosionBillowingFireTest => "explosion-billowing-fire",
             TestScene::ExplosionAshFloatTest => "explosion-ash-float",
             TestScene::ExplosionFireToSmokeTest => "explosion-fire-to-smoke",
+            TestScene::ExplosionSmokeDissipationTest => "explosion-smoke-dissipation",
             TestScene::FireballChargeParticles => "fireball-charge-particles",
         }
     }
@@ -173,6 +180,8 @@ impl TestScene {
             TestScene::ExplosionAshFloatTest => Vec3::new(0.0, 6.0, 10.0),
             // Medium camera for fire to smoke transition to see color gradient
             TestScene::ExplosionFireToSmokeTest => Vec3::new(0.0, 5.0, 10.0),
+            // Medium camera for smoke dissipation to see mask effect clearly
+            TestScene::ExplosionSmokeDissipationTest => Vec3::new(0.0, 5.0, 10.0),
             // Medium camera for trail growth tests to see trail clearly
             TestScene::TrailGrowthSpawn
             | TestScene::TrailGrowthQuarter
@@ -371,6 +380,10 @@ impl TestScene {
 
             TestScene::ExplosionFireToSmokeTest => {
                 spawn_fire_to_smoke_test(commands, meshes, explosion_fire_materials);
+            }
+
+            TestScene::ExplosionSmokeDissipationTest => {
+                spawn_smoke_dissipation_test(commands, meshes, explosion_fire_materials);
             }
 
             TestScene::FireballChargeParticles => {
@@ -897,6 +910,38 @@ fn spawn_fire_to_smoke_test(
     }
 }
 
+/// Spawn smoke dissipation test - 5 spheres at progress [0.7, 0.8, 0.85, 0.9, 0.95]
+/// Shows the rising mask that "eats" smoke from below
+fn spawn_smoke_dissipation_test(
+    commands: &mut Commands,
+    meshes: &GameMeshes,
+    materials: &mut Assets<ExplosionFireMaterial>,
+) {
+    // Progress values in the smoke dissipation phase (0.7-1.0)
+    let progress_values = [0.7, 0.8, 0.85, 0.9, 0.95];
+    let x_positions = [-4.0, -2.0, 0.0, 2.0, 4.0];
+
+    for (i, &progress) in progress_values.iter().enumerate() {
+        // Create fire material with billowing enabled (non-zero velocity)
+        let mut material = ExplosionFireMaterial::new();
+        material.set_progress(progress);
+        // Set minimal velocity to enable billowing displacement for organic look
+        material.set_velocity(Vec3::Y, 0.5);
+        material.set_growth_rate(2.0);
+        let handle = materials.add(material);
+
+        // Scale is larger for smoke phase
+        let scale = 2.0;
+
+        commands.spawn((
+            Mesh3d(meshes.explosion.clone()),
+            MeshMaterial3d(handle),
+            Transform::from_translation(Vec3::new(x_positions[i], 1.0, 0.0))
+                .with_scale(Vec3::splat(scale)),
+        ));
+    }
+}
+
 /// Spawn ash float test - projectiles at slow speeds (progress 0.4-1.0) showing circular shape and drift
 /// Shows the transition from fast projectile to floating ash particles
 fn spawn_ash_float_test(
@@ -1031,6 +1076,7 @@ impl FromStr for TestScene {
             "explosion-billowing-fire" => Ok(TestScene::ExplosionBillowingFireTest),
             "explosion-ash-float" => Ok(TestScene::ExplosionAshFloatTest),
             "explosion-fire-to-smoke" => Ok(TestScene::ExplosionFireToSmokeTest),
+            "explosion-smoke-dissipation" => Ok(TestScene::ExplosionSmokeDissipationTest),
             "fireball-charge-particles" => Ok(TestScene::FireballChargeParticles),
             "list" => Err("list".to_string()), // Special case handled in main
             _ => Err(format!("Unknown scene: '{}'. Use --screenshot list to see available scenes.", s)),
