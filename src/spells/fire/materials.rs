@@ -26,6 +26,9 @@ pub const EXPLOSION_EMBERS_SHADER: &str = "shaders/explosion_embers.wgsl";
 /// Shader asset path for the explosion smoke rising plume effect.
 pub const EXPLOSION_SMOKE_SHADER: &str = "shaders/explosion_smoke.wgsl";
 
+/// Shader asset path for the fireball charge particles effect.
+pub const FIREBALL_CHARGE_PARTICLES_SHADER: &str = "shaders/fireball_charge_particles.wgsl";
+
 /// Material for rendering the fireball core with volumetric fire effect.
 ///
 /// This shader creates an animated fire sphere with:
@@ -368,13 +371,13 @@ pub fn update_fireball_trail_material_time(
 // Explosion Core Material - White-hot flash effect
 // ============================================================================
 
-/// Material for rendering the explosion core as a white-hot flash.
+/// Material for rendering the explosion core as a star-burst flash.
 ///
-/// This shader creates a blinding flash effect at explosion center:
-/// - Blinding bright white/yellow expanding sphere
-/// - Rapid expansion then fade (0.25s total duration)
+/// This shader creates a bright star-burst effect at explosion center:
+/// - Irregular 5-8 pointed star with varying spike lengths
+/// - Rapid growth (0-0.06s) then shrink (0.06-0.25s)
+/// - White-hot center with orange-yellow edges
 /// - Very high emissive for HDR bloom
-/// - Sharp falloff at edges for clean sphere boundary
 /// - Progress-based animation (0.0 = start, 1.0 = end)
 #[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
 pub struct ExplosionCoreMaterial {
@@ -393,6 +396,11 @@ pub struct ExplosionCoreMaterial {
     /// Expansion scale multiplier.
     #[uniform(0)]
     pub expansion_scale: Vec4,
+
+    /// Spike configuration: .x = spike_seed (0-1 random seed for spike variation),
+    /// .y = spike_count (5-8), .z = min_spike_length (0.5-1.0), .w = max_spike_length (1.5-2.5)
+    #[uniform(0)]
+    pub spike_config: Vec4,
 }
 
 impl Default for ExplosionCoreMaterial {
@@ -403,6 +411,8 @@ impl Default for ExplosionCoreMaterial {
             // Very high emissive for blinding flash
             emissive_intensity: Vec4::new(15.0, 0.0, 0.0, 0.0),
             expansion_scale: Vec4::new(1.0, 0.0, 0.0, 0.0),
+            // Default spike config: random seed, 6 spikes, 0.8-2.5 length range for dramatic spikes
+            spike_config: Vec4::new(0.0, 6.0, 0.8, 2.5),
         }
     }
 }
@@ -433,6 +443,24 @@ impl ExplosionCoreMaterial {
     /// Set the expansion scale multiplier.
     pub fn set_expansion_scale(&mut self, scale: f32) {
         self.expansion_scale.x = scale.max(0.1);
+    }
+
+    /// Set the spike seed for random spike variation (0.0 to 1.0).
+    /// Different seeds produce different spike patterns.
+    pub fn set_spike_seed(&mut self, seed: f32) {
+        self.spike_config.x = seed.clamp(0.0, 1.0);
+    }
+
+    /// Set the number of spikes (5 to 8).
+    pub fn set_spike_count(&mut self, count: f32) {
+        self.spike_config.y = count.clamp(5.0, 8.0);
+    }
+
+    /// Set the spike length range.
+    /// min_length: shortest spike (0.3-1.0), max_length: longest spike (1.5-3.0)
+    pub fn set_spike_length_range(&mut self, min_length: f32, max_length: f32) {
+        self.spike_config.z = min_length.clamp(0.3, 1.0);
+        self.spike_config.w = max_length.clamp(1.5, 3.0);
     }
 }
 
@@ -896,6 +924,109 @@ pub fn update_explosion_smoke_material_time(
     }
 }
 
+// ============================================================================
+// Fireball Charge Particles Material - Inward-traveling energy particles
+// ============================================================================
+
+/// Material for rendering inward-traveling energy particles during fireball charge.
+///
+/// This shader creates discrete particle motes that travel toward the center:
+/// - Multiple bright particles spawn at outer radius and converge inward
+/// - Particles fade as they approach the center (absorbed into the fireball)
+/// - Color gradient from orange to bright yellow-white
+/// - Particles are procedurally generated in the shader (no mesh instancing needed)
+/// - Uses charge_progress to control particle spawn rate and intensity
+#[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
+pub struct FireballChargeParticlesMaterial {
+    /// Current time for animation (in seconds).
+    #[uniform(0)]
+    pub time: Vec4,
+
+    /// Charge progress from 0.0 (start) to 1.0 (complete).
+    #[uniform(0)]
+    pub charge_progress: Vec4,
+
+    /// Number of particles to display (.x component).
+    #[uniform(0)]
+    pub particle_count: Vec4,
+
+    /// Emissive intensity for HDR bloom effect.
+    #[uniform(0)]
+    pub emissive_intensity: Vec4,
+}
+
+impl Default for FireballChargeParticlesMaterial {
+    fn default() -> Self {
+        Self {
+            time: Vec4::ZERO,
+            charge_progress: Vec4::ZERO,
+            particle_count: Vec4::new(12.0, 0.0, 0.0, 0.0),
+            emissive_intensity: Vec4::new(4.0, 0.0, 0.0, 0.0),
+        }
+    }
+}
+
+impl FireballChargeParticlesMaterial {
+    /// Create a new material with default settings.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Update the time uniform for animation.
+    pub fn set_time(&mut self, time: f32) {
+        self.time.x = time;
+    }
+
+    /// Set the charge progress (0.0 to 1.0).
+    /// Controls particle spawn rate and intensity.
+    pub fn set_charge_progress(&mut self, progress: f32) {
+        self.charge_progress.x = progress.clamp(0.0, 1.0);
+    }
+
+    /// Set the number of particles to display.
+    pub fn set_particle_count(&mut self, count: f32) {
+        self.particle_count.x = count.max(1.0);
+    }
+
+    /// Set the emissive intensity for HDR bloom.
+    pub fn set_emissive_intensity(&mut self, intensity: f32) {
+        self.emissive_intensity.x = intensity.max(0.0);
+    }
+}
+
+impl Material for FireballChargeParticlesMaterial {
+    fn fragment_shader() -> ShaderRef {
+        FIREBALL_CHARGE_PARTICLES_SHADER.into()
+    }
+
+    fn vertex_shader() -> ShaderRef {
+        FIREBALL_CHARGE_PARTICLES_SHADER.into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Add
+    }
+}
+
+/// Resource to store the fireball charge particles material handle for reuse.
+#[derive(Resource)]
+pub struct FireballChargeParticlesMaterialHandle(pub Handle<FireballChargeParticlesMaterial>);
+
+/// System to update time on all fireball charge particles materials.
+pub fn update_fireball_charge_particles_material_time(
+    time: Res<Time>,
+    materials: Option<ResMut<Assets<FireballChargeParticlesMaterial>>>,
+) {
+    let Some(mut materials) = materials else { return };
+    let current_time = time.elapsed_secs();
+    let ids: Vec<_> = materials.ids().collect();
+    for id in ids {
+        if let Some(material) = materials.get_mut(id) {
+            material.set_time(current_time);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1243,6 +1374,11 @@ mod tests {
             assert_eq!(material.progress.x, 0.0);
             assert_eq!(material.emissive_intensity.x, 15.0);
             assert_eq!(material.expansion_scale.x, 1.0);
+            // spike_config: seed=0, count=6, min=0.8, max=2.5
+            assert_eq!(material.spike_config.x, 0.0);
+            assert_eq!(material.spike_config.y, 6.0);
+            assert_eq!(material.spike_config.z, 0.8);
+            assert_eq!(material.spike_config.w, 2.5);
         }
 
         #[test]
@@ -1253,6 +1389,7 @@ mod tests {
             assert_eq!(material.progress, default.progress);
             assert_eq!(material.emissive_intensity, default.emissive_intensity);
             assert_eq!(material.expansion_scale, default.expansion_scale);
+            assert_eq!(material.spike_config, default.spike_config);
         }
 
         #[test]
@@ -1327,6 +1464,72 @@ mod tests {
         fn alpha_mode_is_add() {
             let material = ExplosionCoreMaterial::new();
             assert_eq!(material.alpha_mode(), AlphaMode::Add);
+        }
+
+        #[test]
+        fn set_spike_seed_clamps_to_zero() {
+            let mut material = ExplosionCoreMaterial::new();
+            material.set_spike_seed(-0.5);
+            assert_eq!(material.spike_config.x, 0.0);
+        }
+
+        #[test]
+        fn set_spike_seed_clamps_to_one() {
+            let mut material = ExplosionCoreMaterial::new();
+            material.set_spike_seed(1.5);
+            assert_eq!(material.spike_config.x, 1.0);
+        }
+
+        #[test]
+        fn set_spike_seed_accepts_valid_values() {
+            let mut material = ExplosionCoreMaterial::new();
+            material.set_spike_seed(0.7);
+            assert_eq!(material.spike_config.x, 0.7);
+        }
+
+        #[test]
+        fn set_spike_count_clamps_to_minimum() {
+            let mut material = ExplosionCoreMaterial::new();
+            material.set_spike_count(3.0);
+            assert_eq!(material.spike_config.y, 5.0);
+        }
+
+        #[test]
+        fn set_spike_count_clamps_to_maximum() {
+            let mut material = ExplosionCoreMaterial::new();
+            material.set_spike_count(12.0);
+            assert_eq!(material.spike_config.y, 8.0);
+        }
+
+        #[test]
+        fn set_spike_count_accepts_valid_values() {
+            let mut material = ExplosionCoreMaterial::new();
+            material.set_spike_count(7.0);
+            assert_eq!(material.spike_config.y, 7.0);
+        }
+
+        #[test]
+        fn set_spike_length_range_clamps_minimum() {
+            let mut material = ExplosionCoreMaterial::new();
+            material.set_spike_length_range(0.1, 1.0);
+            assert_eq!(material.spike_config.z, 0.3);
+            assert_eq!(material.spike_config.w, 1.5);
+        }
+
+        #[test]
+        fn set_spike_length_range_clamps_maximum() {
+            let mut material = ExplosionCoreMaterial::new();
+            material.set_spike_length_range(2.0, 5.0);
+            assert_eq!(material.spike_config.z, 1.0);
+            assert_eq!(material.spike_config.w, 3.0);
+        }
+
+        #[test]
+        fn set_spike_length_range_accepts_valid_values() {
+            let mut material = ExplosionCoreMaterial::new();
+            material.set_spike_length_range(0.5, 2.0);
+            assert_eq!(material.spike_config.z, 0.5);
+            assert_eq!(material.spike_config.w, 2.0);
         }
     }
 
@@ -1791,6 +1994,103 @@ mod tests {
         fn alpha_mode_is_blend() {
             let material = ExplosionSmokeMaterial::new();
             assert_eq!(material.alpha_mode(), AlphaMode::Blend);
+        }
+    }
+
+    mod fireball_charge_particles_material_tests {
+        use super::*;
+
+        #[test]
+        fn default_has_expected_values() {
+            let material = FireballChargeParticlesMaterial::default();
+            assert_eq!(material.time.x, 0.0);
+            assert_eq!(material.charge_progress.x, 0.0);
+            assert_eq!(material.particle_count.x, 12.0);
+            assert_eq!(material.emissive_intensity.x, 4.0);
+        }
+
+        #[test]
+        fn new_matches_default() {
+            let material = FireballChargeParticlesMaterial::new();
+            let default = FireballChargeParticlesMaterial::default();
+            assert_eq!(material.time, default.time);
+            assert_eq!(material.charge_progress, default.charge_progress);
+            assert_eq!(material.particle_count, default.particle_count);
+            assert_eq!(material.emissive_intensity, default.emissive_intensity);
+        }
+
+        #[test]
+        fn set_time_updates_x_component() {
+            let mut material = FireballChargeParticlesMaterial::new();
+            material.set_time(3.5);
+            assert_eq!(material.time.x, 3.5);
+            assert_eq!(material.time.y, 0.0);
+            assert_eq!(material.time.z, 0.0);
+            assert_eq!(material.time.w, 0.0);
+        }
+
+        #[test]
+        fn set_charge_progress_clamps_to_zero() {
+            let mut material = FireballChargeParticlesMaterial::new();
+            material.set_charge_progress(-0.5);
+            assert_eq!(material.charge_progress.x, 0.0);
+        }
+
+        #[test]
+        fn set_charge_progress_clamps_to_one() {
+            let mut material = FireballChargeParticlesMaterial::new();
+            material.set_charge_progress(1.5);
+            assert_eq!(material.charge_progress.x, 1.0);
+        }
+
+        #[test]
+        fn set_charge_progress_accepts_valid_values() {
+            let mut material = FireballChargeParticlesMaterial::new();
+            material.set_charge_progress(0.5);
+            assert_eq!(material.charge_progress.x, 0.5);
+        }
+
+        #[test]
+        fn set_charge_progress_at_boundaries() {
+            let mut material = FireballChargeParticlesMaterial::new();
+            material.set_charge_progress(0.0);
+            assert_eq!(material.charge_progress.x, 0.0);
+            material.set_charge_progress(1.0);
+            assert_eq!(material.charge_progress.x, 1.0);
+        }
+
+        #[test]
+        fn set_particle_count_clamps_to_minimum() {
+            let mut material = FireballChargeParticlesMaterial::new();
+            material.set_particle_count(0.5);
+            assert_eq!(material.particle_count.x, 1.0);
+        }
+
+        #[test]
+        fn set_particle_count_accepts_valid_values() {
+            let mut material = FireballChargeParticlesMaterial::new();
+            material.set_particle_count(24.0);
+            assert_eq!(material.particle_count.x, 24.0);
+        }
+
+        #[test]
+        fn set_emissive_intensity_clamps_negative() {
+            let mut material = FireballChargeParticlesMaterial::new();
+            material.set_emissive_intensity(-5.0);
+            assert_eq!(material.emissive_intensity.x, 0.0);
+        }
+
+        #[test]
+        fn set_emissive_intensity_accepts_positive_values() {
+            let mut material = FireballChargeParticlesMaterial::new();
+            material.set_emissive_intensity(8.0);
+            assert_eq!(material.emissive_intensity.x, 8.0);
+        }
+
+        #[test]
+        fn alpha_mode_is_add() {
+            let material = FireballChargeParticlesMaterial::new();
+            assert_eq!(material.alpha_mode(), AlphaMode::Add);
         }
     }
 }

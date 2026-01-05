@@ -2,9 +2,11 @@ use bevy::prelude::*;
 use std::str::FromStr;
 
 use crate::game::resources::GameMeshes;
-use crate::spells::fire::fireball::{FireballProjectile, FireballCoreEffect, FireballTrailEffect, SmokePuffSpawner};
+use bevy_hanabi::prelude::*;
+use crate::spells::fire::fireball::{FireballProjectile, FireballCoreEffect, FireballTrailEffect, SmokePuffSpawner, ChargingFireball, FireballChargeEffect, FireballChargeParticles};
+use crate::spells::fire::fireball_effects::FireballEffects;
 use crate::spells::fire::materials::{
-    FireballCoreMaterial, FireballTrailMaterial,
+    FireballCoreMaterial, FireballTrailMaterial, FireballChargeMaterial,
     ExplosionCoreMaterial, ExplosionFireMaterial,
     FireballSparksMaterial, ExplosionEmbersMaterial, ExplosionSmokeMaterial,
 };
@@ -41,6 +43,8 @@ pub enum TestScene {
     // === Explosion Shader Tests ===
     /// Explosion core (white-hot flash) at different progress stages
     ExplosionCoreTest,
+    /// Explosion star-burst test - 5 star-bursts at different progress stages
+    ExplosionStarburstTest,
     /// Explosion fire (main fireball blast) at different progress stages
     ExplosionFireTest,
     /// Fireball sparks flying embers
@@ -53,6 +57,10 @@ pub enum TestScene {
     // === Full Explosion Sequence (multi-frame) ===
     /// Complete explosion animation sequence - captures multiple frames
     ExplosionSequence,
+
+    // === Fireball Charge Phase Tests ===
+    /// Charging fireball with inward particle effects
+    FireballChargeParticles,
 }
 
 impl TestScene {
@@ -74,12 +82,15 @@ impl TestScene {
             TestScene::TrailGrowthSequence,
             // Explosion component tests
             TestScene::ExplosionCoreTest,
+            TestScene::ExplosionStarburstTest,
             TestScene::ExplosionFireTest,
             TestScene::ExplosionSparksTest,
             TestScene::ExplosionEmbersTest,
             TestScene::ExplosionSmokeTest,
             // Full explosion sequence
             TestScene::ExplosionSequence,
+            // Charge phase tests
+            TestScene::FireballChargeParticles,
         ]
     }
 
@@ -97,11 +108,13 @@ impl TestScene {
             TestScene::TrailGrowthFull => "trail-growth-full",
             TestScene::TrailGrowthSequence => "trail-growth-sequence",
             TestScene::ExplosionCoreTest => "explosion-core",
+            TestScene::ExplosionStarburstTest => "explosion-starburst",
             TestScene::ExplosionFireTest => "explosion-fire",
             TestScene::ExplosionSparksTest => "explosion-sparks",
             TestScene::ExplosionEmbersTest => "explosion-embers",
             TestScene::ExplosionSmokeTest => "explosion-smoke",
             TestScene::ExplosionSequence => "explosion-sequence",
+            TestScene::FireballChargeParticles => "fireball-charge-particles",
         }
     }
 
@@ -110,6 +123,7 @@ impl TestScene {
         match self {
             // Closer camera for explosion tests to see detail
             TestScene::ExplosionCoreTest
+            | TestScene::ExplosionStarburstTest
             | TestScene::ExplosionFireTest
             | TestScene::ExplosionSparksTest
             | TestScene::ExplosionEmbersTest
@@ -121,6 +135,8 @@ impl TestScene {
             | TestScene::TrailGrowthHalf
             | TestScene::TrailGrowthFull
             | TestScene::TrailGrowthSequence => Vec3::new(0.0, 8.0, 12.0),
+            // Closer camera for charge particles to see detail
+            TestScene::FireballChargeParticles => Vec3::new(0.0, 4.0, 6.0),
             // Zoomed out view to see full fireball trail
             _ => Vec3::new(0.0, 15.0, 25.0),
         }
@@ -136,6 +152,8 @@ impl TestScene {
         match self {
             // Animation tests need time for shaders to compile
             TestScene::TrailNoiseAnimation | TestScene::ExplosionSequence => 60,
+            // Hanabi particles need more warmup time
+            TestScene::FireballChargeParticles => 120,
             // Single frame tests
             _ => 45,
         }
@@ -147,6 +165,7 @@ impl TestScene {
             TestScene::TrailNoiseAnimation => 5,
             TestScene::TrailGrowthSequence => 6,
             TestScene::ExplosionSequence => 8,
+            TestScene::FireballChargeParticles => 8, // Capture particle flow animation
             _ => 1,
         }
     }
@@ -157,6 +176,7 @@ impl TestScene {
             TestScene::TrailNoiseAnimation => 12,  // ~200ms at 60fps
             TestScene::TrailGrowthSequence => 10,  // ~166ms at 60fps for smooth growth
             TestScene::ExplosionSequence => 18,    // ~300ms at 60fps - longer to show smoke rising
+            TestScene::FireballChargeParticles => 10, // ~166ms at 60fps to show particle flow
             _ => 0,
         }
     }
@@ -198,8 +218,10 @@ impl TestScene {
         &self,
         commands: &mut Commands,
         meshes: &GameMeshes,
+        fireball_effects: Option<&FireballEffects>,
         core_materials: &mut Assets<FireballCoreMaterial>,
         trail_materials: &mut Assets<FireballTrailMaterial>,
+        charge_materials: &mut Assets<FireballChargeMaterial>,
         explosion_core_materials: &mut Assets<ExplosionCoreMaterial>,
         explosion_fire_materials: &mut Assets<ExplosionFireMaterial>,
         sparks_materials: &mut Assets<FireballSparksMaterial>,
@@ -251,6 +273,9 @@ impl TestScene {
             TestScene::ExplosionCoreTest => {
                 spawn_explosion_core_test(commands, meshes, explosion_core_materials);
             }
+            TestScene::ExplosionStarburstTest => {
+                spawn_explosion_starburst_test(commands, meshes, explosion_core_materials);
+            }
             TestScene::ExplosionFireTest => {
                 spawn_explosion_fire_test(commands, meshes, explosion_fire_materials);
             }
@@ -271,6 +296,16 @@ impl TestScene {
                     explosion_fire_materials,
                     embers_materials,
                     smoke_materials,
+                );
+            }
+
+            TestScene::FireballChargeParticles => {
+                spawn_charging_fireball_test(
+                    commands,
+                    meshes,
+                    fireball_effects,
+                    core_materials,
+                    charge_materials,
                 );
             }
         }
@@ -421,6 +456,36 @@ fn spawn_explosion_core_test(
             MeshMaterial3d(handle),
             Transform::from_translation(Vec3::new(x_positions[i], 1.0, 0.0))
                 .with_scale(Vec3::splat(1.0 + progress * 0.5)),
+        ));
+    }
+}
+
+/// Spawn explosion star-burst test - 5 star-bursts at different progress stages
+/// Shows the spike vertex displacement effect with different random seeds
+fn spawn_explosion_starburst_test(
+    commands: &mut Commands,
+    meshes: &GameMeshes,
+    materials: &mut Assets<ExplosionCoreMaterial>,
+) {
+    let progress_values = [0.0, 0.25, 0.5, 0.75, 1.0];
+    let x_positions = [-4.0, -2.0, 0.0, 2.0, 4.0];
+
+    for (i, &progress) in progress_values.iter().enumerate() {
+        let mut material = ExplosionCoreMaterial::new();
+        material.set_progress(progress);
+        // Give each star-burst a different random seed for variety
+        material.set_spike_seed(i as f32 * 0.17);
+        // Vary spike count: 5, 6, 7, 6, 5
+        let spike_counts = [5.0, 6.0, 7.0, 6.0, 5.0];
+        material.set_spike_count(spike_counts[i]);
+        let handle = materials.add(material);
+
+        // Star-bursts are larger to show spike detail
+        commands.spawn((
+            Mesh3d(meshes.explosion.clone()),
+            MeshMaterial3d(handle),
+            Transform::from_translation(Vec3::new(x_positions[i], 1.0, 0.0))
+                .with_scale(Vec3::splat(1.5)),
         ));
     }
 }
@@ -596,6 +661,62 @@ fn spawn_explosion_sequence(
 
 }
 
+/// Spawn a charging fireball with Hanabi particles for visual testing
+fn spawn_charging_fireball_test(
+    commands: &mut Commands,
+    meshes: &GameMeshes,
+    fireball_effects: Option<&FireballEffects>,
+    core_materials: &mut Assets<FireballCoreMaterial>,
+    charge_materials: &mut Assets<FireballChargeMaterial>,
+) {
+    let position = Vec3::new(0.0, 2.0, 0.0);
+    let direction = Vec3::X;
+
+    // Create core material
+    let mut core_material = FireballCoreMaterial::new();
+    core_material.set_velocity_direction(direction);
+    let core_handle = core_materials.add(core_material);
+
+    // Create charge swirl material at 50% progress
+    let mut charge_material = FireballChargeMaterial::new();
+    charge_material.set_charge_progress(0.5);
+    charge_material.set_outer_radius(1.0);
+    let charge_handle = charge_materials.add(charge_material);
+
+    // Create a mock ChargingFireball component
+    let charging = ChargingFireball::new(direction, 25.0);
+
+    // Spawn the charging fireball with effects
+    commands.spawn((
+        Mesh3d(meshes.fireball.clone()),
+        MeshMaterial3d(core_handle.clone()),
+        Transform::from_translation(position).with_scale(Vec3::splat(0.5)), // 50% charge scale
+        charging,
+        FireballCoreEffect { material_handle: core_handle },
+    )).with_children(|parent| {
+        // Add charge swirl shader effect
+        parent.spawn((
+            Mesh3d(meshes.fireball.clone()),
+            MeshMaterial3d(charge_handle.clone()),
+            Transform::from_scale(Vec3::splat(1.0)),
+            FireballChargeEffect { material_handle: charge_handle },
+        ));
+    });
+
+    // Spawn Hanabi charge particles at world level (same position as fireball)
+    if let Some(effects) = fireball_effects {
+        commands.spawn((
+            ParticleEffect::new(effects.charge_effect.clone()),
+            EffectMaterial {
+                images: vec![effects.charge_texture.clone()],
+            },
+            Transform::from_translation(position),
+            Visibility::Visible,
+            FireballChargeParticles,
+        ));
+    }
+}
+
 impl FromStr for TestScene {
     type Err = String;
 
@@ -612,11 +733,13 @@ impl FromStr for TestScene {
             "trail-growth-full" => Ok(TestScene::TrailGrowthFull),
             "trail-growth-sequence" => Ok(TestScene::TrailGrowthSequence),
             "explosion-core" => Ok(TestScene::ExplosionCoreTest),
+            "explosion-starburst" => Ok(TestScene::ExplosionStarburstTest),
             "explosion-fire" => Ok(TestScene::ExplosionFireTest),
             "explosion-sparks" => Ok(TestScene::ExplosionSparksTest),
             "explosion-embers" => Ok(TestScene::ExplosionEmbersTest),
             "explosion-smoke" => Ok(TestScene::ExplosionSmokeTest),
             "explosion-sequence" => Ok(TestScene::ExplosionSequence),
+            "fireball-charge-particles" => Ok(TestScene::FireballChargeParticles),
             "list" => Err("list".to_string()), // Special case handled in main
             _ => Err(format!("Unknown scene: '{}'. Use --screenshot list to see available scenes.", s)),
         }
