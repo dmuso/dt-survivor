@@ -747,12 +747,12 @@ pub fn update_fireball_sparks_material_time(
 
 /// Material for rendering explosion embers as fast-moving flying debris.
 ///
-/// This shader creates bright ember particles that fly outward with:
-/// - Many small bright particles radiating outward at high speed
-/// - Gravity arc trajectories (falling motion)
-/// - Cooling color progression: yellow -> orange -> deep red
-/// - Motion streaks for speed visualization
-/// - Duration ~0.8s
+/// Dark projectile shader material.
+/// This shader creates elongated dark projectiles that fly outward with:
+/// - Velocity-based vertex stretching (elongated in direction of travel)
+/// - Dark charcoal color (not bright/glowing)
+/// - Stretch factor: 1.0 at rest, up to ~4x at max speed (18 m/s)
+/// - Duration ~0.6s with rapid deceleration
 /// - Progress-based animation (0.0 = start, 1.0 = end)
 #[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
 pub struct ExplosionEmbersMaterial {
@@ -764,11 +764,12 @@ pub struct ExplosionEmbersMaterial {
     #[uniform(0)]
     pub progress: Vec4,
 
-    /// Velocity of the ember (xyz = direction, w = speed magnitude).
+    /// Velocity of the projectile (xyz = direction normalized, w = speed magnitude).
+    /// Speed affects vertex stretching: higher speed = more elongated shape.
     #[uniform(0)]
     pub velocity: Vec4,
 
-    /// Emissive intensity for HDR bloom effect.
+    /// Emissive intensity (keep low for dark appearance, ~1.0).
     #[uniform(0)]
     pub emissive_intensity: Vec4,
 }
@@ -778,10 +779,10 @@ impl Default for ExplosionEmbersMaterial {
         Self {
             time: Vec4::ZERO,
             progress: Vec4::ZERO,
-            // Default velocity: fast outward with slight upward arc
-            velocity: Vec4::new(1.0, 0.5, 0.0, 15.0),
-            // High emissive for bright embers
-            emissive_intensity: Vec4::new(6.0, 0.0, 0.0, 0.0),
+            // Default velocity: fast outward (15 m/s gives good stretch)
+            velocity: Vec4::new(1.0, 0.0, 0.0, 15.0),
+            // Low emissive for dark appearance (no bloom glow)
+            emissive_intensity: Vec4::new(1.0, 0.0, 0.0, 0.0),
         }
     }
 }
@@ -825,7 +826,8 @@ impl Material for ExplosionEmbersMaterial {
     }
 
     fn alpha_mode(&self) -> AlphaMode {
-        AlphaMode::Add
+        // Use Blend for proper dark coloring (Add would make it glow)
+        AlphaMode::Blend
     }
 }
 
@@ -1988,11 +1990,13 @@ mod tests {
             let material = ExplosionEmbersMaterial::default();
             assert_eq!(material.time.x, 0.0);
             assert_eq!(material.progress.x, 0.0);
+            // Velocity: fast outward for good stretch
             assert_eq!(material.velocity.x, 1.0);
-            assert_eq!(material.velocity.y, 0.5);
+            assert_eq!(material.velocity.y, 0.0);
             assert_eq!(material.velocity.z, 0.0);
             assert_eq!(material.velocity.w, 15.0);
-            assert_eq!(material.emissive_intensity.x, 6.0);
+            // Low emissive for dark appearance
+            assert_eq!(material.emissive_intensity.x, 1.0);
         }
 
         #[test]
@@ -2109,9 +2113,10 @@ mod tests {
         }
 
         #[test]
-        fn alpha_mode_is_add() {
+        fn alpha_mode_is_blend() {
             let material = ExplosionEmbersMaterial::new();
-            assert_eq!(material.alpha_mode(), AlphaMode::Add);
+            // Blend mode for proper dark coloring (Add would make it glow)
+            assert_eq!(material.alpha_mode(), AlphaMode::Blend);
         }
     }
 

@@ -5,7 +5,7 @@ use crate::game::resources::GameMeshes;
 use bevy_hanabi::prelude::*;
 use crate::spells::fire::fireball::{
     FireballProjectile, FireballCoreEffect, FireballTrailEffect, SmokePuffSpawner,
-    ChargingFireball, FireballChargeEffect, FireballChargeParticles, BillowingFireSpawner,
+    ChargingFireball, FireballChargeEffect, FireballChargeParticles,
 };
 use crate::spells::fire::fireball_effects::FireballEffects;
 use crate::spells::fire::materials::{
@@ -63,6 +63,10 @@ pub enum TestScene {
     /// Complete explosion animation sequence - captures multiple frames
     ExplosionSequence,
 
+    // === Dark Projectiles Test ===
+    /// Dark projectiles test - 14 elongated projectiles at various speeds
+    ExplosionDarkProjectilesTest,
+
     // === Billowing Fire Tests ===
     /// Billowing fire spheres test - 8 spheres expanding outward at different stages
     ExplosionBillowingFireTest,
@@ -99,6 +103,8 @@ impl TestScene {
             TestScene::ExplosionSmokeTest,
             // Full explosion sequence
             TestScene::ExplosionSequence,
+            // Dark projectiles test
+            TestScene::ExplosionDarkProjectilesTest,
             // Billowing fire test
             TestScene::ExplosionBillowingFireTest,
             // Charge phase tests
@@ -127,6 +133,7 @@ impl TestScene {
             TestScene::ExplosionEmbersTest => "explosion-embers",
             TestScene::ExplosionSmokeTest => "explosion-smoke",
             TestScene::ExplosionSequence => "explosion-sequence",
+            TestScene::ExplosionDarkProjectilesTest => "explosion-dark-projectiles",
             TestScene::ExplosionBillowingFireTest => "explosion-billowing-fire",
             TestScene::FireballChargeParticles => "fireball-charge-particles",
         }
@@ -144,6 +151,8 @@ impl TestScene {
             | TestScene::ExplosionEmbersTest
             | TestScene::ExplosionSmokeTest
             | TestScene::ExplosionSequence => Vec3::new(0.0, 5.0, 8.0),
+            // Wider camera for dark projectiles to see elongation and spread
+            TestScene::ExplosionDarkProjectilesTest => Vec3::new(0.0, 6.0, 10.0),
             // Wider camera for billowing fire to capture all 8 spheres expanding outward
             TestScene::ExplosionBillowingFireTest => Vec3::new(0.0, 8.0, 12.0),
             // Medium camera for trail growth tests to see trail clearly
@@ -184,6 +193,7 @@ impl TestScene {
             TestScene::TrailNoiseAnimation => 5,
             TestScene::TrailGrowthSequence => 6,
             TestScene::ExplosionSequence => 8,
+            TestScene::ExplosionDarkProjectilesTest => 5, // Capture projectile flight and deceleration
             TestScene::ExplosionBillowingFireTest => 6, // Capture expansion animation
             TestScene::FireballChargeParticles => 8, // Capture particle flow animation
             _ => 1,
@@ -196,6 +206,7 @@ impl TestScene {
             TestScene::TrailNoiseAnimation => 12,  // ~200ms at 60fps
             TestScene::TrailGrowthSequence => 10,  // ~166ms at 60fps for smooth growth
             TestScene::ExplosionSequence => 18,    // ~300ms at 60fps - longer to show smoke rising
+            TestScene::ExplosionDarkProjectilesTest => 6, // ~100ms at 60fps to show deceleration
             TestScene::ExplosionBillowingFireTest => 8, // ~133ms at 60fps to show sphere expansion
             TestScene::FireballChargeParticles => 10, // ~166ms at 60fps to show particle flow
             _ => 0,
@@ -322,6 +333,10 @@ impl TestScene {
                     embers_materials,
                     smoke_materials,
                 );
+            }
+
+            TestScene::ExplosionDarkProjectilesTest => {
+                spawn_dark_projectiles_test(commands, meshes, embers_materials);
             }
 
             TestScene::ExplosionBillowingFireTest => {
@@ -665,6 +680,69 @@ fn spawn_smoke_test(
     }
 }
 
+/// Spawn dark projectiles test - 14 projectiles at various speeds to show elongation
+/// Uses the actual spawning function from fireball.rs with ExplosionEmbersEffect component
+fn spawn_dark_projectiles_test(
+    commands: &mut Commands,
+    meshes: &GameMeshes,
+    materials: &mut Assets<ExplosionEmbersMaterial>,
+) {
+    use crate::spells::fire::fireball::{
+        ExplosionEmbersEffect, DARK_PROJECTILE_COUNT, DARK_PROJECTILE_MIN_SPEED,
+        DARK_PROJECTILE_MAX_SPEED, DARK_PROJECTILE_SCALE,
+    };
+    use std::f32::consts::TAU;
+
+    let position = Vec3::new(0.0, 1.0, 0.0);
+
+    // Spawn lighting for the scene
+    spawn_lighting(commands);
+
+    // Use irrational numbers for pseudo-random variation (not PI or E to avoid clippy warnings)
+    const GOLDEN_RATIO: f32 = 1.618_034;
+    const SQRT_5: f32 = 2.236_068;
+    const SQRT_3: f32 = 1.732_051;
+
+    // Spawn 14 dark projectiles with varied speeds and directions
+    for i in 0..DARK_PROJECTILE_COUNT {
+        // Create varied angles around a circle with some vertical variation
+        let angle = (i as f32 / DARK_PROJECTILE_COUNT as f32) * TAU;
+        // Add random jitter to angle using a simple hash
+        let jitter = ((i as f32 * GOLDEN_RATIO).fract() - 0.5) * 0.5;
+        let final_angle = angle + jitter;
+
+        // Vertical variation: some go slightly up, some level, some slightly down
+        let elevation = ((i as f32 * SQRT_5).fract() - 0.5) * 0.6;
+
+        let direction = Vec3::new(
+            final_angle.cos(),
+            elevation,
+            final_angle.sin(),
+        ).normalize();
+
+        // Random speed between min and max using simple variation
+        let speed_factor = (i as f32 * SQRT_3).fract();
+        let speed = DARK_PROJECTILE_MIN_SPEED
+            + speed_factor * (DARK_PROJECTILE_MAX_SPEED - DARK_PROJECTILE_MIN_SPEED);
+
+        // Create material with initial velocity
+        let mut material = ExplosionEmbersMaterial::new();
+        material.set_velocity(direction, speed);
+        let handle = materials.add(material);
+
+        // Small offset from center so projectiles don't all start at same point
+        let offset = direction * 0.2;
+
+        commands.spawn((
+            Mesh3d(meshes.fireball.clone()),
+            MeshMaterial3d(handle.clone()),
+            Transform::from_translation(position + offset)
+                .with_scale(Vec3::splat(DARK_PROJECTILE_SCALE)),
+            ExplosionEmbersEffect::new(handle, direction, speed),
+        ));
+    }
+}
+
 /// Spawn complete explosion sequence for animation capture
 fn spawn_explosion_sequence(
     commands: &mut Commands,
@@ -836,6 +914,7 @@ impl FromStr for TestScene {
             "explosion-embers" => Ok(TestScene::ExplosionEmbersTest),
             "explosion-smoke" => Ok(TestScene::ExplosionSmokeTest),
             "explosion-sequence" => Ok(TestScene::ExplosionSequence),
+            "explosion-dark-projectiles" => Ok(TestScene::ExplosionDarkProjectilesTest),
             "explosion-billowing-fire" => Ok(TestScene::ExplosionBillowingFireTest),
             "fireball-charge-particles" => Ok(TestScene::FireballChargeParticles),
             "list" => Err("list".to_string()), // Special case handled in main

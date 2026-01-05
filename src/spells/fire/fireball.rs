@@ -289,21 +289,43 @@ impl ExplosionFireEffect {
     }
 }
 
-/// Component for the shader-based explosion embers effect (flying debris)
-/// Stores the material handle and lifetime timer for progress updates
+/// Dark projectile constants
+pub const DARK_PROJECTILE_COUNT: usize = 14;
+pub const DARK_PROJECTILE_LIFETIME: f32 = 0.6;
+pub const DARK_PROJECTILE_MIN_SPEED: f32 = 12.0;
+pub const DARK_PROJECTILE_MAX_SPEED: f32 = 18.0;
+pub const DARK_PROJECTILE_DECELERATION: f32 = 17.5; // m/s^2 (rapid slowdown)
+pub const DARK_PROJECTILE_SCALE: f32 = 0.5; // Size of each projectile
+
+/// Component for the shader-based dark projectile effect (velocity-elongated debris)
+/// Stores the material handle, lifetime timer, velocity, and deceleration for progress updates
 #[derive(Component, Debug)]
 pub struct ExplosionEmbersEffect {
     /// Handle to the explosion embers material for this entity
     pub material_handle: Handle<super::materials::ExplosionEmbersMaterial>,
-    /// Lifetime timer (0.8s for flying embers)
+    /// Lifetime timer (0.6s for dark projectiles)
     pub lifetime: Timer,
+    /// Current velocity direction (normalized)
+    pub direction: Vec3,
+    /// Current speed (decreases due to deceleration)
+    pub speed: f32,
+    /// Deceleration rate (m/s^2)
+    pub deceleration: f32,
 }
 
 impl ExplosionEmbersEffect {
-    pub fn new(material_handle: Handle<super::materials::ExplosionEmbersMaterial>) -> Self {
+    /// Create a new dark projectile effect with velocity and deceleration
+    pub fn new(
+        material_handle: Handle<super::materials::ExplosionEmbersMaterial>,
+        direction: Vec3,
+        speed: f32,
+    ) -> Self {
         Self {
             material_handle,
-            lifetime: Timer::from_seconds(0.8, TimerMode::Once),
+            lifetime: Timer::from_seconds(DARK_PROJECTILE_LIFETIME, TimerMode::Once),
+            direction: direction.normalize_or_zero(),
+            speed,
+            deceleration: DARK_PROJECTILE_DECELERATION,
         }
     }
 
@@ -315,6 +337,11 @@ impl ExplosionEmbersEffect {
     /// Check if the effect is finished
     pub fn is_finished(&self) -> bool {
         self.lifetime.is_finished()
+    }
+
+    /// Apply deceleration and return the new speed
+    pub fn apply_deceleration(&mut self, delta_time: f32) {
+        self.speed = (self.speed - self.deceleration * delta_time).max(0.0);
     }
 }
 
@@ -1075,6 +1102,60 @@ pub fn fireball_charge_to_flight_system(
     }
 }
 
+/// Spawns 14 dark projectiles radiating outward from the explosion point.
+/// Each projectile has random direction and speed with rapid deceleration.
+fn spawn_dark_projectiles(
+    commands: &mut Commands,
+    meshes: &GameMeshes,
+    embers_materials: &mut Assets<super::materials::ExplosionEmbersMaterial>,
+    position: Vec3,
+) {
+    use std::f32::consts::TAU;
+
+    // Use irrational numbers for pseudo-random variation (not PI or E to avoid clippy warnings)
+    const GOLDEN_RATIO: f32 = 1.618_034;
+    const SQRT_5: f32 = 2.236_068;
+    const SQRT_3: f32 = 1.732_051;
+
+    for i in 0..DARK_PROJECTILE_COUNT {
+        // Create varied angles around a circle with some vertical variation
+        let angle = (i as f32 / DARK_PROJECTILE_COUNT as f32) * TAU;
+        // Add random jitter to angle using a simple hash
+        let jitter = ((i as f32 * GOLDEN_RATIO).fract() - 0.5) * 0.5;
+        let final_angle = angle + jitter;
+
+        // Vertical variation: some go slightly up, some level, some slightly down
+        let elevation = ((i as f32 * SQRT_5).fract() - 0.5) * 0.6;
+
+        let direction = Vec3::new(
+            final_angle.cos(),
+            elevation,
+            final_angle.sin(),
+        ).normalize();
+
+        // Random speed between min and max using simple variation
+        let speed_factor = (i as f32 * SQRT_3).fract();
+        let speed = DARK_PROJECTILE_MIN_SPEED
+            + speed_factor * (DARK_PROJECTILE_MAX_SPEED - DARK_PROJECTILE_MIN_SPEED);
+
+        // Create material with initial velocity
+        let mut material = super::materials::ExplosionEmbersMaterial::new();
+        material.set_velocity(direction, speed);
+        let handle = embers_materials.add(material);
+
+        // Small offset from center so projectiles don't all start at same point
+        let offset = direction * 0.2;
+
+        commands.spawn((
+            Mesh3d(meshes.fireball.clone()),
+            MeshMaterial3d(handle.clone()),
+            Transform::from_translation(position + offset)
+                .with_scale(Vec3::splat(DARK_PROJECTILE_SCALE)),
+            ExplosionEmbersEffect::new(handle, direction, speed),
+        ));
+    }
+}
+
 /// System that spawns explosion shader effects at collision point
 /// Spawns all four explosion layers for maximum impact using shader materials
 #[allow(clippy::too_many_arguments)]
@@ -1121,17 +1202,9 @@ pub fn fireball_explosion_spawn_system(
             ));
         }
 
-        // Spawn shader-based explosion embers effect (flying debris)
+        // Spawn 14 dark projectiles flying outward with velocity elongation
         if let (Some(meshes), Some(ref mut embers_mats)) = (&game_meshes, &mut explosion_embers_materials) {
-            let embers_material = super::materials::ExplosionEmbersMaterial::new();
-            let embers_handle = embers_mats.add(embers_material);
-
-            commands.spawn((
-                Mesh3d(meshes.fireball.clone()),
-                MeshMaterial3d(embers_handle.clone()),
-                Transform::from_translation(pos).with_scale(Vec3::splat(4.0)),
-                ExplosionEmbersEffect::new(embers_handle),
-            ));
+            spawn_dark_projectiles(&mut commands, meshes, embers_mats, pos);
         }
 
         // Spawn billowing fire spheres spawner (creates 8 fire spheres that expand outward)
@@ -1188,17 +1261,9 @@ pub fn fireball_ground_collision_system(
                 ));
             }
 
-            // Spawn shader-based explosion embers effect (flying debris)
+            // Spawn 14 dark projectiles flying outward with velocity elongation
             if let (Some(meshes), Some(ref mut embers_mats)) = (&game_meshes, &mut explosion_embers_materials) {
-                let embers_material = super::materials::ExplosionEmbersMaterial::new();
-                let embers_handle = embers_mats.add(embers_material);
-
-                commands.spawn((
-                    Mesh3d(meshes.fireball.clone()),
-                    MeshMaterial3d(embers_handle.clone()),
-                    Transform::from_translation(pos).with_scale(Vec3::splat(4.0)),
-                    ExplosionEmbersEffect::new(embers_handle),
-                ));
+                spawn_dark_projectiles(&mut commands, meshes, embers_mats, pos);
             }
 
             // Spawn billowing fire spheres spawner (creates 8 fire spheres that expand outward)
@@ -1281,24 +1346,33 @@ pub fn explosion_fire_effect_update_system(
     }
 }
 
-/// System that updates explosion embers shader effects (progress and cleanup)
+/// System that updates dark projectile shader effects (progress, velocity, deceleration, movement, and cleanup)
 pub fn explosion_embers_effect_update_system(
     mut commands: Commands,
     time: Res<Time>,
-    mut query: Query<(Entity, &mut ExplosionEmbersEffect)>,
+    mut query: Query<(Entity, &mut ExplosionEmbersEffect, &mut Transform)>,
     mut materials: Option<ResMut<Assets<super::materials::ExplosionEmbersMaterial>>>,
 ) {
     let Some(materials) = materials.as_mut() else {
         return; // No material assets available (e.g., in tests without MaterialPlugin)
     };
 
-    for (entity, mut effect) in query.iter_mut() {
+    let delta = time.delta_secs();
+
+    for (entity, mut effect, mut transform) in query.iter_mut() {
         effect.lifetime.tick(time.delta());
         let progress = effect.progress();
 
-        // Update the material's progress
+        // Apply deceleration
+        effect.apply_deceleration(delta);
+
+        // Move the projectile based on current velocity
+        transform.translation += effect.direction * effect.speed * delta;
+
+        // Update the material's progress and velocity
         if let Some(material) = materials.get_mut(&effect.material_handle) {
             material.set_progress(progress);
+            material.set_velocity(effect.direction, effect.speed);
         }
 
         // Despawn when finished
