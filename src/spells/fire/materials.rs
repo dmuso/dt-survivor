@@ -26,6 +26,9 @@ pub const EXPLOSION_EMBERS_SHADER: &str = "shaders/explosion_embers.wgsl";
 /// Shader asset path for the explosion smoke rising plume effect.
 pub const EXPLOSION_SMOKE_SHADER: &str = "shaders/explosion_smoke.wgsl";
 
+/// Shader asset path for the explosion dark impact silhouette spikes effect.
+pub const EXPLOSION_DARK_IMPACT_SHADER: &str = "shaders/explosion_dark_impact.wgsl";
+
 /// Shader asset path for the fireball charge particles effect.
 pub const FIREBALL_CHARGE_PARTICLES_SHADER: &str = "shaders/fireball_charge_particles.wgsl";
 
@@ -913,6 +916,137 @@ pub struct ExplosionSmokeMaterialHandle(pub Handle<ExplosionSmokeMaterial>);
 pub fn update_explosion_smoke_material_time(
     time: Res<Time>,
     materials: Option<ResMut<Assets<ExplosionSmokeMaterial>>>,
+) {
+    let Some(mut materials) = materials else { return };
+    let current_time = time.elapsed_secs();
+    let ids: Vec<_> = materials.ids().collect();
+    for id in ids {
+        if let Some(material) = materials.get_mut(id) {
+            material.set_time(current_time);
+        }
+    }
+}
+
+// ============================================================================
+// Explosion Dark Impact Material - Dark silhouette spikes effect
+// ============================================================================
+
+/// Material for rendering dark silhouette spikes behind the initial explosion impact.
+///
+/// This shader creates dark spikes radiating outward:
+/// - Similar spike geometry to explosion core but with dark coloring
+/// - Charcoal center (0.15, 0.12, 0.1) to black edges
+/// - Low emissive (0.3) for silhouette effect (not glowing)
+/// - Spawns at t=0.06s when initial impact starts shrinking
+/// - Duration: 0.4s
+/// - Progress-based animation (0.0 = start, 1.0 = end)
+#[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
+pub struct ExplosionDarkImpactMaterial {
+    /// Current time for animation (in seconds).
+    #[uniform(0)]
+    pub time: Vec4,
+
+    /// Lifetime progress from 0.0 (start) to 1.0 (end).
+    #[uniform(0)]
+    pub progress: Vec4,
+
+    /// Emissive intensity for subtle effect (low values for silhouette).
+    #[uniform(0)]
+    pub emissive_intensity: Vec4,
+
+    /// Expansion scale multiplier.
+    #[uniform(0)]
+    pub expansion_scale: Vec4,
+
+    /// Spike configuration: .x = spike_seed (0-1 random seed for spike variation),
+    /// .y = spike_count (5-8), .z = min_spike_length (0.5-1.0), .w = max_spike_length (1.5-2.5)
+    #[uniform(0)]
+    pub spike_config: Vec4,
+}
+
+impl Default for ExplosionDarkImpactMaterial {
+    fn default() -> Self {
+        Self {
+            time: Vec4::ZERO,
+            progress: Vec4::ZERO,
+            // Low emissive for dark silhouette effect
+            emissive_intensity: Vec4::new(0.4, 0.0, 0.0, 0.0),
+            expansion_scale: Vec4::new(1.0, 0.0, 0.0, 0.0),
+            // Default spike config: random seed, 6 spikes, 0.8-2.5 length range for dramatic spikes
+            spike_config: Vec4::new(0.0, 6.0, 0.8, 2.5),
+        }
+    }
+}
+
+impl ExplosionDarkImpactMaterial {
+    /// Create a new material with default settings.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Update the time uniform for noise animation.
+    pub fn set_time(&mut self, time: f32) {
+        self.time.x = time;
+    }
+
+    /// Set the lifetime progress (0.0 to 1.0).
+    /// Controls the expansion and fade animation.
+    pub fn set_progress(&mut self, progress: f32) {
+        self.progress.x = progress.clamp(0.0, 1.0);
+    }
+
+    /// Set the emissive intensity.
+    /// Low values (0.2-0.5) recommended for dark silhouette effect.
+    pub fn set_emissive_intensity(&mut self, intensity: f32) {
+        self.emissive_intensity.x = intensity.max(0.0);
+    }
+
+    /// Set the expansion scale multiplier.
+    pub fn set_expansion_scale(&mut self, scale: f32) {
+        self.expansion_scale.x = scale.max(0.1);
+    }
+
+    /// Set the spike seed for random spike variation (0.0 to 1.0).
+    /// Different seeds produce different spike patterns.
+    pub fn set_spike_seed(&mut self, seed: f32) {
+        self.spike_config.x = seed.clamp(0.0, 1.0);
+    }
+
+    /// Set the number of spikes (5 to 8).
+    pub fn set_spike_count(&mut self, count: f32) {
+        self.spike_config.y = count.clamp(5.0, 8.0);
+    }
+
+    /// Set the spike length range.
+    /// min_length: shortest spike (0.3-1.0), max_length: longest spike (1.5-3.0)
+    pub fn set_spike_length_range(&mut self, min_length: f32, max_length: f32) {
+        self.spike_config.z = min_length.clamp(0.3, 1.0);
+        self.spike_config.w = max_length.clamp(1.5, 3.0);
+    }
+}
+
+impl Material for ExplosionDarkImpactMaterial {
+    fn fragment_shader() -> ShaderRef {
+        EXPLOSION_DARK_IMPACT_SHADER.into()
+    }
+
+    fn vertex_shader() -> ShaderRef {
+        EXPLOSION_DARK_IMPACT_SHADER.into()
+    }
+
+    fn alpha_mode(&self) -> AlphaMode {
+        AlphaMode::Blend
+    }
+}
+
+/// Resource to store the explosion dark impact material handle for reuse.
+#[derive(Resource)]
+pub struct ExplosionDarkImpactMaterialHandle(pub Handle<ExplosionDarkImpactMaterial>);
+
+/// System to update time on all explosion dark impact materials.
+pub fn update_explosion_dark_impact_material_time(
+    time: Res<Time>,
+    materials: Option<ResMut<Assets<ExplosionDarkImpactMaterial>>>,
 ) {
     let Some(mut materials) = materials else { return };
     let current_time = time.elapsed_secs();
@@ -1993,6 +2127,175 @@ mod tests {
         #[test]
         fn alpha_mode_is_blend() {
             let material = ExplosionSmokeMaterial::new();
+            assert_eq!(material.alpha_mode(), AlphaMode::Blend);
+        }
+    }
+
+    mod explosion_dark_impact_material_tests {
+        use super::*;
+
+        #[test]
+        fn default_has_expected_values() {
+            let material = ExplosionDarkImpactMaterial::default();
+            assert_eq!(material.time.x, 0.0);
+            assert_eq!(material.progress.x, 0.0);
+            assert_eq!(material.emissive_intensity.x, 0.4);
+            assert_eq!(material.expansion_scale.x, 1.0);
+            // spike_config: seed=0, count=6, min=0.8, max=2.5
+            assert_eq!(material.spike_config.x, 0.0);
+            assert_eq!(material.spike_config.y, 6.0);
+            assert_eq!(material.spike_config.z, 0.8);
+            assert_eq!(material.spike_config.w, 2.5);
+        }
+
+        #[test]
+        fn new_matches_default() {
+            let material = ExplosionDarkImpactMaterial::new();
+            let default = ExplosionDarkImpactMaterial::default();
+            assert_eq!(material.time, default.time);
+            assert_eq!(material.progress, default.progress);
+            assert_eq!(material.emissive_intensity, default.emissive_intensity);
+            assert_eq!(material.expansion_scale, default.expansion_scale);
+            assert_eq!(material.spike_config, default.spike_config);
+        }
+
+        #[test]
+        fn set_time_updates_x_component() {
+            let mut material = ExplosionDarkImpactMaterial::new();
+            material.set_time(3.5);
+            assert_eq!(material.time.x, 3.5);
+            assert_eq!(material.time.y, 0.0);
+            assert_eq!(material.time.z, 0.0);
+            assert_eq!(material.time.w, 0.0);
+        }
+
+        #[test]
+        fn set_progress_clamps_to_zero() {
+            let mut material = ExplosionDarkImpactMaterial::new();
+            material.set_progress(-0.5);
+            assert_eq!(material.progress.x, 0.0);
+        }
+
+        #[test]
+        fn set_progress_clamps_to_one() {
+            let mut material = ExplosionDarkImpactMaterial::new();
+            material.set_progress(1.5);
+            assert_eq!(material.progress.x, 1.0);
+        }
+
+        #[test]
+        fn set_progress_accepts_valid_values() {
+            let mut material = ExplosionDarkImpactMaterial::new();
+            material.set_progress(0.5);
+            assert_eq!(material.progress.x, 0.5);
+        }
+
+        #[test]
+        fn set_progress_at_boundaries() {
+            let mut material = ExplosionDarkImpactMaterial::new();
+            material.set_progress(0.0);
+            assert_eq!(material.progress.x, 0.0);
+            material.set_progress(1.0);
+            assert_eq!(material.progress.x, 1.0);
+        }
+
+        #[test]
+        fn set_emissive_intensity_clamps_negative() {
+            let mut material = ExplosionDarkImpactMaterial::new();
+            material.set_emissive_intensity(-5.0);
+            assert_eq!(material.emissive_intensity.x, 0.0);
+        }
+
+        #[test]
+        fn set_emissive_intensity_accepts_low_values() {
+            let mut material = ExplosionDarkImpactMaterial::new();
+            material.set_emissive_intensity(0.5);
+            assert_eq!(material.emissive_intensity.x, 0.5);
+        }
+
+        #[test]
+        fn set_expansion_scale_clamps_to_minimum() {
+            let mut material = ExplosionDarkImpactMaterial::new();
+            material.set_expansion_scale(0.05);
+            assert_eq!(material.expansion_scale.x, 0.1);
+        }
+
+        #[test]
+        fn set_expansion_scale_accepts_valid_values() {
+            let mut material = ExplosionDarkImpactMaterial::new();
+            material.set_expansion_scale(2.5);
+            assert_eq!(material.expansion_scale.x, 2.5);
+        }
+
+        #[test]
+        fn set_spike_seed_clamps_to_zero() {
+            let mut material = ExplosionDarkImpactMaterial::new();
+            material.set_spike_seed(-0.5);
+            assert_eq!(material.spike_config.x, 0.0);
+        }
+
+        #[test]
+        fn set_spike_seed_clamps_to_one() {
+            let mut material = ExplosionDarkImpactMaterial::new();
+            material.set_spike_seed(1.5);
+            assert_eq!(material.spike_config.x, 1.0);
+        }
+
+        #[test]
+        fn set_spike_seed_accepts_valid_values() {
+            let mut material = ExplosionDarkImpactMaterial::new();
+            material.set_spike_seed(0.7);
+            assert_eq!(material.spike_config.x, 0.7);
+        }
+
+        #[test]
+        fn set_spike_count_clamps_to_minimum() {
+            let mut material = ExplosionDarkImpactMaterial::new();
+            material.set_spike_count(3.0);
+            assert_eq!(material.spike_config.y, 5.0);
+        }
+
+        #[test]
+        fn set_spike_count_clamps_to_maximum() {
+            let mut material = ExplosionDarkImpactMaterial::new();
+            material.set_spike_count(12.0);
+            assert_eq!(material.spike_config.y, 8.0);
+        }
+
+        #[test]
+        fn set_spike_count_accepts_valid_values() {
+            let mut material = ExplosionDarkImpactMaterial::new();
+            material.set_spike_count(7.0);
+            assert_eq!(material.spike_config.y, 7.0);
+        }
+
+        #[test]
+        fn set_spike_length_range_clamps_minimum() {
+            let mut material = ExplosionDarkImpactMaterial::new();
+            material.set_spike_length_range(0.1, 1.0);
+            assert_eq!(material.spike_config.z, 0.3);
+            assert_eq!(material.spike_config.w, 1.5);
+        }
+
+        #[test]
+        fn set_spike_length_range_clamps_maximum() {
+            let mut material = ExplosionDarkImpactMaterial::new();
+            material.set_spike_length_range(2.0, 5.0);
+            assert_eq!(material.spike_config.z, 1.0);
+            assert_eq!(material.spike_config.w, 3.0);
+        }
+
+        #[test]
+        fn set_spike_length_range_accepts_valid_values() {
+            let mut material = ExplosionDarkImpactMaterial::new();
+            material.set_spike_length_range(0.5, 2.0);
+            assert_eq!(material.spike_config.z, 0.5);
+            assert_eq!(material.spike_config.w, 2.0);
+        }
+
+        #[test]
+        fn alpha_mode_is_blend() {
+            let material = ExplosionDarkImpactMaterial::new();
             assert_eq!(material.alpha_mode(), AlphaMode::Blend);
         }
     }

@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use bevy::prelude::*;
+use bevy_hanabi::prelude::*;
 use bevy_kira_audio::prelude::*;
 use crate::audio::plugin::*;
 use crate::combat::DamageEvent;
@@ -29,12 +30,17 @@ pub const FIREBALL_MAX_TRAIL_LENGTH: f32 = 0.75;
 /// Trail grows to max length over this distance traveled (in world units)
 pub const FIREBALL_TRAIL_GROW_DISTANCE: f32 = 6.0;
 
+/// Duration over which fireball speed eases from fast to normal (in seconds)
+pub const FIREBALL_EASE_DURATION: f32 = 0.5;
+/// Initial speed multiplier at launch (fast start)
+pub const FIREBALL_LAUNCH_SPEED_MULT: f32 = 3.0;
+
 /// Marker component for fireball projectiles
 #[derive(Component, Debug, Clone)]
 pub struct FireballProjectile {
     /// Direction of travel in 3D space (normalized)
     pub direction: Vec3,
-    /// Speed in units per second
+    /// Base speed in units per second
     pub speed: f32,
     /// Lifetime timer
     pub lifetime: Timer,
@@ -44,6 +50,8 @@ pub struct FireballProjectile {
     pub burn_tick_damage: f32,
     /// Position where the fireball transitioned to flight phase
     pub spawn_position: Vec3,
+    /// Time since launch for speed easing (seconds)
+    pub travel_time: f32,
 }
 
 impl FireballProjectile {
@@ -69,7 +77,17 @@ impl FireballProjectile {
             damage,
             burn_tick_damage,
             spawn_position,
+            travel_time: 0.0,
         }
+    }
+
+    /// Get current speed with ease-out effect (fast launch, slows to base speed)
+    pub fn current_speed(&self) -> f32 {
+        let t = (self.travel_time / FIREBALL_EASE_DURATION).min(1.0);
+        // Ease-out: start at LAUNCH_SPEED_MULT, decay to 1.0
+        let ease = 1.0 - (1.0 - t).powi(3);  // Cubic ease-out
+        let multiplier = FIREBALL_LAUNCH_SPEED_MULT - (FIREBALL_LAUNCH_SPEED_MULT - 1.0) * ease;
+        self.speed * multiplier
     }
 
     pub fn from_spell(direction: Vec3, spell: &Spell) -> Self {
@@ -163,10 +181,10 @@ impl ChargingFireball {
     }
 
     /// Get current scale based on charge progress (0.0 to 1.0)
-    /// Uses ease-out cubic for satisfying growth
+    /// Uses ease-out cubic: fast growth at start, slows as it reaches full size
     pub fn current_scale(&self) -> f32 {
         let t = self.charge_timer.fraction();
-        let eased = 1.0 - (1.0 - t).powi(3);
+        let eased = 1.0 - (1.0 - t).powi(3);  // Ease-out: fast start, slow end
         self.start_scale + (self.end_scale - self.start_scale) * eased
     }
 
@@ -195,6 +213,7 @@ pub struct FireballChargeEffect {
     /// Handle to the charge material for this entity
     pub material_handle: Handle<super::materials::FireballChargeMaterial>,
 }
+
 
 /// Component for the shader-based trail effect entity (comet tail)
 /// Stores the material handle so we can update velocity direction
@@ -314,6 +333,35 @@ impl ExplosionSmokeEffect {
         Self {
             material_handle,
             lifetime: Timer::from_seconds(1.2, TimerMode::Once),
+        }
+    }
+
+    /// Get progress (0.0 to 1.0) through the lifetime
+    pub fn progress(&self) -> f32 {
+        self.lifetime.fraction()
+    }
+
+    /// Check if the effect is finished
+    pub fn is_finished(&self) -> bool {
+        self.lifetime.is_finished()
+    }
+}
+
+/// Component for the shader-based explosion dark impact effect (silhouette spikes)
+/// Stores the material handle and lifetime timer for progress updates
+#[derive(Component, Debug)]
+pub struct ExplosionDarkImpactEffect {
+    /// Handle to the explosion dark impact material for this entity
+    pub material_handle: Handle<super::materials::ExplosionDarkImpactMaterial>,
+    /// Lifetime timer (0.4s for dark spikes)
+    pub lifetime: Timer,
+}
+
+impl ExplosionDarkImpactEffect {
+    pub fn new(material_handle: Handle<super::materials::ExplosionDarkImpactMaterial>) -> Self {
+        Self {
+            material_handle,
+            lifetime: Timer::from_seconds(0.4, TimerMode::Once),
         }
     }
 
@@ -505,7 +553,7 @@ pub fn fire_fireball_with_damage(
     weapon_channel: Option<&mut ResMut<AudioChannel<WeaponSoundChannel>>>,
     sound_limiter: Option<&mut ResMut<SoundLimiter>>,
     game_meshes: Option<&GameMeshes>,
-    _fireball_effects: Option<&FireballEffects>,
+    fireball_effects: Option<&FireballEffects>,
     core_materials: Option<&mut Assets<super::materials::FireballCoreMaterial>>,
     charge_materials: Option<&mut Assets<super::materials::FireballChargeMaterial>>,
     _trail_materials: Option<&mut Assets<super::materials::FireballTrailMaterial>>,
@@ -543,6 +591,7 @@ pub fn fire_fireball_with_damage(
     } else {
         Vec::new()
     };
+
 
     // Create projectiles in a spread pattern centered around the target direction
     // Spread is applied as rotation around the Y axis (horizontal spread)
@@ -602,12 +651,26 @@ pub fn fire_fireball_with_damage(
             if let Some(material_handle) = charge_material_handles.get(i).cloned() {
                 entity_commands.with_children(|parent| {
                     parent.spawn((
-                        Mesh3d(fireball_mesh), // Reuse sphere mesh
+                        Mesh3d(fireball_mesh.clone()), // Reuse sphere mesh
                         MeshMaterial3d(material_handle.clone()),
                         Transform::from_scale(Vec3::splat(1.0)), // Same size as core
                         FireballChargeEffect { material_handle },
                     ));
                 });
+            }
+
+            // Spawn Hanabi charge particles at world level (same position as charging fireball)
+            // Must be at world level for Hanabi to render properly
+            if let Some(effects) = fireball_effects {
+                commands.spawn((
+                    ParticleEffect::new(effects.charge_effect.clone()),
+                    EffectMaterial {
+                        images: vec![effects.charge_texture.clone()],
+                    },
+                    Transform::from_translation(charge_position),
+                    Visibility::Visible,
+                    FireballChargeParticles,
+                ));
             }
         } else {
             // Fallback for tests without mesh resources
@@ -636,12 +699,14 @@ pub fn fire_fireball_with_damage(
 
 /// System that moves fireball projectiles in 3D space
 pub fn fireball_movement_system(
-    mut fireball_query: Query<(&mut Transform, &FireballProjectile)>,
+    mut fireball_query: Query<(&mut Transform, &mut FireballProjectile)>,
     time: Res<Time>,
 ) {
-    for (mut transform, fireball) in fireball_query.iter_mut() {
-        // Full 3D movement toward target
-        let movement = fireball.direction * fireball.speed * time.delta_secs();
+    for (mut transform, mut fireball) in fireball_query.iter_mut() {
+        // Update travel time for speed easing
+        fireball.travel_time += time.delta_secs();
+        // Full 3D movement with eased speed (fast launch, slows down)
+        let movement = fireball.direction * fireball.current_speed() * time.delta_secs();
         transform.translation += movement;
     }
 }
@@ -796,6 +861,7 @@ pub fn fireball_charge_effect_update_system(
     }
 }
 
+
 /// System that updates trail effect shader materials with velocity direction and trail length.
 /// Trail length grows dynamically based on how far the fireball has traveled from spawn.
 pub fn fireball_trail_effect_update_system(
@@ -851,6 +917,7 @@ pub fn fireball_core_effect_update_system(
 }
 
 /// System that transitions charging fireballs to active flight phase
+#[allow(clippy::too_many_arguments)]
 pub fn fireball_charge_to_flight_system(
     mut commands: Commands,
     query: Query<(Entity, &ChargingFireball, &Transform, Option<&Children>)>,
@@ -862,16 +929,19 @@ pub fn fireball_charge_to_flight_system(
 ) {
     for (entity, charging, transform, children) in query.iter() {
         if charging.is_finished() {
-            // Remove charge particles and charge effect shader
+            // Remove charge shader effect (child entity)
             if let Some(children) = children {
                 for child in children.iter() {
-                    if charge_particles_query.get(child).is_ok() {
-                        commands.entity(child).despawn();
-                    }
                     if charge_effect_query.get(child).is_ok() {
                         commands.entity(child).despawn();
                     }
                 }
+            }
+
+            // Remove world-level charge particles (Hanabi)
+            // Note: This despawns all charge particles, which is fine since charge phase is short
+            for particle_entity in charge_particles_query.iter() {
+                commands.entity(particle_entity).despawn();
             }
 
             // Create FireballProjectile from ChargingFireball
@@ -883,6 +953,7 @@ pub fn fireball_charge_to_flight_system(
                 damage: charging.damage,
                 burn_tick_damage: charging.burn_tick_damage,
                 spawn_position: transform.translation,
+                travel_time: 0.0,
             };
 
             // Update the entity: remove ChargingFireball, add FireballProjectile
@@ -1147,6 +1218,33 @@ pub fn explosion_smoke_effect_update_system(
     time: Res<Time>,
     mut query: Query<(Entity, &mut ExplosionSmokeEffect)>,
     mut materials: Option<ResMut<Assets<super::materials::ExplosionSmokeMaterial>>>,
+) {
+    let Some(materials) = materials.as_mut() else {
+        return; // No material assets available (e.g., in tests without MaterialPlugin)
+    };
+
+    for (entity, mut effect) in query.iter_mut() {
+        effect.lifetime.tick(time.delta());
+        let progress = effect.progress();
+
+        // Update the material's progress
+        if let Some(material) = materials.get_mut(&effect.material_handle) {
+            material.set_progress(progress);
+        }
+
+        // Despawn when finished
+        if effect.is_finished() {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// System that updates explosion dark impact shader effects (progress and cleanup)
+pub fn explosion_dark_impact_effect_update_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut ExplosionDarkImpactEffect)>,
+    mut materials: Option<ResMut<Assets<super::materials::ExplosionDarkImpactMaterial>>>,
 ) {
     let Some(materials) = materials.as_mut() else {
         return; // No material assets available (e.g., in tests without MaterialPlugin)
@@ -1982,6 +2080,37 @@ mod tests {
 
             // Tick past lifetime
             effect.lifetime.tick(Duration::from_secs_f32(0.7));
+            assert!(effect.is_finished());
+            assert_eq!(effect.progress(), 1.0);
+        }
+
+        #[test]
+        fn test_explosion_dark_impact_effect_new() {
+            let handle = Handle::default();
+            let effect = ExplosionDarkImpactEffect::new(handle);
+            assert_eq!(effect.lifetime.duration(), Duration::from_secs_f32(0.4));
+            assert!(!effect.is_finished());
+            assert_eq!(effect.progress(), 0.0);
+        }
+
+        #[test]
+        fn test_explosion_dark_impact_effect_progress() {
+            let handle = Handle::default();
+            let mut effect = ExplosionDarkImpactEffect::new(handle);
+
+            // Tick halfway through lifetime
+            effect.lifetime.tick(Duration::from_secs_f32(0.2));
+            assert!((effect.progress() - 0.5).abs() < 0.01);
+            assert!(!effect.is_finished());
+        }
+
+        #[test]
+        fn test_explosion_dark_impact_effect_finished() {
+            let handle = Handle::default();
+            let mut effect = ExplosionDarkImpactEffect::new(handle);
+
+            // Tick past lifetime
+            effect.lifetime.tick(Duration::from_secs_f32(0.5));
             assert!(effect.is_finished());
             assert_eq!(effect.progress(), 1.0);
         }

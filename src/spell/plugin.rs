@@ -14,14 +14,16 @@ use crate::spells::fire::fireball::{
     fireball_explosion_spawn_system, fireball_explosion_cleanup_system,
     fireball_ground_collision_system,
     explosion_core_effect_update_system, explosion_fire_effect_update_system,
+    explosion_dark_impact_effect_update_system,
     explosion_embers_effect_update_system, explosion_smoke_effect_update_system,
     smoke_puff_spawner_system, smoke_puff_effect_update_system,
 };
 use crate::spells::fire::materials::{
     update_fireball_core_material_time, update_fireball_charge_material_time,
-    update_fireball_trail_material_time, update_explosion_core_material_time,
-    update_explosion_fire_material_time, update_explosion_embers_material_time,
-    update_explosion_smoke_material_time,
+    update_fireball_trail_material_time,
+    update_explosion_core_material_time, update_explosion_fire_material_time,
+    update_explosion_dark_impact_material_time,
+    update_explosion_embers_material_time, update_explosion_smoke_material_time,
 };
 use crate::spells::light::radiance::{
     radiance_pulse_system, radiance_pulse_visual_system,
@@ -334,6 +336,7 @@ pub fn plugin(app: &mut App) {
                 update_fireball_trail_material_time,
                 update_explosion_core_material_time,
                 update_explosion_fire_material_time,
+                update_explosion_dark_impact_material_time,
                 update_explosion_embers_material_time,
                 update_explosion_smoke_material_time,
             )
@@ -346,6 +349,7 @@ pub fn plugin(app: &mut App) {
             (
                 explosion_core_effect_update_system,
                 explosion_fire_effect_update_system,
+                explosion_dark_impact_effect_update_system,
                 explosion_embers_effect_update_system,
                 explosion_smoke_effect_update_system,
             )

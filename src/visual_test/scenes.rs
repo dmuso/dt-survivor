@@ -7,7 +7,7 @@ use crate::spells::fire::fireball::{FireballProjectile, FireballCoreEffect, Fire
 use crate::spells::fire::fireball_effects::FireballEffects;
 use crate::spells::fire::materials::{
     FireballCoreMaterial, FireballTrailMaterial, FireballChargeMaterial,
-    ExplosionCoreMaterial, ExplosionFireMaterial,
+    ExplosionCoreMaterial, ExplosionFireMaterial, ExplosionDarkImpactMaterial,
     FireballSparksMaterial, ExplosionEmbersMaterial, ExplosionSmokeMaterial,
 };
 
@@ -45,6 +45,8 @@ pub enum TestScene {
     ExplosionCoreTest,
     /// Explosion star-burst test - 5 star-bursts at different progress stages
     ExplosionStarburstTest,
+    /// Explosion dark impact (dark silhouette spikes) at different progress stages
+    ExplosionDarkImpactTest,
     /// Explosion fire (main fireball blast) at different progress stages
     ExplosionFireTest,
     /// Fireball sparks flying embers
@@ -83,6 +85,7 @@ impl TestScene {
             // Explosion component tests
             TestScene::ExplosionCoreTest,
             TestScene::ExplosionStarburstTest,
+            TestScene::ExplosionDarkImpactTest,
             TestScene::ExplosionFireTest,
             TestScene::ExplosionSparksTest,
             TestScene::ExplosionEmbersTest,
@@ -109,6 +112,7 @@ impl TestScene {
             TestScene::TrailGrowthSequence => "trail-growth-sequence",
             TestScene::ExplosionCoreTest => "explosion-core",
             TestScene::ExplosionStarburstTest => "explosion-starburst",
+            TestScene::ExplosionDarkImpactTest => "explosion-dark-impact",
             TestScene::ExplosionFireTest => "explosion-fire",
             TestScene::ExplosionSparksTest => "explosion-sparks",
             TestScene::ExplosionEmbersTest => "explosion-embers",
@@ -124,6 +128,7 @@ impl TestScene {
             // Closer camera for explosion tests to see detail
             TestScene::ExplosionCoreTest
             | TestScene::ExplosionStarburstTest
+            | TestScene::ExplosionDarkImpactTest
             | TestScene::ExplosionFireTest
             | TestScene::ExplosionSparksTest
             | TestScene::ExplosionEmbersTest
@@ -224,6 +229,7 @@ impl TestScene {
         charge_materials: &mut Assets<FireballChargeMaterial>,
         explosion_core_materials: &mut Assets<ExplosionCoreMaterial>,
         explosion_fire_materials: &mut Assets<ExplosionFireMaterial>,
+        explosion_dark_impact_materials: &mut Assets<ExplosionDarkImpactMaterial>,
         sparks_materials: &mut Assets<FireballSparksMaterial>,
         embers_materials: &mut Assets<ExplosionEmbersMaterial>,
         smoke_materials: &mut Assets<ExplosionSmokeMaterial>,
@@ -275,6 +281,9 @@ impl TestScene {
             }
             TestScene::ExplosionStarburstTest => {
                 spawn_explosion_starburst_test(commands, meshes, explosion_core_materials);
+            }
+            TestScene::ExplosionDarkImpactTest => {
+                spawn_explosion_dark_impact_test(commands, meshes, explosion_dark_impact_materials);
             }
             TestScene::ExplosionFireTest => {
                 spawn_explosion_fire_test(commands, meshes, explosion_fire_materials);
@@ -481,6 +490,35 @@ fn spawn_explosion_starburst_test(
         let handle = materials.add(material);
 
         // Star-bursts are larger to show spike detail
+        commands.spawn((
+            Mesh3d(meshes.explosion.clone()),
+            MeshMaterial3d(handle),
+            Transform::from_translation(Vec3::new(x_positions[i], 1.0, 0.0))
+                .with_scale(Vec3::splat(1.5)),
+        ));
+    }
+}
+
+/// Spawn explosion dark impact test - 5 dark spike silhouettes at different progress stages
+fn spawn_explosion_dark_impact_test(
+    commands: &mut Commands,
+    meshes: &GameMeshes,
+    materials: &mut Assets<ExplosionDarkImpactMaterial>,
+) {
+    let progress_values = [0.0, 0.25, 0.5, 0.75, 1.0];
+    let x_positions = [-4.0, -2.0, 0.0, 2.0, 4.0];
+
+    for (i, &progress) in progress_values.iter().enumerate() {
+        let mut material = ExplosionDarkImpactMaterial::new();
+        material.set_progress(progress);
+        // Give each dark impact a different random seed for variety
+        material.set_spike_seed(i as f32 * 0.23);
+        // Vary spike count: 5, 6, 7, 6, 5
+        let spike_counts = [5.0, 6.0, 7.0, 6.0, 5.0];
+        material.set_spike_count(spike_counts[i]);
+        let handle = materials.add(material);
+
+        // Dark impacts are similar size to star-bursts
         commands.spawn((
             Mesh3d(meshes.explosion.clone()),
             MeshMaterial3d(handle),
@@ -734,6 +772,7 @@ impl FromStr for TestScene {
             "trail-growth-sequence" => Ok(TestScene::TrailGrowthSequence),
             "explosion-core" => Ok(TestScene::ExplosionCoreTest),
             "explosion-starburst" => Ok(TestScene::ExplosionStarburstTest),
+            "explosion-dark-impact" => Ok(TestScene::ExplosionDarkImpactTest),
             "explosion-fire" => Ok(TestScene::ExplosionFireTest),
             "explosion-sparks" => Ok(TestScene::ExplosionSparksTest),
             "explosion-embers" => Ok(TestScene::ExplosionEmbersTest),

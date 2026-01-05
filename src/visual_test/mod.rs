@@ -11,9 +11,10 @@ pub use scenes::TestScene;
 use crate::game::resources::GameMeshes;
 use crate::game::systems::setup_game_assets;
 use crate::spells::fire::fireball::{smoke_puff_spawner_system, smoke_puff_effect_update_system};
+use crate::spells::fire::fireball_effects::{FireballEffects, init_fireball_effects};
 use crate::spells::fire::materials::{
-    FireballCoreMaterial, FireballTrailMaterial,
-    ExplosionCoreMaterial, ExplosionFireMaterial,
+    FireballCoreMaterial, FireballTrailMaterial, FireballChargeMaterial,
+    ExplosionCoreMaterial, ExplosionFireMaterial, ExplosionDarkImpactMaterial,
     FireballSparksMaterial, ExplosionEmbersMaterial, ExplosionSmokeMaterial,
     update_explosion_smoke_material_time,
 };
@@ -35,8 +36,8 @@ pub struct ScreenshotState {
 
 /// Plugin for visual test mode
 pub fn plugin(app: &mut App) {
-    // Run game asset setup first, then visual test scene setup
-    app.add_systems(Startup, (setup_game_assets, setup_visual_test_scene).chain());
+    // Run game asset setup first, init fireball effects, then visual test scene setup
+    app.add_systems(Startup, (setup_game_assets, init_fireball_effects, setup_visual_test_scene).chain());
     app.add_systems(Update, take_screenshot_and_exit);
 
     // Add smoke puff systems for testing multi-puff smoke effects
@@ -53,10 +54,13 @@ fn setup_visual_test_scene(
     mut commands: Commands,
     state: Res<ScreenshotState>,
     meshes: Res<GameMeshes>,
+    fireball_effects: Option<Res<FireballEffects>>,
     mut core_materials: ResMut<Assets<FireballCoreMaterial>>,
     mut trail_materials: ResMut<Assets<FireballTrailMaterial>>,
+    mut charge_materials: ResMut<Assets<FireballChargeMaterial>>,
     mut explosion_core_materials: ResMut<Assets<ExplosionCoreMaterial>>,
     mut explosion_fire_materials: ResMut<Assets<ExplosionFireMaterial>>,
+    mut explosion_dark_impact_materials: ResMut<Assets<ExplosionDarkImpactMaterial>>,
     mut sparks_materials: ResMut<Assets<FireballSparksMaterial>>,
     mut embers_materials: ResMut<Assets<ExplosionEmbersMaterial>>,
     mut smoke_materials: ResMut<Assets<ExplosionSmokeMaterial>>,
@@ -79,10 +83,13 @@ fn setup_visual_test_scene(
     scene.setup(
         &mut commands,
         &meshes,
+        fireball_effects.as_deref(),
         &mut core_materials,
         &mut trail_materials,
+        &mut charge_materials,
         &mut explosion_core_materials,
         &mut explosion_fire_materials,
+        &mut explosion_dark_impact_materials,
         &mut sparks_materials,
         &mut embers_materials,
         &mut smoke_materials,
