@@ -25,7 +25,7 @@ pub const BURN_DAMAGE_RATIO: f32 = 0.25; // 25% of direct damage per tick
 pub const GROUND_LEVEL: f32 = 0.0;
 
 /// Maximum trail length in shader units (before 4.0x multiplier in shader)
-pub const FIREBALL_MAX_TRAIL_LENGTH: f32 = 1.5;
+pub const FIREBALL_MAX_TRAIL_LENGTH: f32 = 0.75;
 /// Trail grows to max length over this distance traveled (in world units)
 pub const FIREBALL_TRAIL_GROW_DISTANCE: f32 = 6.0;
 

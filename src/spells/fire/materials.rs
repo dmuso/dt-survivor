@@ -289,7 +289,7 @@ impl Default for FireballTrailMaterial {
             time: Vec4::ZERO,
             // Default direction: pointing in -Z (common forward direction)
             velocity_dir: Vec4::new(0.0, 0.0, -1.0, 0.0),
-            trail_length: Vec4::new(1.5, 0.0, 0.0, 0.0),
+            trail_length: Vec4::new(0.75, 0.0, 0.0, 0.0),
             emissive_intensity: Vec4::new(2.5, 0.0, 0.0, 0.0),
         }
     }
@@ -1128,7 +1128,7 @@ mod tests {
             assert_eq!(material.velocity_dir.x, 0.0);
             assert_eq!(material.velocity_dir.y, 0.0);
             assert_eq!(material.velocity_dir.z, -1.0);
-            assert_eq!(material.trail_length.x, 1.5);
+            assert_eq!(material.trail_length.x, 0.75);
             assert_eq!(material.emissive_intensity.x, 2.5);
         }
 

@@ -322,7 +322,7 @@ fn spawn_test_fireball(
     // Create trail material with velocity direction
     let mut trail_material = FireballTrailMaterial::new();
     trail_material.set_velocity_direction(direction);
-    trail_material.set_trail_length(1.5);
+    trail_material.set_trail_length(0.75);
     let trail_handle = trail_materials.add(trail_material);
 
     // Spawn the fireball entity with core effect
