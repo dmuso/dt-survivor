@@ -338,7 +338,7 @@ fn spawn_test_fireball(
         parent.spawn((
             Mesh3d(meshes.fireball.clone()),
             MeshMaterial3d(trail_handle.clone()),
-            Transform::default(),  // Scale 1.0 to match core; length comes from shader stretch
+            Transform::default(),
             FireballTrailEffect { material_handle: trail_handle },
         ));
     });

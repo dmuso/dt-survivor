@@ -107,27 +107,32 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     let stretch = pow(trail_progress, 0.5) * trail_length;
     var deformed_pos = pos + local_trail_dir * stretch;
 
-    // TEARDROP TAPER - VERY aggressive narrowing toward tail
-    // At progress 0 (head): taper = 1.0 (full width)
-    // At progress 0.5: taper = 0.25 (quarter width)
-    // At progress 1.0 (tail): taper = 0 (point)
-    let taper = (1.0 - trail_progress) * (1.0 - trail_progress);
+    // TEARDROP TAPER - wider at head, thinner toward tail
+    // At progress 0 (head): taper = 1.2 (20% wider connection to core)
+    // At progress 0.5: taper ~= 0.11 (much thinner midpoint)
+    // At progress 1.0 (tail): taper = 0 (sharp point)
+    let taper = pow(1.0 - trail_progress, 3.5) * 1.2;
     deformed_pos.x = deformed_pos.x * taper;
     deformed_pos.y = deformed_pos.y * taper;
 
-    // Edge waviness - only applies AFTER the head for organic flowing edges
-    // Head (trail_progress 0-15%) is completely solid to connect seamlessly with fireball core
-    // Remaining 85% has animated, flowing fire movement
-    let edge_factor = smoothstep(0.15, 0.3, trail_progress);  // 0 at head, 1 after 30%
-    // Fast noise scroll for dramatic flowing animation
-    let edge_noise_pos = pos * 2.0 + vec3<f32>(t * 12.0, t * 9.0, -t * 20.0);
-    // Use minimum taper of 0.5 so animation remains very visible even at thin tail
-    let edge_taper = max(taper, 0.5);
-    // Massive displacement (3.0) for very dramatic flowing fire effect
-    let edge_wave = (fbm(edge_noise_pos) - 0.5) * 3.0 * edge_taper * edge_factor;
-    let edge_wave2 = (fbm(edge_noise_pos * 1.3 + vec3<f32>(77.0, 0.0, 0.0)) - 0.5) * 3.0 * edge_taper * edge_factor;
-    deformed_pos.x = deformed_pos.x + edge_wave;
-    deformed_pos.y = deformed_pos.y + edge_wave2;
+    // Serpentine wave - moves entire tail cross-section together
+    // Head (trail_progress 0-15%) is solid to connect seamlessly with fireball core
+    let wave_factor = smoothstep(0.15, 0.3, trail_progress);  // 0 at head, 1 after 30%
+    // Wave based on position along trail length (z-axis after stretch)
+    // Using deformed_pos.z gives us position along the tail
+    let wave_freq = 3.0;  // How many waves along the tail
+    let wave_speed = 16.0;  // How fast waves travel
+    let wave_strength = 0.4;  // Amplitude of the wave
+    let phase_offset = material.trail_length.y;  // Unique offset per trail
+    // Single wave value for entire cross-section at this z position
+    let wave_phase = deformed_pos.z * wave_freq - t * wave_speed + phase_offset;
+    let wave = sin(wave_phase) * wave_strength * wave_factor;
+    // Add some noise variation for organic feel (but same noise for both axes)
+    let noise_pos = vec3<f32>(deformed_pos.z * 2.0, t * 5.0, phase_offset);
+    let noise_var = (fbm(noise_pos) - 0.5) * 0.3 * wave_factor;
+    // Apply wave to both x and y in sync (diagonal motion)
+    deformed_pos.x = deformed_pos.x + wave + noise_var;
+    deformed_pos.y = deformed_pos.y + wave * 0.5;
 
     // Extra breakup at tail end
     let breakup_zone = smoothstep(0.7, 0.95, trail_progress);

@@ -274,7 +274,7 @@ pub struct FireballTrailMaterial {
     #[uniform(0)]
     pub velocity_dir: Vec4,
 
-    /// Trail length multiplier.
+    /// Trail length multiplier (.x) and wave phase offset (.y).
     #[uniform(0)]
     pub trail_length: Vec4,
 
@@ -289,6 +289,7 @@ impl Default for FireballTrailMaterial {
             time: Vec4::ZERO,
             // Default direction: pointing in -Z (common forward direction)
             velocity_dir: Vec4::new(0.0, 0.0, -1.0, 0.0),
+            // .x = trail length, .y = wave phase offset
             trail_length: Vec4::new(0.75, 0.0, 0.0, 0.0),
             emissive_intensity: Vec4::new(2.5, 0.0, 0.0, 0.0),
         }
@@ -316,6 +317,11 @@ impl FireballTrailMaterial {
     /// Set the trail length multiplier.
     pub fn set_trail_length(&mut self, length: f32) {
         self.trail_length.x = length.max(0.1);
+    }
+
+    /// Set the wave phase offset for unique trail movement.
+    pub fn set_wave_phase_offset(&mut self, offset: f32) {
+        self.trail_length.y = offset;
     }
 
     /// Set the emissive intensity for HDR bloom.

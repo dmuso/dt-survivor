@@ -12,7 +12,7 @@ use super::fireball_effects::FireballEffects;
 
 /// Default configuration for Fireball spell
 pub const FIREBALL_SPREAD_ANGLE: f32 = 15.0;
-pub const FIREBALL_SPEED: f32 = 20.0;
+pub const FIREBALL_SPEED: f32 = 40.0;
 pub const FIREBALL_LIFETIME: f32 = 5.0;
 pub const FIREBALL_SIZE: Vec2 = Vec2::new(0.3, 0.3);
 
@@ -895,14 +895,14 @@ pub fn fireball_charge_to_flight_system(
             if let (Some(meshes), Some(ref mut trail_mats)) = (&game_meshes, &mut trail_materials) {
                 let mut trail_material = super::materials::FireballTrailMaterial::new();
                 trail_material.set_velocity_direction(charging.target_direction);
-                trail_material.set_trail_length(0.0); // Start at zero; grows via update system
+                trail_material.set_trail_length(0.0);
                 let trail_handle = trail_mats.add(trail_material);
 
                 commands.entity(entity).with_children(|parent| {
                     parent.spawn((
                         Mesh3d(meshes.fireball.clone()),
                         MeshMaterial3d(trail_handle.clone()),
-                        Transform::default(), // Same scale as core; length from shader
+                        Transform::default(),
                         FireballTrailEffect { material_handle: trail_handle },
                     ));
                 });
