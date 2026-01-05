@@ -3,7 +3,10 @@ use std::str::FromStr;
 
 use crate::game::resources::GameMeshes;
 use bevy_hanabi::prelude::*;
-use crate::spells::fire::fireball::{FireballProjectile, FireballCoreEffect, FireballTrailEffect, SmokePuffSpawner, ChargingFireball, FireballChargeEffect, FireballChargeParticles};
+use crate::spells::fire::fireball::{
+    FireballProjectile, FireballCoreEffect, FireballTrailEffect, SmokePuffSpawner,
+    ChargingFireball, FireballChargeEffect, FireballChargeParticles, BillowingFireSpawner,
+};
 use crate::spells::fire::fireball_effects::FireballEffects;
 use crate::spells::fire::materials::{
     FireballCoreMaterial, FireballTrailMaterial, FireballChargeMaterial,
@@ -60,6 +63,10 @@ pub enum TestScene {
     /// Complete explosion animation sequence - captures multiple frames
     ExplosionSequence,
 
+    // === Billowing Fire Tests ===
+    /// Billowing fire spheres test - 8 spheres expanding outward at different stages
+    ExplosionBillowingFireTest,
+
     // === Fireball Charge Phase Tests ===
     /// Charging fireball with inward particle effects
     FireballChargeParticles,
@@ -92,6 +99,8 @@ impl TestScene {
             TestScene::ExplosionSmokeTest,
             // Full explosion sequence
             TestScene::ExplosionSequence,
+            // Billowing fire test
+            TestScene::ExplosionBillowingFireTest,
             // Charge phase tests
             TestScene::FireballChargeParticles,
         ]
@@ -118,6 +127,7 @@ impl TestScene {
             TestScene::ExplosionEmbersTest => "explosion-embers",
             TestScene::ExplosionSmokeTest => "explosion-smoke",
             TestScene::ExplosionSequence => "explosion-sequence",
+            TestScene::ExplosionBillowingFireTest => "explosion-billowing-fire",
             TestScene::FireballChargeParticles => "fireball-charge-particles",
         }
     }
@@ -134,6 +144,8 @@ impl TestScene {
             | TestScene::ExplosionEmbersTest
             | TestScene::ExplosionSmokeTest
             | TestScene::ExplosionSequence => Vec3::new(0.0, 5.0, 8.0),
+            // Wider camera for billowing fire to capture all 8 spheres expanding outward
+            TestScene::ExplosionBillowingFireTest => Vec3::new(0.0, 8.0, 12.0),
             // Medium camera for trail growth tests to see trail clearly
             TestScene::TrailGrowthSpawn
             | TestScene::TrailGrowthQuarter
@@ -157,6 +169,8 @@ impl TestScene {
         match self {
             // Animation tests need time for shaders to compile
             TestScene::TrailNoiseAnimation | TestScene::ExplosionSequence => 60,
+            // Billowing fire: only wait for shaders to compile, capture quickly (0.8s lifetime)
+            TestScene::ExplosionBillowingFireTest => 10,
             // Hanabi particles need more warmup time
             TestScene::FireballChargeParticles => 120,
             // Single frame tests
@@ -170,6 +184,7 @@ impl TestScene {
             TestScene::TrailNoiseAnimation => 5,
             TestScene::TrailGrowthSequence => 6,
             TestScene::ExplosionSequence => 8,
+            TestScene::ExplosionBillowingFireTest => 6, // Capture expansion animation
             TestScene::FireballChargeParticles => 8, // Capture particle flow animation
             _ => 1,
         }
@@ -181,6 +196,7 @@ impl TestScene {
             TestScene::TrailNoiseAnimation => 12,  // ~200ms at 60fps
             TestScene::TrailGrowthSequence => 10,  // ~166ms at 60fps for smooth growth
             TestScene::ExplosionSequence => 18,    // ~300ms at 60fps - longer to show smoke rising
+            TestScene::ExplosionBillowingFireTest => 8, // ~133ms at 60fps to show sphere expansion
             TestScene::FireballChargeParticles => 10, // ~166ms at 60fps to show particle flow
             _ => 0,
         }
@@ -306,6 +322,10 @@ impl TestScene {
                     embers_materials,
                     smoke_materials,
                 );
+            }
+
+            TestScene::ExplosionBillowingFireTest => {
+                spawn_billowing_fire_test(commands, meshes, explosion_fire_materials);
             }
 
             TestScene::FireballChargeParticles => {
@@ -699,6 +719,44 @@ fn spawn_explosion_sequence(
 
 }
 
+/// Spawn billowing fire test - spawns 8 fire spheres with billowing displacement
+fn spawn_billowing_fire_test(
+    commands: &mut Commands,
+    meshes: &GameMeshes,
+    fire_materials: &mut Assets<ExplosionFireMaterial>,
+) {
+    let position = Vec3::new(0.0, 1.0, 0.0);
+
+    // Spawn lighting for the scene
+    spawn_lighting(commands);
+
+    // Spawn 8 fire spheres directly for visual testing
+    // (These simulate what BillowingFireSpawner would create)
+    for i in 0..8 {
+        let angle = (i as f32 / 8.0) * std::f32::consts::TAU;
+        let elevation = -0.2 + (i as f32 / 8.0) * 0.5;
+        let direction = Vec3::new(angle.cos(), elevation, angle.sin()).normalize();
+        let speed = 3.0 + (i as f32 / 8.0) * 2.0; // 3.0 to 5.0
+        let growth_rate = 1.5 + (i as f32 / 8.0) * 1.0; // 1.5 to 2.5
+
+        // Create material with velocity and growth rate for billowing effect
+        let mut material = ExplosionFireMaterial::new();
+        material.set_velocity(direction, speed);
+        material.set_growth_rate(growth_rate);
+        material.set_progress(0.3); // Start at 30% progress to show the effect
+        let handle = fire_materials.add(material);
+
+        // Initial offset from center
+        let offset = direction * 0.5;
+
+        commands.spawn((
+            Mesh3d(meshes.explosion.clone()),
+            MeshMaterial3d(handle),
+            Transform::from_translation(position + offset).with_scale(Vec3::splat(0.8)),
+        ));
+    }
+}
+
 /// Spawn a charging fireball with Hanabi particles for visual testing
 fn spawn_charging_fireball_test(
     commands: &mut Commands,
@@ -778,6 +836,7 @@ impl FromStr for TestScene {
             "explosion-embers" => Ok(TestScene::ExplosionEmbersTest),
             "explosion-smoke" => Ok(TestScene::ExplosionSmokeTest),
             "explosion-sequence" => Ok(TestScene::ExplosionSequence),
+            "explosion-billowing-fire" => Ok(TestScene::ExplosionBillowingFireTest),
             "fireball-charge-particles" => Ok(TestScene::FireballChargeParticles),
             "list" => Err("list".to_string()), // Special case handled in main
             _ => Err(format!("Unknown scene: '{}'. Use --screenshot list to see available scenes.", s)),

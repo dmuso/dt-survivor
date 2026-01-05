@@ -10,13 +10,16 @@ pub use scenes::TestScene;
 
 use crate::game::resources::GameMeshes;
 use crate::game::systems::setup_game_assets;
-use crate::spells::fire::fireball::{smoke_puff_spawner_system, smoke_puff_effect_update_system};
+use crate::spells::fire::fireball::{
+    smoke_puff_spawner_system, smoke_puff_effect_update_system,
+    billowing_fire_spawner_system, billowing_fire_sphere_effect_update_system,
+};
 use crate::spells::fire::fireball_effects::{FireballEffects, init_fireball_effects};
 use crate::spells::fire::materials::{
     FireballCoreMaterial, FireballTrailMaterial, FireballChargeMaterial,
     ExplosionCoreMaterial, ExplosionFireMaterial, ExplosionDarkImpactMaterial,
     FireballSparksMaterial, ExplosionEmbersMaterial, ExplosionSmokeMaterial,
-    update_explosion_smoke_material_time,
+    update_explosion_smoke_material_time, update_explosion_fire_material_time,
 };
 
 /// Resource to track screenshot state
@@ -40,11 +43,14 @@ pub fn plugin(app: &mut App) {
     app.add_systems(Startup, (setup_game_assets, init_fireball_effects, setup_visual_test_scene).chain());
     app.add_systems(Update, take_screenshot_and_exit);
 
-    // Add smoke puff systems for testing multi-puff smoke effects
+    // Add smoke puff and billowing fire systems for testing
     app.add_systems(Update, (
         update_explosion_smoke_material_time,
+        update_explosion_fire_material_time,
         smoke_puff_spawner_system,
         smoke_puff_effect_update_system,
+        billowing_fire_spawner_system,
+        billowing_fire_sphere_effect_update_system,
     ).chain());
 }
 

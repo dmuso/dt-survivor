@@ -513,6 +513,7 @@ pub fn update_explosion_core_material_time(
 /// - Rising heat effect (upward bias)
 /// - Duration ~0.6s
 /// - Progress-based animation (0.0 = start, 1.0 = end)
+/// - Billowing fire support: organic FBM noise displacement for multi-sphere explosions
 #[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
 pub struct ExplosionFireMaterial {
     /// Current time for animation (in seconds).
@@ -530,6 +531,16 @@ pub struct ExplosionFireMaterial {
     /// Noise scale for turbulence detail.
     #[uniform(0)]
     pub noise_scale: Vec4,
+
+    /// Velocity direction (xyz = normalized direction, w = speed magnitude).
+    /// Used for billowing fire spheres that move outward from explosion center.
+    #[uniform(0)]
+    pub velocity: Vec4,
+
+    /// Growth configuration: .x = growth_rate (1.5-2.5x final scale).
+    /// Used for billowing fire spheres that expand over time.
+    #[uniform(0)]
+    pub growth_config: Vec4,
 }
 
 impl Default for ExplosionFireMaterial {
@@ -541,6 +552,10 @@ impl Default for ExplosionFireMaterial {
             emissive_intensity: Vec4::new(8.0, 0.0, 0.0, 0.0),
             // Medium noise scale for balanced detail
             noise_scale: Vec4::new(3.0, 0.0, 0.0, 0.0),
+            // Default velocity: stationary
+            velocity: Vec4::ZERO,
+            // Default growth rate: 2.0x final scale
+            growth_config: Vec4::new(2.0, 0.0, 0.0, 0.0),
         }
     }
 }
@@ -571,6 +586,19 @@ impl ExplosionFireMaterial {
     /// Set the noise scale for turbulence detail.
     pub fn set_noise_scale(&mut self, scale: f32) {
         self.noise_scale.x = scale.max(0.1);
+    }
+
+    /// Set the velocity for billowing fire spheres (direction and speed).
+    /// Spheres move outward from explosion center.
+    pub fn set_velocity(&mut self, direction: Vec3, speed: f32) {
+        let normalized = direction.normalize_or_zero();
+        self.velocity = Vec4::new(normalized.x, normalized.y, normalized.z, speed.max(0.0));
+    }
+
+    /// Set the growth rate for billowing fire spheres.
+    /// 1.0 = no growth, 2.0 = doubles in size, 2.5 = 2.5x size at end.
+    pub fn set_growth_rate(&mut self, rate: f32) {
+        self.growth_config.x = rate.clamp(1.0, 3.0);
     }
 }
 
@@ -1677,6 +1705,8 @@ mod tests {
             assert_eq!(material.progress.x, 0.0);
             assert_eq!(material.emissive_intensity.x, 8.0);
             assert_eq!(material.noise_scale.x, 3.0);
+            assert_eq!(material.velocity, Vec4::ZERO);
+            assert_eq!(material.growth_config.x, 2.0);
         }
 
         #[test]
@@ -1687,6 +1717,8 @@ mod tests {
             assert_eq!(material.progress, default.progress);
             assert_eq!(material.emissive_intensity, default.emissive_intensity);
             assert_eq!(material.noise_scale, default.noise_scale);
+            assert_eq!(material.velocity, default.velocity);
+            assert_eq!(material.growth_config, default.growth_config);
         }
 
         #[test]
@@ -1761,6 +1793,55 @@ mod tests {
         fn alpha_mode_is_blend() {
             let material = ExplosionFireMaterial::new();
             assert_eq!(material.alpha_mode(), AlphaMode::Blend);
+        }
+
+        #[test]
+        fn set_velocity_normalizes_direction() {
+            let mut material = ExplosionFireMaterial::new();
+            material.set_velocity(Vec3::new(3.0, 0.0, 4.0), 5.0);
+            // Should be normalized to (0.6, 0.0, 0.8)
+            assert!((material.velocity.x - 0.6).abs() < 0.001);
+            assert_eq!(material.velocity.y, 0.0);
+            assert!((material.velocity.z - 0.8).abs() < 0.001);
+            assert_eq!(material.velocity.w, 5.0);
+        }
+
+        #[test]
+        fn set_velocity_handles_zero_vector() {
+            let mut material = ExplosionFireMaterial::new();
+            material.set_velocity(Vec3::ZERO, 3.0);
+            assert_eq!(material.velocity.x, 0.0);
+            assert_eq!(material.velocity.y, 0.0);
+            assert_eq!(material.velocity.z, 0.0);
+            assert_eq!(material.velocity.w, 3.0);
+        }
+
+        #[test]
+        fn set_velocity_clamps_negative_speed() {
+            let mut material = ExplosionFireMaterial::new();
+            material.set_velocity(Vec3::X, -5.0);
+            assert_eq!(material.velocity.w, 0.0);
+        }
+
+        #[test]
+        fn set_growth_rate_clamps_to_minimum() {
+            let mut material = ExplosionFireMaterial::new();
+            material.set_growth_rate(0.5);
+            assert_eq!(material.growth_config.x, 1.0);
+        }
+
+        #[test]
+        fn set_growth_rate_clamps_to_maximum() {
+            let mut material = ExplosionFireMaterial::new();
+            material.set_growth_rate(5.0);
+            assert_eq!(material.growth_config.x, 3.0);
+        }
+
+        #[test]
+        fn set_growth_rate_accepts_valid_values() {
+            let mut material = ExplosionFireMaterial::new();
+            material.set_growth_rate(2.5);
+            assert_eq!(material.growth_config.x, 2.5);
         }
     }
 

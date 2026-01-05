@@ -17,6 +17,7 @@ use crate::spells::fire::fireball::{
     explosion_dark_impact_effect_update_system,
     explosion_embers_effect_update_system, explosion_smoke_effect_update_system,
     smoke_puff_spawner_system, smoke_puff_effect_update_system,
+    billowing_fire_spawner_system, billowing_fire_sphere_effect_update_system,
 };
 use crate::spells::fire::materials::{
     update_fireball_core_material_time, update_fireball_charge_material_time,
@@ -362,6 +363,17 @@ pub fn plugin(app: &mut App) {
             (
                 smoke_puff_spawner_system,
                 smoke_puff_effect_update_system,
+            )
+                .chain()
+                .in_set(GameSet::Effects)
+                .run_if(in_state(GameState::InGame)),
+        )
+        // Billowing fire sphere systems (spawner creates 8 spheres, update animates them)
+        .add_systems(
+            Update,
+            (
+                billowing_fire_spawner_system,
+                billowing_fire_sphere_effect_update_system,
             )
                 .chain()
                 .in_set(GameSet::Effects)

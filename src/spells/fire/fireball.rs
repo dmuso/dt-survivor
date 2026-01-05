@@ -376,6 +376,96 @@ impl ExplosionDarkImpactEffect {
     }
 }
 
+// ============================================================================
+// Billowing Fire Sphere System - Multiple expanding fire spheres
+// ============================================================================
+
+/// Configuration constants for billowing fire sphere system
+pub const BILLOWING_FIRE_SPHERE_COUNT: u32 = 8;
+pub const BILLOWING_FIRE_LIFETIME: f32 = 0.8;
+pub const BILLOWING_FIRE_SPEED_MIN: f32 = 3.0;
+pub const BILLOWING_FIRE_SPEED_MAX: f32 = 5.0;
+pub const BILLOWING_FIRE_GROWTH_MIN: f32 = 1.5;
+pub const BILLOWING_FIRE_GROWTH_MAX: f32 = 2.5;
+pub const BILLOWING_FIRE_INITIAL_SCALE: f32 = 0.8;
+
+/// Individual billowing fire sphere - multiple of these create the fire cloud
+#[derive(Component, Debug)]
+pub struct BillowingFireSphereEffect {
+    /// Handle to the fire material for this sphere
+    pub material_handle: Handle<super::materials::ExplosionFireMaterial>,
+    /// Lifetime timer for this individual sphere
+    pub lifetime: Timer,
+    /// Velocity (direction and speed) for outward movement
+    pub velocity: Vec3,
+    /// Growth rate: 1.0 = no growth, 2.0 = doubles in size
+    pub growth_rate: f32,
+    /// Initial scale at spawn
+    pub initial_scale: f32,
+}
+
+impl BillowingFireSphereEffect {
+    pub fn new(
+        material_handle: Handle<super::materials::ExplosionFireMaterial>,
+        velocity: Vec3,
+        growth_rate: f32,
+    ) -> Self {
+        Self {
+            material_handle,
+            lifetime: Timer::from_seconds(BILLOWING_FIRE_LIFETIME, TimerMode::Once),
+            velocity,
+            growth_rate,
+            initial_scale: BILLOWING_FIRE_INITIAL_SCALE,
+        }
+    }
+
+    /// Get progress (0.0 to 1.0) through the lifetime
+    pub fn progress(&self) -> f32 {
+        self.lifetime.fraction()
+    }
+
+    /// Check if the sphere is finished
+    pub fn is_finished(&self) -> bool {
+        self.lifetime.is_finished()
+    }
+
+    /// Calculate current scale based on progress and growth rate
+    /// Uses ease-out curve for organic expansion
+    pub fn current_scale(&self) -> f32 {
+        let t = self.progress();
+        let eased = 1.0 - (1.0 - t).powi(2);
+        self.initial_scale * (1.0 + eased * (self.growth_rate - 1.0))
+    }
+}
+
+/// Spawns billowing fire spheres at explosion location
+#[derive(Component, Debug)]
+pub struct BillowingFireSpawner {
+    /// Position to spawn spheres around
+    pub position: Vec3,
+    /// How many spheres remaining to spawn (spawns immediately)
+    pub spheres_remaining: u32,
+    /// Random number generator seed for deterministic randomness
+    pub seed: u32,
+}
+
+impl BillowingFireSpawner {
+    pub fn new(position: Vec3) -> Self {
+        Self {
+            position,
+            spheres_remaining: BILLOWING_FIRE_SPHERE_COUNT,
+            seed: position.x.to_bits() ^ position.z.to_bits() ^ 0xF1AE_u32,
+        }
+    }
+
+    /// Get next pseudo-random value (0.0 to 1.0) and advance seed
+    pub fn next_random(&mut self) -> f32 {
+        // Simple LCG for deterministic randomness
+        self.seed = self.seed.wrapping_mul(1103515245).wrapping_add(12345);
+        (self.seed >> 16) as f32 / 65535.0
+    }
+}
+
 /// Explosion particles (self-despawns after cleanup timer)
 #[derive(Component, Debug)]
 pub struct FireballExplosionParticles {
@@ -1044,6 +1134,9 @@ pub fn fireball_explosion_spawn_system(
             ));
         }
 
+        // Spawn billowing fire spheres spawner (creates 8 fire spheres that expand outward)
+        commands.spawn(BillowingFireSpawner::new(pos));
+
         // Spawn smoke puff spawner (creates multiple puffs over time)
         commands.spawn(SmokePuffSpawner::new(pos));
     }
@@ -1107,6 +1200,9 @@ pub fn fireball_ground_collision_system(
                     ExplosionEmbersEffect::new(embers_handle),
                 ));
             }
+
+            // Spawn billowing fire spheres spawner (creates 8 fire spheres that expand outward)
+            commands.spawn(BillowingFireSpawner::new(pos));
 
             // Spawn smoke puff spawner (creates multiple puffs over time)
             commands.spawn(SmokePuffSpawner::new(pos));
@@ -1380,6 +1476,107 @@ pub fn smoke_puff_effect_update_system(
 
         // Despawn when finished
         if puff.is_finished() {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+// ============================================================================
+// Billowing Fire Sphere Systems
+// ============================================================================
+
+/// System that spawns billowing fire spheres from BillowingFireSpawner entities
+/// Spawns all 8 spheres immediately with varying angles, speeds, and growth rates
+#[allow(clippy::too_many_arguments)]
+pub fn billowing_fire_spawner_system(
+    mut commands: Commands,
+    mut query: Query<(Entity, &mut BillowingFireSpawner)>,
+    game_meshes: Option<Res<crate::game::resources::GameMeshes>>,
+    mut fire_materials: Option<ResMut<Assets<super::materials::ExplosionFireMaterial>>>,
+) {
+    let Some(meshes) = game_meshes.as_ref() else {
+        return;
+    };
+    let Some(materials) = fire_materials.as_mut() else {
+        return;
+    };
+
+    for (entity, mut spawner) in query.iter_mut() {
+        // Spawn all spheres immediately (unlike smoke puffs which spawn over time)
+        while spawner.spheres_remaining > 0 {
+            // Random angle around Y axis (XZ plane)
+            let angle = spawner.next_random() * std::f32::consts::TAU;
+            // Slight elevation variation (-0.2 to 0.3) to add vertical variety
+            let elevation = -0.2 + spawner.next_random() * 0.5;
+
+            // Direction: outward on XZ plane with slight Y variation
+            let direction = Vec3::new(
+                angle.cos(),
+                elevation,
+                angle.sin(),
+            ).normalize();
+
+            // Random speed in range [BILLOWING_FIRE_SPEED_MIN, BILLOWING_FIRE_SPEED_MAX]
+            let speed_range = BILLOWING_FIRE_SPEED_MAX - BILLOWING_FIRE_SPEED_MIN;
+            let speed = BILLOWING_FIRE_SPEED_MIN + spawner.next_random() * speed_range;
+            let velocity = direction * speed;
+
+            // Random growth rate in range [BILLOWING_FIRE_GROWTH_MIN, BILLOWING_FIRE_GROWTH_MAX]
+            let growth_range = BILLOWING_FIRE_GROWTH_MAX - BILLOWING_FIRE_GROWTH_MIN;
+            let growth_rate = BILLOWING_FIRE_GROWTH_MIN + spawner.next_random() * growth_range;
+
+            // Create material with velocity and growth rate for shader
+            let mut material = super::materials::ExplosionFireMaterial::new();
+            material.set_velocity(direction, speed);
+            material.set_growth_rate(growth_rate);
+            let handle = materials.add(material);
+
+            // Spawn fire sphere
+            commands.spawn((
+                Mesh3d(meshes.explosion.clone()),
+                MeshMaterial3d(handle.clone()),
+                Transform::from_translation(spawner.position)
+                    .with_scale(Vec3::splat(BILLOWING_FIRE_INITIAL_SCALE)),
+                BillowingFireSphereEffect::new(handle, velocity, growth_rate),
+            ));
+
+            spawner.spheres_remaining -= 1;
+        }
+
+        // Cleanup spawner when done (immediately after spawning all spheres)
+        commands.entity(entity).despawn();
+    }
+}
+
+/// System that updates billowing fire sphere effects (movement, scale, material progress, cleanup)
+pub fn billowing_fire_sphere_effect_update_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut BillowingFireSphereEffect, &mut Transform)>,
+    mut materials: Option<ResMut<Assets<super::materials::ExplosionFireMaterial>>>,
+) {
+    let Some(materials) = materials.as_mut() else {
+        return;
+    };
+
+    for (entity, mut effect, mut transform) in query.iter_mut() {
+        effect.lifetime.tick(time.delta());
+        let progress = effect.progress();
+
+        // Update material progress for color/fade changes
+        if let Some(mat) = materials.get_mut(&effect.material_handle) {
+            mat.set_progress(progress);
+        }
+
+        // Expand: initial_scale -> initial_scale * growth_rate with ease-out curve
+        transform.scale = Vec3::splat(effect.current_scale());
+
+        // Move outward based on velocity
+        let dt = time.delta_secs();
+        transform.translation += effect.velocity * dt;
+
+        // Despawn when finished
+        if effect.is_finished() {
             commands.entity(entity).despawn();
         }
     }
@@ -2230,6 +2427,131 @@ mod tests {
             assert!(SMOKE_PUFF_LIFETIME_BASE > 0.0);
             assert!(SMOKE_PUFF_INITIAL_SCALE > 0.0);
             assert!(SMOKE_PUFF_MAX_SCALE_BASE > SMOKE_PUFF_INITIAL_SCALE);
+        }
+    }
+
+    mod billowing_fire_tests {
+        use super::*;
+
+        #[test]
+        fn test_billowing_fire_spawner_new() {
+            let position = Vec3::new(1.0, 2.0, 3.0);
+            let spawner = BillowingFireSpawner::new(position);
+
+            assert_eq!(spawner.position, position);
+            assert_eq!(spawner.spheres_remaining, BILLOWING_FIRE_SPHERE_COUNT);
+        }
+
+        #[test]
+        fn test_billowing_fire_spawner_random_sequence() {
+            let mut spawner = BillowingFireSpawner::new(Vec3::new(10.0, 0.0, 20.0));
+
+            // Generate several random values
+            let val1 = spawner.next_random();
+            let val2 = spawner.next_random();
+            let val3 = spawner.next_random();
+
+            // Values should be in range [0, 1]
+            assert!(val1 >= 0.0 && val1 <= 1.0);
+            assert!(val2 >= 0.0 && val2 <= 1.0);
+            assert!(val3 >= 0.0 && val3 <= 1.0);
+
+            // Values should be different
+            assert_ne!(val1, val2);
+            assert_ne!(val2, val3);
+        }
+
+        #[test]
+        fn test_billowing_fire_spawner_deterministic() {
+            let position = Vec3::new(5.0, 0.0, 10.0);
+            let mut spawner1 = BillowingFireSpawner::new(position);
+            let mut spawner2 = BillowingFireSpawner::new(position);
+
+            // Same position should produce same random sequence
+            assert_eq!(spawner1.next_random(), spawner2.next_random());
+            assert_eq!(spawner1.next_random(), spawner2.next_random());
+            assert_eq!(spawner1.next_random(), spawner2.next_random());
+        }
+
+        #[test]
+        fn test_billowing_fire_effect_progress() {
+            let handle = Handle::default();
+            let velocity = Vec3::new(1.0, 0.0, 0.0) * BILLOWING_FIRE_SPEED_MIN;
+            let growth_rate = BILLOWING_FIRE_GROWTH_MIN;
+            let mut effect = BillowingFireSphereEffect::new(handle, velocity, growth_rate);
+
+            // Initial progress
+            assert_eq!(effect.progress(), 0.0);
+            assert!(!effect.is_finished());
+
+            // Halfway through
+            effect.lifetime.tick(Duration::from_secs_f32(BILLOWING_FIRE_LIFETIME * 0.5));
+            assert!((effect.progress() - 0.5).abs() < 0.01);
+
+            // Finished
+            effect.lifetime.tick(Duration::from_secs_f32(BILLOWING_FIRE_LIFETIME * 0.6));
+            assert!(effect.is_finished());
+            assert_eq!(effect.progress(), 1.0);
+        }
+
+        #[test]
+        fn test_billowing_fire_effect_scale_calculation() {
+            let handle = Handle::default();
+            let velocity = Vec3::new(1.0, 0.0, 0.0);
+            let growth_rate = 2.0;
+            let mut effect = BillowingFireSphereEffect::new(handle, velocity, growth_rate);
+
+            // At start: scale should be initial_scale
+            let start_scale = effect.current_scale();
+            assert!((start_scale - BILLOWING_FIRE_INITIAL_SCALE).abs() < 0.01);
+
+            // At end: scale should be initial_scale * growth_rate (with ease-out)
+            effect.lifetime.tick(Duration::from_secs_f32(BILLOWING_FIRE_LIFETIME));
+            let end_scale = effect.current_scale();
+            let expected_end = BILLOWING_FIRE_INITIAL_SCALE * growth_rate;
+            assert!((end_scale - expected_end).abs() < 0.01);
+        }
+
+        #[test]
+        fn test_billowing_fire_effect_scale_ease_out() {
+            let handle = Handle::default();
+            let velocity = Vec3::new(1.0, 0.0, 0.0);
+            let growth_rate = 2.0;
+            let mut effect = BillowingFireSphereEffect::new(handle, velocity, growth_rate);
+
+            // Halfway through - with ease-out, scale should be > 50% of final
+            effect.lifetime.tick(Duration::from_secs_f32(BILLOWING_FIRE_LIFETIME * 0.5));
+            let mid_scale = effect.current_scale();
+            let start = BILLOWING_FIRE_INITIAL_SCALE;
+            let end = BILLOWING_FIRE_INITIAL_SCALE * growth_rate;
+            let linear_mid = start + (end - start) * 0.5;
+
+            // Ease-out should be ahead of linear interpolation
+            assert!(mid_scale > linear_mid);
+        }
+
+        #[test]
+        fn test_billowing_fire_config_constants() {
+            // Verify constants are reasonable
+            assert!(BILLOWING_FIRE_SPHERE_COUNT > 0);
+            assert!(BILLOWING_FIRE_LIFETIME > 0.0);
+            assert!(BILLOWING_FIRE_SPEED_MIN > 0.0);
+            assert!(BILLOWING_FIRE_SPEED_MAX > BILLOWING_FIRE_SPEED_MIN);
+            assert!(BILLOWING_FIRE_GROWTH_MIN >= 1.0);
+            assert!(BILLOWING_FIRE_GROWTH_MAX > BILLOWING_FIRE_GROWTH_MIN);
+            assert!(BILLOWING_FIRE_INITIAL_SCALE > 0.0);
+        }
+
+        #[test]
+        fn test_billowing_fire_sphere_count() {
+            // Should spawn 8 spheres as per design spec
+            assert_eq!(BILLOWING_FIRE_SPHERE_COUNT, 8);
+        }
+
+        #[test]
+        fn test_billowing_fire_lifetime() {
+            // Should be ~0.8s as per design spec
+            assert!((BILLOWING_FIRE_LIFETIME - 0.8).abs() < 0.01);
         }
     }
 }

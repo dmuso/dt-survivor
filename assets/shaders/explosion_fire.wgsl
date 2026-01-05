@@ -6,6 +6,8 @@
 // - Turbulent edges with animated noise
 // - Rising heat effect (upward bias)
 // - Duration ~0.6s
+// - Billowing fire support: organic FBM noise displacement for multi-sphere explosions
+//   When velocity.w > 0, enables billowing displacement for moving fire spheres
 
 #import bevy_pbr::{
     mesh_functions,
@@ -22,6 +24,10 @@ struct ExplosionFireMaterial {
     progress: vec4<f32>,
     emissive_intensity: vec4<f32>,
     noise_scale: vec4<f32>,
+    // velocity: xyz = normalized direction, w = speed magnitude
+    velocity: vec4<f32>,
+    // growth_config: x = growth_rate (1.0-3.0)
+    growth_config: vec4<f32>,
 }
 
 @group(3) @binding(0)
@@ -186,21 +192,58 @@ fn explosion_fire_gradient(t: f32, progress: f32) -> vec3<f32> {
 }
 
 // ============================================================================
-// Vertex Shader
+// Vertex Shader - With Billowing Displacement
 // ============================================================================
 
 @vertex
 fn vertex(vertex: Vertex) -> VertexOutput {
     var out: VertexOutput;
 
+    let t = globals.time;
+    let prog = material.progress.x;
+    let speed = material.velocity.w;
+    let growth_rate = material.growth_config.x;
+
+    // Base position
+    var pos = vertex.position;
+    let normal = vertex.normal;
+
+    // Apply billowing displacement when velocity indicates a moving sphere
+    // (speed > 0 means this is a billowing fire sphere, not the static central explosion)
+    if speed > 0.1 {
+        // Animated noise position - scrolls with time for organic motion
+        let noise_speed = 2.5;
+        let noise_pos = pos * 2.5 + vec3<f32>(
+            t * noise_speed * 0.3,
+            -t * noise_speed,  // Upward scroll for flames rising
+            t * noise_speed * 0.2
+        );
+
+        // Sample FBM noise for organic displacement
+        let displacement_strength = 0.35;
+        let noise = fbm4(noise_pos);
+
+        // Displace along normal for billowing effect
+        pos = pos + normal * noise * displacement_strength;
+
+        // Additional turbulence on the edges for flame-like appearance
+        let edge_noise_pos = pos * 4.0 + vec3<f32>(t * 3.0, -t * 5.0, t * 2.0);
+        let edge_displacement = perlin3d(edge_noise_pos) * 0.15;
+        pos = pos + normal * edge_displacement;
+    }
+
+    // Apply growth based on progress (spheres expand over time)
+    let scale_factor = 1.0 + prog * (growth_rate - 1.0);
+    pos = pos * scale_factor;
+
     let world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
-    let world_position = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(vertex.position, 1.0));
+    let world_position = mesh_functions::mesh_position_local_to_world(world_from_local, vec4<f32>(pos, 1.0));
 
     out.clip_position = position_world_to_clip(world_position.xyz);
     out.world_position = world_position.xyz;
-    out.world_normal = mesh_functions::mesh_normal_local_to_world(vertex.normal, vertex.instance_index);
+    out.world_normal = mesh_functions::mesh_normal_local_to_world(normal, vertex.instance_index);
     out.uv = vertex.uv;
-    out.local_position = vertex.position;
+    out.local_position = vertex.position;  // Keep original for fragment shader
 
     return out;
 }
