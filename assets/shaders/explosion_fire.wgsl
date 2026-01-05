@@ -249,6 +249,27 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 }
 
 // ============================================================================
+// Smoke Color Functions
+// ============================================================================
+
+// Smoke color gradient based on noise-driven heat variation
+fn smoke_gradient(heat: f32) -> vec3<f32> {
+    // Smoke colors: dark to light gray-brown
+    let dark_smoke = vec3<f32>(0.25, 0.22, 0.2);
+    let mid_smoke = vec3<f32>(0.32, 0.29, 0.27);
+    let light_smoke = vec3<f32>(0.4, 0.38, 0.35);
+
+    // Map heat to smoke color (hot areas are slightly lighter)
+    if heat > 0.6 {
+        return mix(mid_smoke, light_smoke, (heat - 0.6) / 0.4);
+    } else if heat > 0.3 {
+        return mix(dark_smoke, mid_smoke, (heat - 0.3) / 0.3);
+    } else {
+        return dark_smoke;
+    }
+}
+
+// ============================================================================
 // Fragment Shader
 // ============================================================================
 
@@ -256,7 +277,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let t = globals.time;
     let prog = material.progress.x;
-    let emissive = material.emissive_intensity.x;
+    let base_emissive = material.emissive_intensity.x;
 
     let pos = in.local_position;
     let anim = t * 5.0;
@@ -270,27 +291,46 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let heat = clamp(0.5 + noise * 0.5, 0.0, 1.0);
 
     // Fire color gradient: hot (yellow-white) to cool (red-orange)
-    var color: vec3<f32>;
+    var fire_color: vec3<f32>;
     if heat > 0.7 {
         // Hot: bright yellow-white
-        color = mix(vec3<f32>(1.0, 0.8, 0.3), vec3<f32>(1.0, 1.0, 0.8), (heat - 0.7) / 0.3);
+        fire_color = mix(vec3<f32>(1.0, 0.8, 0.3), vec3<f32>(1.0, 1.0, 0.8), (heat - 0.7) / 0.3);
     } else if heat > 0.4 {
         // Medium: orange
-        color = mix(vec3<f32>(1.0, 0.4, 0.0), vec3<f32>(1.0, 0.8, 0.3), (heat - 0.4) / 0.3);
+        fire_color = mix(vec3<f32>(1.0, 0.4, 0.0), vec3<f32>(1.0, 0.8, 0.3), (heat - 0.4) / 0.3);
     } else {
         // Cool: red-orange
-        color = mix(vec3<f32>(0.6, 0.1, 0.0), vec3<f32>(1.0, 0.4, 0.0), heat / 0.4);
+        fire_color = mix(vec3<f32>(0.6, 0.1, 0.0), vec3<f32>(1.0, 0.4, 0.0), heat / 0.4);
     }
 
-    // Progress fades and reddens the fire
-    let fade = 1.0 - prog * 0.9;  // Fade to 10% at end
-    color = mix(color, color * vec3<f32>(0.8, 0.3, 0.1), prog * 0.6);  // Shift red
+    // Progress fades and reddens the fire (only during fire phase)
+    let fire_fade = 1.0 - prog * 0.5;  // Less aggressive fade to preserve color during transition
+    fire_color = mix(fire_color, fire_color * vec3<f32>(0.8, 0.3, 0.1), min(prog * 0.6, 0.3));
 
-    // Flicker
-    let flicker = 1.0 + sin(anim * 7.0) * 0.1;
+    // Get smoke color based on same heat value for continuity
+    let smoke_color = smoke_gradient(heat);
+
+    // Fire to smoke transition:
+    // 0.0-0.4: Pure fire
+    // 0.4-0.7: Transition fire -> smoke
+    // 0.7-1.0: Pure smoke
+    let transition_t = smoothstep(0.4, 0.7, prog);
+
+    // Blend colors
+    var color = mix(fire_color, smoke_color, transition_t);
+
+    // Emissive intensity transition:
+    // Fire: full emissive (base_emissive)
+    // Smoke: reduced emissive (0.5) for ambient-lit appearance
+    let smoke_emissive = 0.5;
+    let emissive = mix(base_emissive, smoke_emissive, transition_t);
+
+    // Flicker - stronger during fire phase, gentler during smoke
+    let flicker_strength = mix(0.1, 0.03, transition_t);
+    let flicker = 1.0 + sin(anim * 7.0) * flicker_strength;
 
     // Final output with HDR emissive
-    let final_color = color * emissive * fade * flicker;
+    let final_color = color * emissive * fire_fade * flicker;
 
     return vec4<f32>(final_color, 1.0);
 }
