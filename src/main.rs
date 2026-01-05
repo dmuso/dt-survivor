@@ -76,6 +76,7 @@ fn main() {
                     }),
                     ..default()
                 }))
+            .add_plugins(HanabiPlugin) // Required for particle effects
             .insert_resource(ScreenshotState {
                 scene,
                 frames_remaining: scene.frames_to_wait(),
@@ -584,6 +585,7 @@ mod tests {
                 burn_tick_damage: 2.0,
                 lifetime: Timer::from_seconds(5.0, TimerMode::Once),
                 spawn_position: Vec3::ZERO,
+                travel_time: 0.0,
             },
         )).id();
 
@@ -667,6 +669,7 @@ mod tests {
                     burn_tick_damage: 2.0,
                     lifetime: Timer::from_seconds(5.0, TimerMode::Once),
                     spawn_position: Vec3::ZERO,
+                    travel_time: 0.0,
                 },
             )).id();
             fireball_entities.push(fireball_entity);
