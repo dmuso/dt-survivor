@@ -917,53 +917,55 @@ fn spawn_smoke_dissipation_test(
     }
 }
 
-/// Spawn ash float test - projectiles at slow speeds (progress 0.4-1.0) showing circular shape and drift
-/// Shows the transition from fast projectile to floating ash particles
+/// Spawn ash float test - static showcase at different speeds showing circular shape
+/// Shows elongation to circular transition as speed decreases (no animation/despawn)
+/// Note: Static materials don't animate - use this to verify shader behavior at different speeds
 fn spawn_ash_float_test(
     commands: &mut Commands,
     meshes: &GameMeshes,
     materials: &mut Assets<ExplosionEmbersMaterial>,
 ) {
-    use crate::spells::fire::fireball::{ExplosionEmbersEffect, DARK_PROJECTILE_SCALE};
-    // ASH_FLOAT_SPEED_THRESHOLD is 2.0 m/s, used to design the speed array
+    use crate::spells::fire::fireball::DARK_PROJECTILE_SCALE;
 
     let position = Vec3::new(0.0, 1.0, 0.0);
 
-    // Spawn 10 projectiles at various slow speeds to show ash float behavior
-    // Speeds range from just above threshold down to nearly stopped
+    // Spawn 10 STATIC projectiles at various speeds to show elongation to circular transition
+    // NO ExplosionEmbersEffect - these are static showcases (no despawn, no animation)
+    // Speeds above ASH_FADE_SPEED_MAX (1.5) to keep particles visible
     let speeds = [
-        3.0,  // Above threshold - still somewhat elongated
-        2.0,  // At threshold - transitioning
-        1.5,  // Below threshold - mostly circular
-        1.0,  // Well below - circular with drift
-        0.8,  // Slow - visible drift
-        0.6,  // Very slow - strong drift, starting to fade
-        0.5,  // Nearly stopped - fading
-        0.4,  // Almost stopped
-        0.35, // Very slow
-        0.3,  // Minimum before fully faded
+        15.0, // Fast - very elongated
+        12.0, // Fast - elongated
+        9.0,  // Medium-fast - moderately elongated
+        6.0,  // Medium - somewhat elongated
+        4.0,  // Slower - slightly elongated
+        3.0,  // At threshold (2.0) - transitioning to circular
+        2.5,  // Below threshold - mostly circular
+        2.2,  // Near threshold - almost circular
+        2.0,  // At threshold - circular
+        1.8,  // Just below - circular (slight fade begins)
     ];
 
     for (i, &speed) in speeds.iter().enumerate() {
         // Spread projectiles in a circle for visibility
         let angle = (i as f32 / speeds.len() as f32) * std::f32::consts::TAU;
         let direction = Vec3::new(angle.cos(), 0.1, angle.sin()).normalize();
-        let spawn_offset = direction * (1.5 + i as f32 * 0.3);
+        let spawn_offset = direction * (2.0 + i as f32 * 0.2);
 
-        // Create material with initial velocity
+        // Create STATIC material with velocity (no Effect component = no despawn)
         let mut material = ExplosionEmbersMaterial::new();
         material.set_velocity(direction, speed);
-        // Set progress based on how slow the particle is (slower = more progressed)
-        let progress = 0.4 + (1.0 - speed / 3.0).clamp(0.0, 0.5);
-        material.set_progress(progress);
+        // Keep progress low so particles are visible (high progress = faded)
+        material.set_progress(0.1);
+        // Increase emissive so particles are more visible
+        material.set_emissive_intensity(2.0);
         let handle = materials.add(material);
 
+        // Spawn WITHOUT ExplosionEmbersEffect - static showcase
         commands.spawn((
             Mesh3d(meshes.fireball.clone()),
-            MeshMaterial3d(handle.clone()),
+            MeshMaterial3d(handle),
             Transform::from_translation(position + spawn_offset)
-                .with_scale(Vec3::splat(DARK_PROJECTILE_SCALE)),
-            ExplosionEmbersEffect::new(handle, direction, speed),
+                .with_scale(Vec3::splat(DARK_PROJECTILE_SCALE * 1.5)), // Larger for visibility
         ));
     }
 }
