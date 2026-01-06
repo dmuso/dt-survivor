@@ -103,9 +103,9 @@ impl Default for EnemySpawnState {
 
 impl EnemySpawnState {
     /// Calculate spawn rate based on game level.
-    /// Level 1: 0.42 enemies/second (30% reduction from 0.6), then 1.35x per level (30% slower ramp).
+    /// Level 1: 0.504 enemies/second (+20% from 0.42), then 1.35x per level.
     pub fn spawn_rate_for_level(game_level: u32) -> f32 {
-        0.42 * 1.35_f32.powi(game_level.saturating_sub(1) as i32)
+        0.504 * 1.35_f32.powi(game_level.saturating_sub(1) as i32)
     }
 }
 
@@ -927,30 +927,30 @@ mod tests {
         #[test]
         fn spawn_rate_at_level_1() {
             let rate = EnemySpawnState::spawn_rate_for_level(1);
-            // 30% reduction from 0.6 = 0.42
-            assert!((rate - 0.42).abs() < 0.001, "Level 1 should have 0.42 enemies/sec, got {}", rate);
+            // +20% from 0.42 = 0.504
+            assert!((rate - 0.504).abs() < 0.001, "Level 1 should have 0.504 enemies/sec, got {}", rate);
         }
 
         #[test]
         fn spawn_rate_at_level_2() {
             let rate = EnemySpawnState::spawn_rate_for_level(2);
-            // 0.42 * 1.35 = 0.567
-            assert!((rate - 0.567).abs() < 0.001, "Level 2 should have 0.567 enemies/sec, got {}", rate);
+            // 0.504 * 1.35 = 0.6804
+            assert!((rate - 0.6804).abs() < 0.001, "Level 2 should have 0.6804 enemies/sec, got {}", rate);
         }
 
         #[test]
         fn spawn_rate_at_level_5() {
             let rate = EnemySpawnState::spawn_rate_for_level(5);
-            // 0.42 * 1.35^4 = 0.42 * 3.32150625 = 1.395
-            let expected = 0.42 * 1.35_f32.powi(4);
+            // 0.504 * 1.35^4
+            let expected = 0.504 * 1.35_f32.powi(4);
             assert!((rate - expected).abs() < 0.001, "Level 5 should have {} enemies/sec, got {}", expected, rate);
         }
 
         #[test]
         fn spawn_rate_at_level_10() {
             let rate = EnemySpawnState::spawn_rate_for_level(10);
-            // 0.42 * 1.35^9 = ~7.64 enemies/sec (reduced from ~23.1)
-            let expected = 0.42 * 1.35_f32.powi(9);
+            // 0.504 * 1.35^9
+            let expected = 0.504 * 1.35_f32.powi(9);
             assert!((rate - expected).abs() < 0.001, "Level 10 should have {} enemies/sec, got {}", expected, rate);
         }
 
