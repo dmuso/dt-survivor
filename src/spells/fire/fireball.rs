@@ -350,35 +350,6 @@ impl ExplosionEmbersEffect {
     }
 }
 
-/// Component for the shader-based explosion smoke effect (rising plume)
-/// Stores the material handle and lifetime timer for progress updates
-#[derive(Component, Debug)]
-pub struct ExplosionSmokeEffect {
-    /// Handle to the explosion smoke material for this entity
-    pub material_handle: Handle<super::materials::ExplosionSmokeMaterial>,
-    /// Lifetime timer (1.2s for rising smoke)
-    pub lifetime: Timer,
-}
-
-impl ExplosionSmokeEffect {
-    pub fn new(material_handle: Handle<super::materials::ExplosionSmokeMaterial>) -> Self {
-        Self {
-            material_handle,
-            lifetime: Timer::from_seconds(1.2, TimerMode::Once),
-        }
-    }
-
-    /// Get progress (0.0 to 1.0) through the lifetime
-    pub fn progress(&self) -> f32 {
-        self.lifetime.fraction()
-    }
-
-    /// Check if the effect is finished
-    pub fn is_finished(&self) -> bool {
-        self.lifetime.is_finished()
-    }
-}
-
 /// Component for the shader-based explosion dark impact effect (silhouette spikes)
 /// Stores the material handle and lifetime timer for progress updates
 #[derive(Component, Debug)]
@@ -419,7 +390,7 @@ pub const BILLOWING_FIRE_SPEED_MIN: f32 = 3.0;
 pub const BILLOWING_FIRE_SPEED_MAX: f32 = 5.0;
 pub const BILLOWING_FIRE_GROWTH_MIN: f32 = 1.5;
 pub const BILLOWING_FIRE_GROWTH_MAX: f32 = 2.5;
-pub const BILLOWING_FIRE_INITIAL_SCALE: f32 = 0.8;
+pub const BILLOWING_FIRE_INITIAL_SCALE: f32 = 0.48;
 
 /// Individual billowing fire sphere - multiple of these create the fire cloud
 #[derive(Component, Debug)]
@@ -470,6 +441,9 @@ impl BillowingFireSphereEffect {
     }
 }
 
+/// Global counter for unique spawner seeds (ensures each explosion looks different)
+static SPAWNER_COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 /// Spawns billowing fire spheres at explosion location
 #[derive(Component, Debug)]
 pub struct BillowingFireSpawner {
@@ -483,10 +457,12 @@ pub struct BillowingFireSpawner {
 
 impl BillowingFireSpawner {
     pub fn new(position: Vec3) -> Self {
+        // Increment counter for unique seed each spawn
+        let counter = SPAWNER_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Self {
             position,
             spheres_remaining: BILLOWING_FIRE_SPHERE_COUNT,
-            seed: position.x.to_bits() ^ position.z.to_bits() ^ 0xF1AE_u32,
+            seed: position.x.to_bits() ^ position.z.to_bits() ^ counter.wrapping_mul(2654435761),
         }
     }
 
@@ -502,92 +478,6 @@ impl BillowingFireSpawner {
 #[derive(Component, Debug)]
 pub struct FireballExplosionParticles {
     pub cleanup_timer: Timer,
-}
-
-// ============================================================================
-// Multi-Puff Smoke System - Replaces single-sphere smoke with billowing cloud
-// ============================================================================
-
-/// Configuration constants for smoke puff system
-pub const SMOKE_PUFF_COUNT: u32 = 12;
-pub const SMOKE_SPAWN_DURATION: f32 = 0.6;
-pub const SMOKE_PUFF_LIFETIME_BASE: f32 = 1.8;
-pub const SMOKE_PUFF_LIFETIME_VARIANCE: f32 = 0.4;
-pub const SMOKE_PUFF_RISE_SPEED_BASE: f32 = 1.5;
-pub const SMOKE_PUFF_RISE_SPEED_VARIANCE: f32 = 0.6;
-pub const SMOKE_PUFF_INITIAL_SCALE: f32 = 0.4;   // Smaller puffs
-pub const SMOKE_PUFF_MAX_SCALE_BASE: f32 = 1.0;  // Stay smaller
-pub const SMOKE_PUFF_MAX_SCALE_VARIANCE: f32 = 0.3;
-pub const SMOKE_PUFF_DRIFT_SPEED_BASE: f32 = 0.3;
-pub const SMOKE_PUFF_DRIFT_SPEED_VARIANCE: f32 = 0.4;
-pub const SMOKE_PUFF_SPAWN_SPREAD: f32 = 0.8;
-
-/// Individual smoke puff - many of these create billowing smoke
-#[derive(Component, Debug)]
-pub struct SmokePuffEffect {
-    /// Handle to the smoke material for this puff
-    pub material_handle: Handle<super::materials::ExplosionSmokeMaterial>,
-    /// Lifetime timer for this individual puff
-    pub lifetime: Timer,
-    /// Starting scale (small)
-    pub initial_scale: f32,
-    /// Final scale when fully expanded
-    pub max_scale: f32,
-    /// Vertical rise speed in units per second
-    pub rise_speed: f32,
-    /// Horizontal drift velocity (X, Z)
-    pub drift_velocity: Vec2,
-}
-
-impl SmokePuffEffect {
-    /// Get progress (0.0 to 1.0) through the lifetime
-    pub fn progress(&self) -> f32 {
-        self.lifetime.fraction()
-    }
-
-    /// Check if the puff is finished
-    pub fn is_finished(&self) -> bool {
-        self.lifetime.is_finished()
-    }
-
-    /// Calculate current scale based on progress with ease-out curve
-    pub fn current_scale(&self) -> f32 {
-        let t = self.progress();
-        let eased = 1.0 - (1.0 - t).powi(2);
-        self.initial_scale + (self.max_scale - self.initial_scale) * eased
-    }
-}
-
-/// Spawns smoke puffs over time at explosion location
-#[derive(Component, Debug)]
-pub struct SmokePuffSpawner {
-    /// Position to spawn puffs around
-    pub position: Vec3,
-    /// Timer between puff spawns
-    pub spawn_timer: Timer,
-    /// How many more puffs to spawn
-    pub puffs_remaining: u32,
-    /// Random number generator seed for deterministic randomness
-    pub seed: u32,
-}
-
-impl SmokePuffSpawner {
-    pub fn new(position: Vec3) -> Self {
-        let spawn_interval = SMOKE_SPAWN_DURATION / SMOKE_PUFF_COUNT as f32;
-        Self {
-            position,
-            spawn_timer: Timer::from_seconds(spawn_interval, TimerMode::Repeating),
-            puffs_remaining: SMOKE_PUFF_COUNT,
-            seed: position.x.to_bits() ^ position.z.to_bits(),
-        }
-    }
-
-    /// Get next pseudo-random value (0.0 to 1.0) and advance seed
-    pub fn next_random(&mut self) -> f32 {
-        // Simple LCG for deterministic randomness
-        self.seed = self.seed.wrapping_mul(1103515245).wrapping_add(12345);
-        (self.seed >> 16) as f32 / 65535.0
-    }
 }
 
 impl Default for FireballExplosionParticles {
@@ -1214,9 +1104,6 @@ pub fn fireball_explosion_spawn_system(
 
         // Spawn billowing fire spheres spawner (creates 8 fire spheres that expand outward)
         commands.spawn(BillowingFireSpawner::new(pos));
-
-        // Spawn smoke puff spawner (creates multiple puffs over time)
-        commands.spawn(SmokePuffSpawner::new(pos));
     }
 }
 
@@ -1273,9 +1160,6 @@ pub fn fireball_ground_collision_system(
 
             // Spawn billowing fire spheres spawner (creates 8 fire spheres that expand outward)
             commands.spawn(BillowingFireSpawner::new(pos));
-
-            // Spawn smoke puff spawner (creates multiple puffs over time)
-            commands.spawn(SmokePuffSpawner::new(pos));
 
             // Despawn the fireball
             commands.entity(entity).despawn();
@@ -1406,33 +1290,6 @@ pub fn explosion_embers_effect_update_system(
     }
 }
 
-/// System that updates explosion smoke shader effects (progress and cleanup)
-pub fn explosion_smoke_effect_update_system(
-    mut commands: Commands,
-    time: Res<Time>,
-    mut query: Query<(Entity, &mut ExplosionSmokeEffect)>,
-    mut materials: Option<ResMut<Assets<super::materials::ExplosionSmokeMaterial>>>,
-) {
-    let Some(materials) = materials.as_mut() else {
-        return; // No material assets available (e.g., in tests without MaterialPlugin)
-    };
-
-    for (entity, mut effect) in query.iter_mut() {
-        effect.lifetime.tick(time.delta());
-        let progress = effect.progress();
-
-        // Update the material's progress
-        if let Some(material) = materials.get_mut(&effect.material_handle) {
-            material.set_progress(progress);
-        }
-
-        // Despawn when finished
-        if effect.is_finished() {
-            commands.entity(entity).despawn();
-        }
-    }
-}
-
 /// System that updates explosion dark impact shader effects (progress and cleanup)
 pub fn explosion_dark_impact_effect_update_system(
     mut commands: Commands,
@@ -1455,125 +1312,6 @@ pub fn explosion_dark_impact_effect_update_system(
 
         // Despawn when finished
         if effect.is_finished() {
-            commands.entity(entity).despawn();
-        }
-    }
-}
-
-// ============================================================================
-// Multi-Puff Smoke Systems
-// ============================================================================
-
-/// System that spawns smoke puffs over time from SmokePuffSpawner entities
-#[allow(clippy::too_many_arguments)]
-pub fn smoke_puff_spawner_system(
-    mut commands: Commands,
-    time: Res<Time>,
-    mut query: Query<(Entity, &mut SmokePuffSpawner)>,
-    game_meshes: Option<Res<crate::game::resources::GameMeshes>>,
-    mut smoke_materials: Option<ResMut<Assets<super::materials::ExplosionSmokeMaterial>>>,
-) {
-    let Some(meshes) = game_meshes.as_ref() else {
-        return;
-    };
-    let Some(materials) = smoke_materials.as_mut() else {
-        return;
-    };
-
-    for (entity, mut spawner) in query.iter_mut() {
-        spawner.spawn_timer.tick(time.delta());
-
-        // Spawn first puff immediately, then on timer
-        let should_spawn = spawner.puffs_remaining == SMOKE_PUFF_COUNT
-            || spawner.spawn_timer.just_finished();
-
-        if should_spawn && spawner.puffs_remaining > 0 {
-            // Random offset from center
-            let offset_x = (spawner.next_random() - 0.5) * SMOKE_PUFF_SPAWN_SPREAD;
-            let offset_z = (spawner.next_random() - 0.5) * SMOKE_PUFF_SPAWN_SPREAD;
-            let offset = Vec3::new(offset_x, 0.0, offset_z);
-
-            // Random drift direction
-            let drift_angle = spawner.next_random() * std::f32::consts::TAU;
-            let drift_speed = SMOKE_PUFF_DRIFT_SPEED_BASE
-                + spawner.next_random() * SMOKE_PUFF_DRIFT_SPEED_VARIANCE;
-            let drift_velocity = Vec2::new(
-                drift_angle.cos() * drift_speed,
-                drift_angle.sin() * drift_speed,
-            );
-
-            // Random lifetime and rise speed
-            let lifetime = SMOKE_PUFF_LIFETIME_BASE
-                + spawner.next_random() * SMOKE_PUFF_LIFETIME_VARIANCE;
-            let rise_speed = SMOKE_PUFF_RISE_SPEED_BASE
-                + spawner.next_random() * SMOKE_PUFF_RISE_SPEED_VARIANCE;
-            let max_scale = SMOKE_PUFF_MAX_SCALE_BASE
-                + spawner.next_random() * SMOKE_PUFF_MAX_SCALE_VARIANCE;
-
-            // Create material for this puff
-            let material = super::materials::ExplosionSmokeMaterial::new();
-            let handle = materials.add(material);
-
-            // Spawn puff just above explosion fire sphere (fire has scale 1.5 centered at y=1)
-            // so puffs start at y ≈ 2.5 and rise from there
-            let puff_pos = spawner.position + offset + Vec3::Y * 1.5;
-
-            commands.spawn((
-                Mesh3d(meshes.explosion.clone()),
-                MeshMaterial3d(handle.clone()),
-                Transform::from_translation(puff_pos)
-                    .with_scale(Vec3::splat(SMOKE_PUFF_INITIAL_SCALE)),
-                SmokePuffEffect {
-                    material_handle: handle,
-                    lifetime: Timer::from_seconds(lifetime, TimerMode::Once),
-                    initial_scale: SMOKE_PUFF_INITIAL_SCALE,
-                    max_scale,
-                    rise_speed,
-                    drift_velocity,
-                },
-            ));
-
-            spawner.puffs_remaining -= 1;
-        }
-
-        // Cleanup spawner when done
-        if spawner.puffs_remaining == 0 {
-            commands.entity(entity).despawn();
-        }
-    }
-}
-
-/// System that updates smoke puff effects (scale, position, material progress, cleanup)
-pub fn smoke_puff_effect_update_system(
-    mut commands: Commands,
-    time: Res<Time>,
-    mut query: Query<(Entity, &mut SmokePuffEffect, &mut Transform)>,
-    mut materials: Option<ResMut<Assets<super::materials::ExplosionSmokeMaterial>>>,
-) {
-    let Some(materials) = materials.as_mut() else {
-        return;
-    };
-
-    for (entity, mut puff, mut transform) in query.iter_mut() {
-        puff.lifetime.tick(time.delta());
-        let progress = puff.progress();
-
-        // Update material progress for fade
-        if let Some(mat) = materials.get_mut(&puff.material_handle) {
-            mat.set_progress(progress);
-        }
-
-        // Expand: small -> large with ease-out curve
-        transform.scale = Vec3::splat(puff.current_scale());
-
-        // Rise upward + horizontal drift
-        let dt = time.delta_secs();
-        transform.translation.y += puff.rise_speed * dt;
-        transform.translation.x += puff.drift_velocity.x * dt;
-        transform.translation.z += puff.drift_velocity.y * dt;
-
-        // Despawn when finished
-        if puff.is_finished() {
             commands.entity(entity).despawn();
         }
     }
@@ -2424,110 +2162,6 @@ mod tests {
         }
     }
 
-    mod smoke_puff_tests {
-        use super::*;
-
-        #[test]
-        fn test_smoke_puff_spawner_new() {
-            let position = Vec3::new(1.0, 2.0, 3.0);
-            let spawner = SmokePuffSpawner::new(position);
-
-            assert_eq!(spawner.position, position);
-            assert_eq!(spawner.puffs_remaining, SMOKE_PUFF_COUNT);
-            // Seed is derived from position
-            assert_eq!(spawner.seed, position.x.to_bits() ^ position.z.to_bits());
-        }
-
-        #[test]
-        fn test_smoke_puff_spawner_random_sequence() {
-            let mut spawner = SmokePuffSpawner::new(Vec3::new(10.0, 0.0, 20.0));
-
-            // Generate several random values
-            let val1 = spawner.next_random();
-            let val2 = spawner.next_random();
-            let val3 = spawner.next_random();
-
-            // Values should be in range [0, 1]
-            assert!(val1 >= 0.0 && val1 <= 1.0);
-            assert!(val2 >= 0.0 && val2 <= 1.0);
-            assert!(val3 >= 0.0 && val3 <= 1.0);
-
-            // Values should be different
-            assert_ne!(val1, val2);
-            assert_ne!(val2, val3);
-        }
-
-        #[test]
-        fn test_smoke_puff_spawner_deterministic() {
-            let position = Vec3::new(5.0, 0.0, 10.0);
-            let mut spawner1 = SmokePuffSpawner::new(position);
-            let mut spawner2 = SmokePuffSpawner::new(position);
-
-            // Same position should produce same random sequence
-            assert_eq!(spawner1.next_random(), spawner2.next_random());
-            assert_eq!(spawner1.next_random(), spawner2.next_random());
-            assert_eq!(spawner1.next_random(), spawner2.next_random());
-        }
-
-        #[test]
-        fn test_smoke_puff_effect_progress() {
-            let handle = Handle::default();
-            let mut effect = SmokePuffEffect {
-                material_handle: handle,
-                lifetime: Timer::from_seconds(1.0, TimerMode::Once),
-                initial_scale: 0.3,
-                max_scale: 2.0,
-                rise_speed: 2.0,
-                drift_velocity: Vec2::ZERO,
-            };
-
-            // Initial progress
-            assert_eq!(effect.progress(), 0.0);
-            assert!(!effect.is_finished());
-
-            // Halfway through
-            effect.lifetime.tick(Duration::from_secs_f32(0.5));
-            assert!((effect.progress() - 0.5).abs() < 0.01);
-
-            // Finished
-            effect.lifetime.tick(Duration::from_secs_f32(0.6));
-            assert!(effect.is_finished());
-            assert_eq!(effect.progress(), 1.0);
-        }
-
-        #[test]
-        fn test_smoke_puff_effect_scale_calculation() {
-            let handle = Handle::default();
-            let mut effect = SmokePuffEffect {
-                material_handle: handle,
-                lifetime: Timer::from_seconds(1.0, TimerMode::Once),
-                initial_scale: 0.5,
-                max_scale: 2.0,
-                rise_speed: 2.0,
-                drift_velocity: Vec2::ZERO,
-            };
-
-            // At start: scale should be initial_scale
-            let start_scale = effect.current_scale();
-            assert!((start_scale - 0.5).abs() < 0.01);
-
-            // At end: scale should be max_scale
-            effect.lifetime.tick(Duration::from_secs_f32(1.0));
-            let end_scale = effect.current_scale();
-            assert!((end_scale - 2.0).abs() < 0.01);
-        }
-
-        #[test]
-        fn test_smoke_puff_config_constants() {
-            // Verify constants are reasonable
-            assert!(SMOKE_PUFF_COUNT > 0);
-            assert!(SMOKE_SPAWN_DURATION > 0.0);
-            assert!(SMOKE_PUFF_LIFETIME_BASE > 0.0);
-            assert!(SMOKE_PUFF_INITIAL_SCALE > 0.0);
-            assert!(SMOKE_PUFF_MAX_SCALE_BASE > SMOKE_PUFF_INITIAL_SCALE);
-        }
-    }
-
     mod billowing_fire_tests {
         use super::*;
 
@@ -2560,15 +2194,15 @@ mod tests {
         }
 
         #[test]
-        fn test_billowing_fire_spawner_deterministic() {
+        fn test_billowing_fire_spawner_unique_per_instance() {
             let position = Vec3::new(5.0, 0.0, 10.0);
             let mut spawner1 = BillowingFireSpawner::new(position);
             let mut spawner2 = BillowingFireSpawner::new(position);
 
-            // Same position should produce same random sequence
-            assert_eq!(spawner1.next_random(), spawner2.next_random());
-            assert_eq!(spawner1.next_random(), spawner2.next_random());
-            assert_eq!(spawner1.next_random(), spawner2.next_random());
+            // Same position should produce DIFFERENT random sequences (visual variety)
+            let seq1: Vec<f32> = (0..3).map(|_| spawner1.next_random()).collect();
+            let seq2: Vec<f32> = (0..3).map(|_| spawner2.next_random()).collect();
+            assert_ne!(seq1, seq2);
         }
 
         #[test]

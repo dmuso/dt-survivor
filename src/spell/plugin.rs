@@ -15,8 +15,7 @@ use crate::spells::fire::fireball::{
     fireball_ground_collision_system,
     explosion_core_effect_update_system, explosion_fire_effect_update_system,
     explosion_dark_impact_effect_update_system,
-    explosion_embers_effect_update_system, explosion_smoke_effect_update_system,
-    smoke_puff_spawner_system, smoke_puff_effect_update_system,
+    explosion_embers_effect_update_system,
     billowing_fire_spawner_system, billowing_fire_sphere_effect_update_system,
 };
 use crate::spells::fire::materials::{
@@ -24,7 +23,7 @@ use crate::spells::fire::materials::{
     update_fireball_trail_material_time,
     update_explosion_core_material_time, update_explosion_fire_material_time,
     update_explosion_dark_impact_material_time,
-    update_explosion_embers_material_time, update_explosion_smoke_material_time,
+    update_explosion_embers_material_time,
 };
 use crate::spells::light::radiance::{
     radiance_pulse_system, radiance_pulse_visual_system,
@@ -339,7 +338,6 @@ pub fn plugin(app: &mut App) {
                 update_explosion_fire_material_time,
                 update_explosion_dark_impact_material_time,
                 update_explosion_embers_material_time,
-                update_explosion_smoke_material_time,
             )
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
@@ -352,19 +350,7 @@ pub fn plugin(app: &mut App) {
                 explosion_fire_effect_update_system,
                 explosion_dark_impact_effect_update_system,
                 explosion_embers_effect_update_system,
-                explosion_smoke_effect_update_system,
             )
-                .in_set(GameSet::Effects)
-                .run_if(in_state(GameState::InGame)),
-        )
-        // Multi-puff smoke systems (spawner creates puffs over time, update animates them)
-        .add_systems(
-            Update,
-            (
-                smoke_puff_spawner_system,
-                smoke_puff_effect_update_system,
-            )
-                .chain()
                 .in_set(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         )

@@ -11,15 +11,14 @@ pub use scenes::TestScene;
 use crate::game::resources::GameMeshes;
 use crate::game::systems::setup_game_assets;
 use crate::spells::fire::fireball::{
-    smoke_puff_spawner_system, smoke_puff_effect_update_system,
     billowing_fire_spawner_system, billowing_fire_sphere_effect_update_system,
 };
 use crate::spells::fire::fireball_effects::{FireballEffects, init_fireball_effects};
 use crate::spells::fire::materials::{
     FireballCoreMaterial, FireballTrailMaterial, FireballChargeMaterial,
     ExplosionCoreMaterial, ExplosionFireMaterial, ExplosionDarkImpactMaterial,
-    FireballSparksMaterial, ExplosionEmbersMaterial, ExplosionSmokeMaterial,
-    update_explosion_smoke_material_time, update_explosion_fire_material_time,
+    FireballSparksMaterial, ExplosionEmbersMaterial,
+    update_explosion_fire_material_time,
 };
 
 /// Resource to track screenshot state
@@ -43,12 +42,9 @@ pub fn plugin(app: &mut App) {
     app.add_systems(Startup, (setup_game_assets, init_fireball_effects, setup_visual_test_scene).chain());
     app.add_systems(Update, take_screenshot_and_exit);
 
-    // Add smoke puff and billowing fire systems for testing
+    // Add billowing fire systems for testing
     app.add_systems(Update, (
-        update_explosion_smoke_material_time,
         update_explosion_fire_material_time,
-        smoke_puff_spawner_system,
-        smoke_puff_effect_update_system,
         billowing_fire_spawner_system,
         billowing_fire_sphere_effect_update_system,
     ).chain());
@@ -69,7 +65,6 @@ fn setup_visual_test_scene(
     mut explosion_dark_impact_materials: ResMut<Assets<ExplosionDarkImpactMaterial>>,
     mut sparks_materials: ResMut<Assets<FireballSparksMaterial>>,
     mut embers_materials: ResMut<Assets<ExplosionEmbersMaterial>>,
-    mut smoke_materials: ResMut<Assets<ExplosionSmokeMaterial>>,
 ) {
     // Setup camera
     let scene = &state.scene;
@@ -98,7 +93,6 @@ fn setup_visual_test_scene(
         &mut explosion_dark_impact_materials,
         &mut sparks_materials,
         &mut embers_materials,
-        &mut smoke_materials,
     );
 }
 
