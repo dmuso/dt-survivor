@@ -334,29 +334,30 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // ========================================================================
     // Smoke Dissipation Mask (Stage 7)
-    // During smoke phase (prog > 0.7), a rising sphere mask "eats" the smoke
-    // from below, creating a dissolve effect
+    // During smoke phase (prog > 0.7), a rising dome mask "eats" the smoke
+    // from below, creating a bottom-up dissolve effect with circular shape
     // ========================================================================
     if prog > 0.7 {
         // Dissipation progress: 0.0 at prog=0.7, 1.0 at prog=1.0
         let dissipation_prog = smoothstep(0.7, 1.0, prog);
 
-        // Mask center rises from below the sphere (-1.0) to above it (+1.5)
-        let mask_center_y = -1.0 + dissipation_prog * 2.5;
+        // Base Y-threshold rises from below the sphere to above it
+        let base_threshold_y = -0.6 + dissipation_prog * 1.4;
 
-        // Mask radius grows as it rises (starts small, ends large)
-        let mask_radius = dissipation_prog * 1.2;
+        // Add circular dome shape - center rises faster than edges
+        // This creates a dome/hemisphere rising from below
+        let horizontal_dist = length(vec2<f32>(pos.x, pos.z));
+        let dome_bulge = (1.0 - smoothstep(0.0, 0.5, horizontal_dist)) * 0.25;
 
-        // Calculate distance from fragment to mask center (in local space)
-        let mask_center = vec3<f32>(0.0, mask_center_y, 0.0);
-        let dist_to_mask = distance(pos, mask_center);
+        // Effective threshold is higher in the center (dome shape)
+        let threshold_y = base_threshold_y + dome_bulge;
 
-        // Soft edge mask: fragments inside the mask sphere become transparent
-        // smoothstep creates a soft transition at the mask boundary
-        let sphere_mask = smoothstep(mask_radius - 0.15, mask_radius + 0.05, dist_to_mask);
+        // Soft edge: fragments below threshold become transparent
+        // smoothstep creates a gradual transition at the boundary
+        let dissipation_mask = smoothstep(threshold_y - 0.15, threshold_y + 0.15, pos.y);
 
         // Apply mask to alpha
-        alpha = sphere_mask;
+        alpha = dissipation_mask;
 
         // Discard nearly-transparent fragments for performance
         if alpha < 0.02 {
