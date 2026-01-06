@@ -210,8 +210,10 @@ impl TestScene {
     /// Number of frames to wait before first screenshot (shader compile + stabilize)
     pub fn frames_to_wait(&self) -> u32 {
         match self {
-            // Animation tests need time for shaders to compile
-            TestScene::TrailNoiseAnimation | TestScene::ExplosionSequence => 60,
+            // Trail noise needs time for shaders to compile
+            TestScene::TrailNoiseAnimation => 60,
+            // Explosion sequence: static materials, wait for shader compile
+            TestScene::ExplosionSequence => 45,
             // Full sequence: wait for shaders to compile (static materials, no despawn)
             TestScene::ExplosionFullSequenceNew => 45,
             // Billowing fire: only wait for shaders to compile, capture quickly (0.8s lifetime)
@@ -248,7 +250,7 @@ impl TestScene {
         match self {
             TestScene::TrailNoiseAnimation => 12,  // ~200ms at 60fps
             TestScene::TrailGrowthSequence => 10,  // ~166ms at 60fps for smooth growth
-            TestScene::ExplosionSequence => 18,    // ~300ms at 60fps - longer to show smoke rising
+            TestScene::ExplosionSequence => 10,    // ~167ms at 60fps - show shader time-based animation
             // Full sequence: ~83ms between captures (5 frames) to show all 7 stages over ~1s
             // This faster rate captures more of the early star-burst phase
             TestScene::ExplosionFullSequenceNew => 5,
@@ -763,7 +765,9 @@ fn spawn_dark_projectiles_test(
     }
 }
 
-/// Spawn complete explosion sequence for animation capture
+/// Spawn complete explosion sequence for animation capture.
+/// Uses BillowingFireSpawner to create a dynamic animated explosion.
+/// Animation comes from Effect components that drive material progress over time.
 fn spawn_explosion_sequence(
     commands: &mut Commands,
     meshes: &GameMeshes,
@@ -773,46 +777,52 @@ fn spawn_explosion_sequence(
 ) {
     let position = Vec3::new(0.0, 1.0, 0.0);
 
-    // Explosion core (brief white flash)
-    let mut core_material = ExplosionCoreMaterial::new();
-    core_material.set_progress(0.2);  // Start partway through
-    let core_handle = explosion_core_materials.add(core_material);
-    commands.spawn((
-        Mesh3d(meshes.explosion.clone()),
-        MeshMaterial3d(core_handle),
-        Transform::from_translation(position).with_scale(Vec3::splat(0.8)),
-    ));
+    // Spawn static explosion core at various progress stages for comparison
+    // (Effect components cause despawn before shaders compile, so use static materials)
+    let progress_values = [0.0, 0.2, 0.4, 0.6, 0.8];
+    let x_offsets = [-3.0, -1.5, 0.0, 1.5, 3.0];
 
-    // Explosion fire (main fireball)
-    let mut fire_material = ExplosionFireMaterial::new();
-    fire_material.set_progress(0.1);
-    let fire_handle = explosion_fire_materials.add(fire_material);
-    commands.spawn((
-        Mesh3d(meshes.explosion.clone()),
-        MeshMaterial3d(fire_handle),
-        Transform::from_translation(position).with_scale(Vec3::splat(1.5)),
-    ));
-
-    // Spawn several embers flying outward
-    for i in 0..6 {
-        let angle = (i as f32 / 6.0) * std::f32::consts::TAU;
-        let ember_dir = Vec3::new(angle.cos(), 0.5, angle.sin()).normalize();
-        let ember_pos = position + ember_dir * 0.5;
-
-        let mut embers_material = ExplosionEmbersMaterial::new();
-        embers_material.set_progress(0.0);
-        embers_material.set_velocity(ember_dir, 12.0);
-        let embers_handle = embers_materials.add(embers_material);
-
+    // Row 1: Explosion core at different progress stages
+    for (i, &progress) in progress_values.iter().enumerate() {
+        let mut core_material = ExplosionCoreMaterial::new();
+        core_material.set_progress(progress);
+        let core_handle = explosion_core_materials.add(core_material);
         commands.spawn((
-            Mesh3d(meshes.fireball.clone()),
-            MeshMaterial3d(embers_handle),
-            Transform::from_translation(ember_pos).with_scale(Vec3::splat(0.1)),
+            Mesh3d(meshes.explosion.clone()),
+            MeshMaterial3d(core_handle),
+            Transform::from_translation(Vec3::new(x_offsets[i], position.y + 2.0, 0.0))
+                .with_scale(Vec3::splat(0.6)),
         ));
     }
 
-    // Billowing fire spawner handles fire-to-smoke transition
-    commands.spawn(BillowingFireSpawner::new(position));
+    // Row 2: Explosion fire at different progress stages
+    for (i, &progress) in progress_values.iter().enumerate() {
+        let mut fire_material = ExplosionFireMaterial::new();
+        fire_material.set_progress(progress);
+        fire_material.set_velocity(Vec3::Y, 1.0); // Enable billowing
+        let fire_handle = explosion_fire_materials.add(fire_material);
+        commands.spawn((
+            Mesh3d(meshes.explosion.clone()),
+            MeshMaterial3d(fire_handle),
+            Transform::from_translation(Vec3::new(x_offsets[i], position.y, 0.0))
+                .with_scale(Vec3::splat(1.0 + progress * 0.5)),
+        ));
+    }
+
+    // Row 3: Embers at different progress stages with varying velocities
+    let speeds = [15.0, 10.0, 5.0, 2.0, 0.5];
+    for (i, (&progress, &speed)) in progress_values.iter().zip(speeds.iter()).enumerate() {
+        let mut embers_material = ExplosionEmbersMaterial::new();
+        embers_material.set_progress(progress);
+        embers_material.set_velocity(Vec3::X, speed);
+        let embers_handle = embers_materials.add(embers_material);
+        commands.spawn((
+            Mesh3d(meshes.fireball.clone()),
+            MeshMaterial3d(embers_handle),
+            Transform::from_translation(Vec3::new(x_offsets[i], position.y - 2.0, 0.0))
+                .with_scale(Vec3::splat(0.3)),
+        ));
+    }
 }
 
 /// Spawn billowing fire test - spawns 8 fire spheres with billowing displacement

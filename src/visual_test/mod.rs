@@ -12,6 +12,8 @@ use crate::game::resources::GameMeshes;
 use crate::game::systems::setup_game_assets;
 use crate::spells::fire::fireball::{
     billowing_fire_spawner_system, billowing_fire_sphere_effect_update_system,
+    explosion_core_effect_update_system, explosion_embers_effect_update_system,
+    explosion_dark_impact_effect_update_system, explosion_fire_effect_update_system,
 };
 use crate::spells::fire::fireball_effects::{FireballEffects, init_fireball_effects};
 use crate::spells::fire::materials::{
@@ -42,12 +44,16 @@ pub fn plugin(app: &mut App) {
     app.add_systems(Startup, (setup_game_assets, init_fireball_effects, setup_visual_test_scene).chain());
     app.add_systems(Update, take_screenshot_and_exit);
 
-    // Add billowing fire systems for testing
+    // Add all explosion effect update systems for visual testing
     app.add_systems(Update, (
         update_explosion_fire_material_time,
         billowing_fire_spawner_system,
         billowing_fire_sphere_effect_update_system,
-    ).chain());
+        explosion_core_effect_update_system,
+        explosion_embers_effect_update_system,
+        explosion_dark_impact_effect_update_system,
+        explosion_fire_effect_update_system,
+    ));
 }
 
 /// All material assets needed for visual tests
