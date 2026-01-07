@@ -1,6 +1,6 @@
 ---
 name: visual-testing
-description: Visual testing workflow for shaders and visual effects. Use when working on shaders, visual effects, materials, visual tests or when you need to verify how something looks visually. Triggers on "test shader", "screenshot", "visual test", "how does it look", "verify visuals".
+description: Visual testing workflow for shaders and visual effects. Use when working on shaders, visual effects, materials, or when you need to verify how something looks visually. Triggers on "test shader", "screenshot", "visual test", "how does it look", "verify visuals".
 ---
 
 # Visual Testing Skill
@@ -21,55 +21,98 @@ This skill helps you verify shader and visual effect work using the screenshot t
 nix-shell --run "cargo run -- --screenshot list"
 
 # Capture a specific scene
-nix-shell --run "cargo run -- --screenshot fireball-trail-east"
+nix-shell --run "cargo run -- --screenshot explosion-billowing-fire"
 ```
+
+## Static vs Animated Tests
+
+### Static Tests
+- Spawn materials directly in `setup_visual_test_scene`
+- Use pre-set progress values
+- Good for: color showcases, material properties
+
+### Animated Tests (IMPORTANT)
+For effects with lifecycles (spawn → animate → despawn):
+
+1. **Use real game spawners** - not static material hacks
+2. **Capture ALL phases** - fire, transition, smoke, dissipation
+3. **Handle shader warmup** - see pattern below
+
+## Animated Effect Pattern
+
+Animated effects require special handling due to shader compilation spikes.
+
+### 5 Required Components
+
+1. **GameState::VisualTest run condition** on effect systems:
+   ```rust
+   .run_if(in_state(GameState::InGame).or(in_state(GameState::VisualTest)))
+   ```
+
+2. **GameSet::Effects enabled for VisualTest** in `game/plugin.rs`
+
+3. **Shader warmup sphere** - spawn off-screen in scene setup to force shader compile:
+   ```rust
+   commands.spawn((
+       Mesh3d(meshes.explosion.clone()),
+       MeshMaterial3d(materials.add(MyMaterial::new())),
+       Transform::from_translation(Vec3::new(0.0, -100.0, 0.0)), // Off-screen
+   ));
+   ```
+
+4. **Warmup system spawning** - add to `warmup_then_spawn` in `visual_test/mod.rs`:
+   ```rust
+   if state.scene == TestScene::MyEffect {
+       commands.spawn(MyEffectSpawner::new(position));
+   }
+   ```
+
+5. **Fixed delta time** in effect update system for VisualTest:
+   ```rust
+   let delta = if *state.get() == GameState::VisualTest {
+       std::time::Duration::from_millis(16)
+   } else {
+       time.delta()
+   };
+   ```
+
+### Timing Configuration
+
+For 0.8s lifetime effect:
+- `frames_to_wait`: 35 (30 warmup + 5 after spawn)
+- `frames_between_captures`: 8 (spreads 6 captures across lifecycle)
+- `total_frames`: 6 (captures at ~10%, 27%, 44%, 60%, 77%, 94%)
+
+### Full Lifecycle Coverage
+
+Visual tests MUST capture ALL phases:
+
+| Frame | Progress | Phase |
+|-------|----------|-------|
+| 000 | ~10% | Initial state |
+| 001-002 | ~27-44% | Animation |
+| 003-004 | ~60-77% | Transition |
+| 005 | ~94% | Final state / dissipation |
+
+**If a phase is missing, the test won't catch regressions in that phase.**
 
 ## Approach
 
-* A visual test should reflect the in game rendering as accurately as possible - updates, systems, animations, movement, velocity. Don't just create a static test if the in game effect involves animation.
-* If the game has objects that are scaled or moved, then the visual tests should also have the same behaviour. 
-* If scaling, movement, velocity or shader animation is involved, then the visual test should capture multiple frames of animation. The test doesn't have to capture every frame, but 5x frames captured over the lifetime of the animation is recommended.
-* Ensure that the full effect is captured with visual tests. For larger objects or movement effects, this may require zooming the camera out in the scene.
-* Ensure that visual tests always test the same visual effects as what is in game.
-* Add comments to shader source code and related visual tests to explain the intended visual effect based on the requirements given. Use these comments when inspecting visual outputs to review work.
-* If the inspected visual output from the test does not meet the requirements, then work to fix the shader or visual test.
-* Visual effects are of paramount importance to a user's game experience. This is an area where we want to go the extra mile to delight users. It is critically important that shaders are implemented according to requirements.
+* Visual tests must reflect in-game rendering - use real systems, animations, movement
+* Capture the FULL effect lifecycle to catch regressions in any phase
+* Use wider camera for effects that spread out
+* Add comments explaining intended visual effect
+* Never commit broken visuals
 
-## Creating a New Test Scene
+## Checklist for Animated Effects
 
-Add to `src/visual_test/scenes.rs`:
-
-```rust
-pub enum TestScene {
-    // ... existing scenes
-    MyNewEffect,  // Add your scene
-}
-
-impl TestScene {
-    pub fn name(&self) -> &'static str {
-        match self {
-            Self::MyNewEffect => "my-new-effect",
-            // ...
-        }
-    }
-}
-
-impl FromStr for TestScene {
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "my-new-effect" => Ok(TestScene::MyNewEffect),
-            // ...
-        }
-    }
-}
-```
-
-## Requirements
-
-- Every shader change MUST have a corresponding test scene
-- Always inspect the screenshot before considering work complete
-- If something looks wrong, fix it - don't commit broken visuals
+- [ ] Effect systems have `GameState::VisualTest` run condition
+- [ ] Shader warmup sphere spawned off-screen
+- [ ] Effect spawner added to `warmup_then_spawn`
+- [ ] Fixed delta time in effect update for VisualTest
+- [ ] `frames_to_wait` accounts for 30-frame warmup
+- [ ] Screenshots show ALL phases of effect lifecycle
 
 ## Full Documentation
 
-For complete details, see [docs/visual-testing.md](../../../docs/visual-testing.md).
+See [docs/visual-testing.md](../../../docs/visual-testing.md) for complete details.
