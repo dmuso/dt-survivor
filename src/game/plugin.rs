@@ -60,6 +60,7 @@ pub fn plugin(app: &mut App) {
         .add_message::<GameLevelUpEvent>()
         .add_plugins((arena_plugin, camera_plugin, enemy_death_plugin, loot_plugin, movement_plugin, player_plugin, powerup_plugin, spell_plugin, whisper_plugin))
         // Configure GameSet ordering: Input -> Movement -> Combat -> Spawning -> Effects -> Cleanup
+        // Most sets only run in InGame, but Effects also runs in VisualTest for visual testing
         .configure_sets(
             Update,
             (
@@ -67,10 +68,20 @@ pub fn plugin(app: &mut App) {
                 GameSet::Movement,
                 GameSet::Combat,
                 GameSet::Spawning,
-                GameSet::Effects,
-                GameSet::Cleanup,
             )
                 .chain()
+                .run_if(in_state(GameState::InGame)),
+        )
+        .configure_sets(
+            Update,
+            GameSet::Effects
+                .after(GameSet::Spawning)
+                .run_if(in_state(GameState::InGame).or(in_state(GameState::VisualTest))),
+        )
+        .configure_sets(
+            Update,
+            GameSet::Cleanup
+                .after(GameSet::Effects)
                 .run_if(in_state(GameState::InGame)),
         )
         .add_systems(OnEnter(GameState::InGame), (

@@ -1388,6 +1388,7 @@ pub fn billowing_fire_spawner_system(
 pub fn billowing_fire_sphere_effect_update_system(
     mut commands: Commands,
     time: Res<Time>,
+    state: Res<State<crate::states::GameState>>,
     mut query: Query<(Entity, &mut BillowingFireSphereEffect, &mut Transform)>,
     mut materials: Option<ResMut<Assets<super::materials::ExplosionFireMaterial>>>,
 ) {
@@ -1396,7 +1397,14 @@ pub fn billowing_fire_sphere_effect_update_system(
     };
 
     for (entity, mut effect, mut transform) in query.iter_mut() {
-        effect.lifetime.tick(time.delta());
+        // In VisualTest mode, use fixed 16ms delta (60fps equivalent) to avoid
+        // slow frames during shader compilation consuming the effect lifetime
+        let delta = if *state.get() == crate::states::GameState::VisualTest {
+            std::time::Duration::from_millis(16)
+        } else {
+            time.delta()
+        };
+        effect.lifetime.tick(delta);
         let progress = effect.progress();
 
         // Update material progress for color/fade changes
@@ -1407,8 +1415,12 @@ pub fn billowing_fire_sphere_effect_update_system(
         // Expand: initial_scale -> initial_scale * growth_rate with ease-out curve
         transform.scale = Vec3::splat(effect.current_scale());
 
-        // Move outward based on velocity
-        let dt = time.delta_secs();
+        // Move outward based on velocity (use same fixed delta in VisualTest mode)
+        let dt = if *state.get() == crate::states::GameState::VisualTest {
+            0.016 // 16ms = 60fps
+        } else {
+            time.delta_secs()
+        };
         transform.translation += effect.velocity * dt;
 
         // Despawn when finished

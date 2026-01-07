@@ -77,6 +77,8 @@ fn main() {
                     ..default()
                 }))
             .add_plugins(HanabiPlugin) // Required for particle effects
+            // Initialize GameState before game_plugin so system ordering works correctly
+            .init_state::<GameState>()
             .insert_resource(ScreenshotState {
                 scene,
                 frames_remaining: scene.frames_to_wait(),
@@ -86,9 +88,16 @@ fn main() {
                 total_frames: scene.total_frames(),
                 frames_between_captures: scene.frames_between_captures(),
             })
+            // combat_plugin registers events needed by game_plugin's nested plugins
+            .add_plugins(combat_plugin)
             // game_plugin registers material plugins and provides GameMeshes/GameMaterials
             .add_plugins(game_plugin)
             .add_plugins(visual_test::plugin);
+
+        // Transition to VisualTest state - enables effect systems without spawning game entities
+        app.add_systems(Startup, |mut next_state: ResMut<NextState<GameState>>| {
+            next_state.set(GameState::VisualTest);
+        });
     } else {
         // Normal game mode
         app.add_plugins(DefaultPlugins.build()

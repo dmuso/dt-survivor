@@ -10,10 +10,13 @@ pub use scenes::TestScene;
 
 use crate::game::resources::GameMeshes;
 use crate::game::systems::setup_game_assets;
+use crate::movement::systems::apply_velocity;
 use crate::spells::fire::fireball::{
-    billowing_fire_spawner_system, billowing_fire_sphere_effect_update_system,
-    explosion_core_effect_update_system, explosion_embers_effect_update_system,
-    explosion_dark_impact_effect_update_system, explosion_fire_effect_update_system,
+    explosion_embers_effect_update_system,
+    explosion_core_effect_update_system,
+    explosion_fire_effect_update_system,
+    explosion_dark_impact_effect_update_system,
+    billowing_fire_spawner_system,
 };
 use crate::spells::fire::fireball_effects::{FireballEffects, init_fireball_effects};
 use crate::spells::fire::materials::{
@@ -39,21 +42,63 @@ pub struct ScreenshotState {
 }
 
 /// Plugin for visual test mode
+///
+/// This plugin relies on game_plugin being added first (which configures GameSet ordering).
+/// GameState must be initialized before game_plugin and transitioned to InGame for systems to run.
+/// Effect systems from spell_plugin are added here with proper state gating.
 pub fn plugin(app: &mut App) {
-    // Run game asset setup first, init fireball effects, then visual test scene setup
-    app.add_systems(Startup, (setup_game_assets, init_fireball_effects, setup_visual_test_scene).chain());
-    app.add_systems(Update, take_screenshot_and_exit);
+    // Initialize warmup counter
+    app.insert_resource(WarmupFrames(0));
 
-    // Add all explosion effect update systems for visual testing
-    app.add_systems(Update, (
-        update_explosion_fire_material_time,
-        billowing_fire_spawner_system,
-        billowing_fire_sphere_effect_update_system,
-        explosion_core_effect_update_system,
-        explosion_embers_effect_update_system,
-        explosion_dark_impact_effect_update_system,
-        explosion_fire_effect_update_system,
-    ));
+    // Run game asset setup first, init fireball effects, then visual test scene setup
+    // Note: setup_visual_test_scene spawns static entities, NOT animated spawners
+    app.add_systems(Startup, (setup_game_assets, init_fireball_effects, setup_visual_test_scene).chain());
+    app.add_systems(Update, (warmup_then_spawn, take_screenshot_and_exit).chain());
+
+    // Add effect systems - run every frame without state gating
+    // Visual tests need these to run immediately, not wait for state transition
+    // Note: billowing_fire_sphere_effect_update_system runs from spell_plugin via GameSet::Effects
+    app.add_systems(
+        Update,
+        (
+            // Movement for entities with Velocity component
+            apply_velocity,
+            // Material time updates
+            update_explosion_fire_material_time,
+            // Spawner systems - these run AFTER warmup_then_spawn creates the spawner entity
+            billowing_fire_spawner_system,
+            // Effect update systems (handle movement, deceleration, material updates, despawn)
+            explosion_core_effect_update_system,
+            explosion_fire_effect_update_system,
+            explosion_dark_impact_effect_update_system,
+            explosion_embers_effect_update_system,
+        ),
+    );
+}
+
+/// Tracks warmup frames before spawning animated effects
+#[derive(Resource)]
+struct WarmupFrames(u32);
+
+/// After sufficient warmup frames, spawn animated effects
+/// This ensures shaders are compiled and frame times stabilize before effect lifetime starts
+fn warmup_then_spawn(
+    mut commands: Commands,
+    state: Res<ScreenshotState>,
+    mut warmup: ResMut<WarmupFrames>,
+) {
+    const WARMUP_FRAMES: u32 = 30; // Wait 30 frames for shader compile
+
+    warmup.0 += 1;
+
+    // Only spawn on the exact frame after warmup
+    if warmup.0 == WARMUP_FRAMES {
+        // Spawn animated effects based on scene type
+        use crate::spells::fire::fireball::BillowingFireSpawner;
+        if state.scene == TestScene::ExplosionBillowingFireTest {
+            commands.spawn(BillowingFireSpawner::new(Vec3::new(0.0, 1.0, 0.0)));
+        }
+    }
 }
 
 /// All material assets needed for visual tests

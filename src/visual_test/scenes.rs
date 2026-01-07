@@ -6,7 +6,6 @@ use bevy_hanabi::prelude::*;
 use crate::spells::fire::fireball::{
     FireballProjectile, FireballCoreEffect, FireballTrailEffect,
     ChargingFireball, FireballChargeEffect, FireballChargeParticles,
-    BillowingFireSpawner,
 };
 use crate::spells::fire::fireball_effects::FireballEffects;
 use crate::spells::fire::materials::{
@@ -179,9 +178,10 @@ impl TestScene {
             | TestScene::ExplosionSequence => Vec3::new(0.0, 5.0, 8.0),
             // Wider camera for dark projectiles to see elongation and spread
             TestScene::ExplosionDarkProjectilesTest => Vec3::new(0.0, 6.0, 10.0),
-            // Wider camera for billowing fire to capture all 8 spheres expanding outward
-            TestScene::ExplosionBillowingFireTest => Vec3::new(0.0, 8.0, 12.0),
-            // Medium camera for ash float to see drift and circular shape
+            // Wider camera for billowing fire to see spheres spread outward during lifecycle
+            // Spheres move at 3-5 m/s for 0.8s = travel up to 4m outward
+            TestScene::ExplosionBillowingFireTest => Vec3::new(0.0, 5.0, 12.0),
+            // Medium camera for ash float static showcase
             TestScene::ExplosionAshFloatTest => Vec3::new(0.0, 6.0, 10.0),
             // Medium camera for fire to smoke transition to see color gradient
             TestScene::ExplosionFireToSmokeTest => Vec3::new(0.0, 5.0, 10.0),
@@ -216,12 +216,16 @@ impl TestScene {
             TestScene::ExplosionSequence => 45,
             // Full sequence: wait for shaders to compile (static materials, no despawn)
             TestScene::ExplosionFullSequenceNew => 45,
-            // Billowing fire: only wait for shaders to compile, capture quickly (0.8s lifetime)
-            TestScene::ExplosionBillowingFireTest => 10,
+            // Billowing fire: 30 frames warmup (shader compile) + 5 frames after spawn
+            // Effect spawns at frame 30, has 0.8s lifetime = 48 frames at 60fps
+            // First capture at frame 35 (5 frames into effect = ~10% progress)
+            TestScene::ExplosionBillowingFireTest => 35,
             // Dark projectiles: wait for shader compile
             TestScene::ExplosionDarkProjectilesTest => 30,
-            // Ash float: wait for projectiles to slow down into ash float phase
-            TestScene::ExplosionAshFloatTest => 30,
+            // Ash float: static showcase, standard wait for shader compile
+            // Dark projectile lifetime is 0.6s = 36 frames at 60fps
+            // Wait a few frames for first render, then capture
+            TestScene::ExplosionAshFloatTest => 2,
             // Hanabi particles need more warmup time
             TestScene::FireballChargeParticles => 120,
             // Single frame tests
@@ -239,7 +243,7 @@ impl TestScene {
             TestScene::ExplosionFullSequenceNew => 12,
             TestScene::ExplosionDarkProjectilesTest => 5, // Capture projectile flight and deceleration
             TestScene::ExplosionBillowingFireTest => 6, // Capture expansion animation
-            TestScene::ExplosionAshFloatTest => 6, // Capture ash drift animation
+            TestScene::ExplosionAshFloatTest => 5, // 5 frames across 0.6s lifetime
             TestScene::FireballChargeParticles => 8, // Capture particle flow animation
             _ => 1,
         }
@@ -255,8 +259,13 @@ impl TestScene {
             // This faster rate captures more of the early star-burst phase
             TestScene::ExplosionFullSequenceNew => 5,
             TestScene::ExplosionDarkProjectilesTest => 6, // ~100ms at 60fps to show deceleration
-            TestScene::ExplosionBillowingFireTest => 8, // ~133ms at 60fps to show sphere expansion
-            TestScene::ExplosionAshFloatTest => 8, // ~133ms at 60fps to show ash drift
+            // Billowing fire: 0.8s lifetime = 48 frames. Capture 6 frames with 8-frame gaps.
+            // Timeline: 5, 13, 21, 29, 37, 45 = captures at 10%, 27%, 44%, 60%, 77%, 94% of lifetime
+            // This captures fire phase (10-60%), transition (77%), and smoke/dissipation (94%)
+            TestScene::ExplosionBillowingFireTest => 8,
+            // 0.6s lifetime = 36 frames, spread captures across lifetime
+            // 10 frames between = ~166ms, particles move ~1.3m at 8m/s
+            TestScene::ExplosionAshFloatTest => 10,
             TestScene::FireballChargeParticles => 10, // ~166ms at 60fps to show particle flow
             _ => 0,
         }
@@ -388,7 +397,7 @@ impl TestScene {
             }
 
             TestScene::ExplosionAshFloatTest => {
-                spawn_ash_float_test(commands, meshes, embers_materials);
+                spawn_ash_float_test(commands, meshes, explosion_fire_materials, embers_materials);
             }
 
             TestScene::ExplosionFireToSmokeTest => {
@@ -825,42 +834,28 @@ fn spawn_explosion_sequence(
     }
 }
 
-/// Spawn billowing fire test - spawns 8 fire spheres with billowing displacement
+/// Spawn billowing fire test - sets up scene lighting and a shader warmup sphere.
+/// The BillowingFireSpawner is spawned by warmup_then_spawn AFTER shader warmup completes.
+/// This prevents the effect lifetime from being consumed during slow shader-compile frames.
 fn spawn_billowing_fire_test(
     commands: &mut Commands,
     meshes: &GameMeshes,
     fire_materials: &mut Assets<ExplosionFireMaterial>,
 ) {
-    let position = Vec3::new(0.0, 1.0, 0.0);
-
-    // Spawn lighting for the scene
     spawn_lighting(commands);
 
-    // Spawn 8 fire spheres directly for visual testing
-    // (These simulate what BillowingFireSpawner would create)
-    for i in 0..8 {
-        let angle = (i as f32 / 8.0) * std::f32::consts::TAU;
-        let elevation = -0.2 + (i as f32 / 8.0) * 0.5;
-        let direction = Vec3::new(angle.cos(), elevation, angle.sin()).normalize();
-        let speed = 3.0 + (i as f32 / 8.0) * 2.0; // 3.0 to 5.0
-        let growth_rate = 1.5 + (i as f32 / 8.0) * 1.0; // 1.5 to 2.5
-
-        // Create material with velocity and growth rate for billowing effect
-        let mut material = ExplosionFireMaterial::new();
-        material.set_velocity(direction, speed);
-        material.set_growth_rate(growth_rate);
-        material.set_progress(0.3); // Start at 30% progress to show the effect
-        let handle = fire_materials.add(material);
-
-        // Initial offset from center
-        let offset = direction * 0.5;
-
-        commands.spawn((
-            Mesh3d(meshes.explosion.clone()),
-            MeshMaterial3d(handle),
-            Transform::from_translation(position + offset).with_scale(Vec3::splat(0.8)),
-        ));
-    }
+    // Spawn an off-screen sphere to force ExplosionFireMaterial shader compilation during warmup.
+    // This sphere is positioned far below the camera's view so it doesn't appear in screenshots,
+    // but its existence forces Bevy to compile the shader before the real effect spawns.
+    let mut warmup_material = ExplosionFireMaterial::new();
+    warmup_material.set_progress(0.5);
+    let warmup_handle = fire_materials.add(warmup_material);
+    commands.spawn((
+        Mesh3d(meshes.explosion.clone()),
+        MeshMaterial3d(warmup_handle),
+        Transform::from_translation(Vec3::new(0.0, -100.0, 0.0)) // Far below camera view
+            .with_scale(Vec3::splat(0.1)),
+    ));
 }
 
 /// Spawn fire to smoke transition test - 5 spheres at progress [0.2, 0.4, 0.5, 0.6, 0.8]
@@ -927,55 +922,49 @@ fn spawn_smoke_dissipation_test(
     }
 }
 
-/// Spawn ash float test - static showcase at different speeds showing circular shape
-/// Shows elongation to circular transition as speed decreases (no animation/despawn)
-/// Note: Static materials don't animate - use this to verify shader behavior at different speeds
+/// Spawn animated ash float test with real Effect components.
+/// Uses game-accurate systems for rendering matching in-game behavior.
+/// Shows velocity-based stretching: fast particles are elongated, slow ones are circular.
+/// The ExplosionEmbersEffect system handles both movement and material updates.
 fn spawn_ash_float_test(
     commands: &mut Commands,
     meshes: &GameMeshes,
-    materials: &mut Assets<ExplosionEmbersMaterial>,
+    _fire_materials: &mut Assets<ExplosionFireMaterial>,
+    embers_materials: &mut Assets<ExplosionEmbersMaterial>,
 ) {
-    use crate::spells::fire::fireball::DARK_PROJECTILE_SCALE;
+    use crate::spells::fire::fireball::{ExplosionEmbersEffect, DARK_PROJECTILE_SCALE};
 
-    let position = Vec3::new(0.0, 1.0, 0.0);
+    spawn_lighting(commands);
 
-    // Spawn 10 STATIC projectiles at various speeds to show elongation to circular transition
-    // NO ExplosionEmbersEffect - these are static showcases (no despawn, no animation)
-    // Speeds above ASH_FADE_SPEED_MAX (1.5) to keep particles visible
-    let speeds = [
-        15.0, // Fast - very elongated
-        12.0, // Fast - elongated
-        9.0,  // Medium-fast - moderately elongated
-        6.0,  // Medium - somewhat elongated
-        4.0,  // Slower - slightly elongated
-        3.0,  // At threshold (2.0) - transitioning to circular
-        2.5,  // Below threshold - mostly circular
-        2.2,  // Near threshold - almost circular
-        2.0,  // At threshold - circular
-        1.8,  // Just below - circular (slight fade begins)
+    // No background sphere - just show the particles moving
+
+    // Speeds ranging from fast (elongated) to slow (circular/ash float)
+    // Game uses 12-18 m/s, ash float threshold is 2 m/s
+    // Use slower speeds and XY directions so particles stay visible in frame
+    let speeds = [8.0, 6.0, 4.0, 2.0, 0.5];
+    let directions = [
+        Vec3::new(1.0, 0.3, 0.0),   // Fast: right and up
+        Vec3::new(0.5, 0.5, 0.0),   // Medium-fast: diagonal up-right
+        Vec3::new(0.0, 1.0, 0.0),   // Medium: straight up
+        Vec3::new(-0.5, 0.5, 0.0),  // Slow: diagonal up-left
+        Vec3::new(-1.0, 0.3, 0.0),  // Slowest: left and up
     ];
+    let x_positions = [-2.0, -1.0, 0.0, 1.0, 2.0];
 
-    for (i, &speed) in speeds.iter().enumerate() {
-        // Spread projectiles in a circle for visibility
-        let angle = (i as f32 / speeds.len() as f32) * std::f32::consts::TAU;
-        let direction = Vec3::new(angle.cos(), 0.1, angle.sin()).normalize();
-        let spawn_offset = direction * (2.0 + i as f32 * 0.2);
-
-        // Create STATIC material with velocity (no Effect component = no despawn)
+    for ((&speed, &dir), &x) in speeds.iter().zip(directions.iter()).zip(x_positions.iter()) {
         let mut material = ExplosionEmbersMaterial::new();
-        material.set_velocity(direction, speed);
-        // Keep progress low so particles are visible (high progress = faded)
-        material.set_progress(0.1);
-        // Increase emissive so particles are more visible
+        material.set_velocity(dir, speed);
+        material.set_progress(0.0);  // Start at beginning
         material.set_emissive_intensity(2.0);
-        let handle = materials.add(material);
+        let handle = embers_materials.add(material);
 
-        // Spawn WITHOUT ExplosionEmbersEffect - static showcase
         commands.spawn((
             Mesh3d(meshes.fireball.clone()),
-            MeshMaterial3d(handle),
-            Transform::from_translation(position + spawn_offset)
-                .with_scale(Vec3::splat(DARK_PROJECTILE_SCALE * 1.5)), // Larger for visibility
+            MeshMaterial3d(handle.clone()),
+            Transform::from_translation(Vec3::new(x, 1.0, 0.0))
+                .with_scale(Vec3::splat(DARK_PROJECTILE_SCALE * 2.0)),
+            // Effect component handles movement, deceleration, and material updates
+            ExplosionEmbersEffect::new(handle, dir, speed),
         ));
     }
 }

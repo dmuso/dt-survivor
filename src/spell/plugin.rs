@@ -355,6 +355,7 @@ pub fn plugin(app: &mut App) {
                 .run_if(in_state(GameState::InGame)),
         )
         // Billowing fire sphere systems (spawner creates 8 spheres, update animates them)
+        // Run in both InGame and VisualTest states for visual testing support
         .add_systems(
             Update,
             (
@@ -363,7 +364,7 @@ pub fn plugin(app: &mut App) {
             )
                 .chain()
                 .in_set(GameSet::Effects)
-                .run_if(in_state(GameState::InGame)),
+                .run_if(in_state(GameState::InGame).or(in_state(GameState::VisualTest))),
         )
         // Fireball explosion particle cleanup
         .add_systems(

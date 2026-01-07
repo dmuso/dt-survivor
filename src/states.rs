@@ -10,6 +10,8 @@ pub enum GameState {
     LevelComplete,
     GameOver,
     Paused,
+    /// Visual test mode - effect systems run but no game entities spawn
+    VisualTest,
 }
 
 #[cfg(test)]
@@ -59,6 +61,7 @@ mod tests {
             GameState::LevelComplete,
             GameState::GameOver,
             GameState::Paused,
+            GameState::VisualTest,
         ];
         // Check all pairs are distinct
         for (i, s1) in states.iter().enumerate() {

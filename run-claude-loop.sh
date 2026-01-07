@@ -6,7 +6,7 @@ trap 'echo -e "\n❌ Script interrupted by user"; exit 130' INT
 # CODEME="ccr code"
 EXEC="claude"
 
-PROMPT="implement the next outstanding task from beads, ignoring in-progress tasks"
+PROMPT="implement the next outstanding task from beads"
 
 # Function to check if there are outstanding beads tasks
 has_outstanding_tasks() {
